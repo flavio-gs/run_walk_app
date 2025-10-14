@@ -307,52 +307,119 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       _previousPosition = _currentPosition;
       _animatedPosition = latLngPos;
       _animationController.forward(from: 0.0);
+      _startPulseEffect();
       _googleMapController?.animateCamera(
           CameraUpdate.newLatLng(latLngPos)); // Centraliza no usuário
     });
   }
 
+  DateTime? _lastPointTime;
+
   void _updatePolyline() {
     if (_positions.length < 2) return;
 
-    _polylines.clear();
+    final i = _positions.length - 2;
+    final start = _positions[i];
+    final end = _positions[i + 1];
 
-    for (int i = 0; i < _positions.length - 1; i++) {
-      final start = _positions[i];
-      final end = _positions[i + 1];
-
-      // Calcula distância (m) e velocidade aproximada (m/s)
-      final distance = Geolocator.distanceBetween(
-        start.latitude, start.longitude,
-        end.latitude, end.longitude,
-      );
-
-      // Evita ruído de GPS
-      if (distance < 0.5) continue;
-
-      final speed = (distance / 1.0).clamp(0.5, 6.0); // simulação (5m ≈ 1s)
-
-      // Gradiente contínuo: azul (lento) → ciano → rosa → vermelho (rápido)
-      final color = _getSpeedColor(speed);
-
-      // Espessura variável (quanto mais rápido, mais grossa a linha)
-      final width = (4 + speed * 1.2).clamp(4, 12).toInt();
-
-      _polylines.add(
-        Polyline(
-          polylineId: PolylineId('segment_$i'),
-          points: [start, end],
-          color: color.withOpacity(0.9),
-          width: width,
-          jointType: JointType.round,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        ),
-      );
+    // Tempo decorrido entre pontos
+    final now = DateTime.now();
+    double elapsed = 1.0;
+    if (_lastPointTime != null) {
+      elapsed = now.difference(_lastPointTime!).inMilliseconds / 1000;
     }
+    _lastPointTime = now;
+
+    // Distância e velocidade real
+    final distance = Geolocator.distanceBetween(
+      start.latitude,
+      start.longitude,
+      end.latitude,
+      end.longitude,
+    );
+    if (distance < 0.5) return;
+
+    final speed = (distance / elapsed).clamp(0.2, 6.0); // m/s
+
+    // Gradiente: azul → ciano → rosa → vermelho
+    final color = Color.lerp(
+      const Color(0xFF3FA9F5), // Azul
+      const Color(0xFFFF3D00), // Vermelho
+      (speed / 6).clamp(0, 1),
+    )!;
+
+    final width = (4 + speed * 1.2).clamp(4, 12).toInt();
+
+    _polylines.add(
+      Polyline(
+        polylineId: PolylineId('segment_$i'),
+        points: [start, end],
+        color: color.withOpacity(0.9),
+        width: width,
+        jointType: JointType.round,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+      ),
+    );
 
     setState(() {});
   }
+
+  Marker? _pulseMarker;
+  double _pulseT = 0.0;
+  Timer? _pulseTimer;
+
+  Future<void> _startPulseEffect() async {
+
+    _pulseTimer?.cancel();
+    if (_positions.length < 2) return;
+
+    _pulseT = 0.0;
+    _pulseTimer = Timer.periodic(const Duration(milliseconds: 60), (_) async {
+      if (_positions.length < 2) return;
+
+      // Avança lentamente ao longo do trajeto
+      _pulseT += 0.01;
+      if (_pulseT >= 1.0) _pulseT = 0.0;
+
+      final index = (_pulseT * (_positions.length - 1)).floor();
+      if (index >= _positions.length - 1) return;
+
+      final start = _positions[index];
+      final end = _positions[index + 1];
+
+      // Interpola posição
+      final lat = start.latitude + (end.latitude - start.latitude) * (_pulseT * (_positions.length - 1) - index);
+      final lng = start.longitude + (end.longitude - start.longitude) * (_pulseT * (_positions.length - 1) - index);
+      final pulsePos = LatLng(lat, lng);
+
+      // 🔧 Aqui agora pode usar await normalmente
+      final pulseIcon = await _createUserCircleIcon(
+        size: 80,
+        borderColor: Colors.pinkAccent.withOpacity(0.8),
+        fillColor: Colors.cyanAccent.withOpacity(0.8),
+      );
+
+      _pulseMarker = Marker(
+        markerId: const MarkerId('pulse'),
+        position: pulsePos,
+        icon: pulseIcon,
+        anchor: const Offset(0.5, 0.5),
+      );
+
+      setState(() {
+        _markers.removeWhere((m) => m.markerId.value == 'pulse');
+        _markers.add(_pulseMarker!);
+      });
+    });
+
+  }
+
+  void _stopPulseEffect() {
+    _pulseTimer?.cancel();
+    _pulseMarker = null;
+  }
+
 
 // Função auxiliar: retorna cor conforme velocidade
   Color _getSpeedColor(double speed) {
@@ -374,6 +441,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _timer?.cancel();
     _positionStream?.cancel();
     _stopwatch.stop();
+    _stopPulseEffect();
     setState(() => _isRunning = false);
   }
 
