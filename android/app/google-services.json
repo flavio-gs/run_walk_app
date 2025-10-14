@@ -1,0 +1,50 @@
+{
+  "project_info": {
+    "project_number": "423107963134",
+    "project_id": "runwalk-8a1ca",
+    "storage_bucket": "runwalk-8a1ca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:423107963134:android:a9177f329a0abf2e0e5daf",
+        "android_client_info": {
+          "package_name": "com.example.run_walk_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "423107963134-m9ckp80sgpo25brp1c7mlfasjhmgnqpu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.run_walk_app",
+            "certificate_hash": "e2df2e780a4a43c2dc9620f7bcc185456da96060"
+          }
+        },
+        {
+          "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwz4sY5TgIKfAMlYsy4Du6PMgFfOH6bYE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+
+
+
