@@ -370,15 +370,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Timer? _pulseTimer;
 
   Future<void> _startPulseEffect() async {
-
     _pulseTimer?.cancel();
     if (_positions.length < 2) return;
 
+    final pulseIcon = await _createUserCircleIcon(
+      size: 80,
+      borderColor: Colors.pinkAccent.withOpacity(0.8),
+      fillColor: Colors.cyanAccent.withOpacity(0.8),
+    );
+
     _pulseT = 0.0;
-    _pulseTimer = Timer.periodic(const Duration(milliseconds: 60), (_) async {
+    _pulseTimer = Timer.periodic(const Duration(milliseconds: 60), (_) {
       if (_positions.length < 2) return;
 
-      // Avança lentamente ao longo do trajeto
       _pulseT += 0.01;
       if (_pulseT >= 1.0) _pulseT = 0.0;
 
@@ -388,17 +392,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final start = _positions[index];
       final end = _positions[index + 1];
 
-      // Interpola posição
       final lat = start.latitude + (end.latitude - start.latitude) * (_pulseT * (_positions.length - 1) - index);
       final lng = start.longitude + (end.longitude - start.longitude) * (_pulseT * (_positions.length - 1) - index);
       final pulsePos = LatLng(lat, lng);
-
-      // 🔧 Aqui agora pode usar await normalmente
-      final pulseIcon = await _createUserCircleIcon(
-        size: 80,
-        borderColor: Colors.pinkAccent.withOpacity(0.8),
-        fillColor: Colors.cyanAccent.withOpacity(0.8),
-      );
 
       _pulseMarker = Marker(
         markerId: const MarkerId('pulse'),
@@ -412,8 +408,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         _markers.add(_pulseMarker!);
       });
     });
-
   }
+
 
   void _stopPulseEffect() {
     _pulseTimer?.cancel();
