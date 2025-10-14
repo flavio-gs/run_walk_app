@@ -5,6 +5,107 @@ import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'historico_page.dart'; // Certifique-se de que este caminho está correto
+import 'package:flutter/services.dart' show rootBundle;
+import 'dart:ui' as ui;
+
+class FuturisticChrono extends StatefulWidget {
+  final int seconds;
+  final double fontSize;
+  const FuturisticChrono({
+    super.key,
+    required this.seconds,
+    this.fontSize = 68,
+  });
+
+  @override
+  State<FuturisticChrono> createState() => _FuturisticChronoState();
+}
+
+class _FuturisticChronoState extends State<FuturisticChrono>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _glowCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+      lowerBound: 0.2,
+      upperBound: 0.9,
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    super.dispose();
+  }
+
+  String _format(int totalSeconds) {
+    final h = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+    final m = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    final s = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final time = _format(widget.seconds);
+
+    return AnimatedBuilder(
+      animation: _glowCtrl,
+      builder: (context, _) {
+        final glow = _glowCtrl.value;
+
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          transitionBuilder: (child, anim) => FadeTransition(
+            opacity: anim,
+            child: SlideTransition(
+              position:
+              Tween<Offset>(begin: const Offset(0, .15), end: Offset.zero)
+                  .animate(anim),
+              child: child,
+            ),
+          ),
+          child: ShaderMask(
+            key: ValueKey(time), // troca suave a cada segundo
+            shaderCallback: (bounds) => const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF00E5FF), // ciano
+                Color(0xFFFF00FF), // magenta
+              ],
+            ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
+            blendMode: BlendMode.srcIn,
+            child: Text(
+              time,
+              textAlign: TextAlign.center,
+              style: TextStyle( // troque por TextStyle(...) se não usar google_fonts
+                fontSize: widget.fontSize,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+                // glow animado
+                shadows: [
+                  Shadow(
+                    blurRadius: 20 + 10 * glow,
+                    color: const Color(0xFF00E5FF).withOpacity(0.6 * glow),
+                  ),
+                  Shadow(
+                    blurRadius: 30 + 15 * glow,
+                    color: const Color(0xFFFF00FF).withOpacity(0.5 * glow),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class RunTrackingPage extends StatefulWidget {
   const RunTrackingPage({super.key});
@@ -47,32 +148,36 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // NOVO: Índice da aba selecionada para BottomNavigationBar
   int _selectedIndex = 2; // Atividade selecionada
+  String? _mapStyle;
 
   @override
   void initState() {
     super.initState();
+
+    // Carregar estilo do mapa
+    rootBundle.loadString('assets/map_style.json').then((style) {
+      _mapStyle = style;
+    });
+
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..addListener(() {
-        if (_previousPosition != null && _animatedPosition != null) {
-          setState(() {
-            final t = _animationController.value;
-            _currentPosition = LatLng(
-              _previousPosition!.latitude +
-                  (_animatedPosition!.latitude - _previousPosition!.latitude) *
-                      t,
-              _previousPosition!.longitude +
-                  (_animatedPosition!.longitude -
-                          _previousPosition!.longitude) *
-                      t,
-            );
-            _updateMarker();
-          });
-        }
-      });
+      if (_previousPosition != null && _animatedPosition != null) {
+        setState(() {
+          final t = _animationController.value;
+          _currentPosition = LatLng(
+            _previousPosition!.latitude +
+                (_animatedPosition!.latitude - _previousPosition!.latitude) * t,
+            _previousPosition!.longitude +
+                (_animatedPosition!.longitude - _previousPosition!.longitude) * t,
+          );
+          _updateMarker();
+        });
+      }
+    });
 
-    _checkLocationPermissionAndSetInitialLocation(); // NOVO: Checa permissão primeiro
+    _checkLocationPermissionAndSetInitialLocation();
   }
 
   // NOVO: Checa permissão de localização antes de tentar obter a posição
@@ -91,16 +196,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _setInitialLocation();
   }
 
-  void _updateMarker() {
-    _markers.clear();
-    _markers.add(
-      Marker(
-        markerId: const MarkerId('currentLocation'),
-        position: _currentPosition,
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueBlue), // Mudado para azul como na imagem
-      ),
+  Future<void> _updateMarker() async {
+    final customIcon = await _createUserCircleIcon(
+      size: 100,
+      borderColor: Colors.white.withOpacity(0.9),
+      fillColor: Colors.pinkAccent,
     );
+
+    setState(() {
+      _markers.clear();
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('currentLocation'),
+          position: _currentPosition,
+          icon: customIcon,
+          anchor: const Offset(0.5, 0.5), // centraliza o círculo
+        ),
+      );
+    });
   }
 
   Future<void> _setInitialLocation() async {
@@ -200,20 +313,62 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _updatePolyline() {
+    if (_positions.length < 2) return;
+
     _polylines.clear();
-    _polylines.add(
-      Polyline(
-        polylineId: const PolylineId('runPath'),
-        points: _positions,
-        color: Colors.pinkAccent, // Cor da trilha inspirada no Adidas
-        width: 6,
-        jointType: JointType.round,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-      ),
-    );
-    // setState(() {}); // setState não é necessário aqui pois já é chamado por _animationController.addListener
+
+    for (int i = 0; i < _positions.length - 1; i++) {
+      final start = _positions[i];
+      final end = _positions[i + 1];
+
+      // Calcula distância (m) e velocidade aproximada (m/s)
+      final distance = Geolocator.distanceBetween(
+        start.latitude, start.longitude,
+        end.latitude, end.longitude,
+      );
+
+      // Evita ruído de GPS
+      if (distance < 0.5) continue;
+
+      final speed = (distance / 1.0).clamp(0.5, 6.0); // simulação (5m ≈ 1s)
+
+      // Gradiente contínuo: azul (lento) → ciano → rosa → vermelho (rápido)
+      final color = _getSpeedColor(speed);
+
+      // Espessura variável (quanto mais rápido, mais grossa a linha)
+      final width = (4 + speed * 1.2).clamp(4, 12).toInt();
+
+      _polylines.add(
+        Polyline(
+          polylineId: PolylineId('segment_$i'),
+          points: [start, end],
+          color: color.withOpacity(0.9),
+          width: width,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      );
+    }
+
+    setState(() {});
   }
+
+// Função auxiliar: retorna cor conforme velocidade
+  Color _getSpeedColor(double speed) {
+    // Mapeia velocidade (m/s) em um gradiente de cores suaves e modernas
+    if (speed < 1.0) {
+      return const Color(0xFF3FA9F5); // Azul - caminhada leve
+    } else if (speed < 2.0) {
+      return const Color(0xFF00FFFF); // Ciano - ritmo leve
+    } else if (speed < 3.5) {
+      return const Color(0xFFFF80FF); // Rosa - corrida média
+    } else {
+      return const Color(0xFFFF3D00); // Vermelho - corrida intensa
+    }
+  }
+
+
 
   void _stopRun() {
     _timer?.cancel();
@@ -290,321 +445,166 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true, // Para o conteúdo ir por baixo da AppBar
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent, // AppBar transparente
+        backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.star_outline, color: Colors.white, size: 28),
-          onPressed: () {
-            // Ação do botão estrela
-          },
-        ),
-        title: const Icon(Icons.fitness_center,
+        title: const Text(
+          "Empire of the Run",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            letterSpacing: 1.2,
             color: Colors.white,
-            size: 30), // Ícone Adidas (substituir por Asset real)
-        centerTitle: true,
-        actions: [
-          Row(
-            children: [
-              // NOVO: Ícone GPS com status (exemplo)
-              const Icon(Icons.gps_fixed, color: Colors.green, size: 18),
-              const SizedBox(width: 4),
-              Text(
-                _locationPermission == LocationPermission.always ||
-                        _locationPermission == LocationPermission.whileInUse
-                    ? 'GPS'
-                    : 'Sem GPS',
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-              ),
-              const SizedBox(width: 10),
-            ],
           ),
-        ],
+        ),
+        centerTitle: true,
       ),
-      body: _loadingLocation
-          ? const Center(
-              child: CircularProgressIndicator(color: Colors.pinkAccent))
-          : Stack(
+      body: Stack(
+        children: [
+          // === MAPA ===
+          GoogleMap(
+            mapType: MapType.normal,
+            initialCameraPosition: CameraPosition(
+              target: _currentPosition,
+              zoom: 16,
+            ),
+            onMapCreated: (GoogleMapController controller) {
+              _googleMapController = controller;
+              if (_mapStyle != null) {
+                _googleMapController?.setMapStyle(_mapStyle);
+              }
+              _updateMarker();
+            },
+            polylines: _polylines,
+            markers: _markers,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+          ),
+
+          // === CAMADA DE INFORMAÇÕES ===
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.black87, Colors.transparent],
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+              ),
+            ),
+          ),
+
+          // === CRONÔMETRO DIGITAL ===
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 60,
+            left: 0,
+            right: 0,
+            child: Column(
               children: [
-                // === MAPA ===
-                GoogleMap(
-                  mapType: MapType.normal,
-                  initialCameraPosition: CameraPosition(
-                    target: _currentPosition,
-                    zoom: 16,
-                  ),
-                  onMapCreated: (GoogleMapController controller) {
-                    _googleMapController = controller;
-                    _updateMarker();
-                  },
-                  polylines: _polylines,
-                  markers: _markers,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  // NOVO: Estilo de mapa escuro, semelhante ao da imagem
-                  // Para usar, você precisaria carregar um JSON de estilo.
-                  // Exemplo:
-                  // style: MapStyle.dark, // se você tiver uma classe MapStyle com um JSON de estilo escuro
-                ),
-
-                // === OVERLAY PRINCIPAL COM DADOS (Top Card) ===
-                Positioned(
-                  top: AppBar().preferredSize.height +
-                      MediaQuery.of(context).padding.top +
-                      10,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    // color: Colors.black.withOpacity(0.7), // Fundo translúcido
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 10, horizontal: 20),
-                    child: Column(
-                      children: [
-                        Text(
-                          _formatDuration(Duration(seconds: _seconds)),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 70, // Tamanho grande como na imagem
-                            fontWeight: FontWeight.w900,
-                            fontFamily:
-                                'RobotoMono', // Fonte que remete a display digital
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildMetricColumn(
-                              value: (_totalDistance / 1000).toStringAsFixed(2),
-                              unit: 'Distância [km]',
-                            ),
-                            _buildMetricColumn(
-                              value: _caloriesBurned.round().toString(),
-                              unit: 'Calorias [kcal]',
-                            ),
-                            _buildMetricColumn(
-                              value: _formatPace(_averagePace),
-                              unit: 'Ritmo médio [min/km]',
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        // NOVO: Desafio Semanal (Placeholder)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 15, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.emoji_events,
-                                  color: Colors.white70, size: 20),
-                              const SizedBox(width: 10),
-                              const Text('Esta semana',
-                                  style: TextStyle(color: Colors.white70)),
-                              const Spacer(),
-                              Text('0/${(30).toStringAsFixed(0)} km',
-                                  style: const TextStyle(color: Colors.white)),
-                              const SizedBox(width: 5),
-                              Container(
-                                width: 50,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[700],
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: FractionallySizedBox(
-                                    widthFactor: (0 / 30)
-                                        .clamp(0.0, 1.0), // Progresso 0/30km
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.pinkAccent,
-                                        borderRadius: BorderRadius.circular(5),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // === CONTROLES INFERIORES E BOTÃO INICIAR ===
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Column(
-                    children: [
-                      // Botões de modo de atividade (Corrida, Caminhada, etc.)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildActivityModeButton(
-                                Icons.directions_run, 'Corrida', true),
-                            _buildActivityModeButton(
-                                Icons.directions_walk, 'Caminhada', false),
-                            _buildActivityModeButton(
-                                Icons.directions_bike, 'Ciclismo', false),
-                            _buildActivityModeButton(
-                                Icons.more_horiz, 'Mais', false),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-
-                      // Botão INICIAR AO VIVO
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            // Botão de Música (Placeholder)
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[800],
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: IconButton(
-                                icon: const Icon(Icons.music_note,
-                                    color: Colors.white),
-                                onPressed: () {/* Ação de música */},
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: loading
-                                    ? null
-                                    : _isRunning
-                                        ? _stopRun
-                                        : _startRun, // Alterna entre iniciar e parar
-                                child: Container(
-                                  height: 60,
-                                  margin: const EdgeInsets.symmetric(
-                                      horizontal: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black, // Fundo preto
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: _isRunning
-                                        ? Border.all(
-                                            color: Colors.red, width: 2)
-                                        : null, // Borda vermelha quando correndo
-                                  ),
-                                  child: Center(
-                                    child: loading
-                                        ? const CircularProgressIndicator(
-                                            color: Colors.pinkAccent)
-                                        : Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              Icon(
-                                                  _isRunning
-                                                      ? Icons.pause
-                                                      : Icons.play_arrow,
-                                                  color: _isRunning
-                                                      ? Colors.red
-                                                      : Colors.white),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                _isRunning
-                                                    ? 'PAUSAR CORRIDA'
-                                                    : 'INICIAR AO VIVO',
-                                                style: TextStyle(
-                                                    color: _isRunning
-                                                        ? Colors.red
-                                                        : Colors.white,
-                                                    fontSize: 18,
-                                                    fontWeight:
-                                                        FontWeight.bold),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Icon(
-                                                  _isRunning
-                                                      ? Icons.stop
-                                                      : Icons.arrow_forward,
-                                                  color: _isRunning
-                                                      ? Colors.red
-                                                      : Colors.white),
-                                            ],
-                                          ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            // Botão de Configurações (Placeholder)
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey[800],
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: IconButton(
-                                icon: const Icon(Icons.settings,
-                                    color: Colors.white),
-                                onPressed: () {/* Ação de configurações */},
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-
-                      // === BOTTOM NAVIGATION BAR ===
-                      BottomNavigationBar(
-                        type: BottomNavigationBarType
-                            .fixed, // Garante que todos os itens são exibidos
-                        backgroundColor: Colors.black, // Cor de fundo da barra
-                        selectedItemColor:
-                            Colors.white, // Cor do ícone/texto selecionado
-                        unselectedItemColor:
-                            Colors.grey, // Cor dos itens não selecionados
-                        currentIndex: _selectedIndex,
-                        onTap: _onItemTapped,
-                        items: const <BottomNavigationBarItem>[
-                          BottomNavigationBarItem(
-                            icon: Icon(Icons.menu), // Icone "Feed" na imagem
-                            label: 'Feed',
-                          ),
-                          BottomNavigationBarItem(
-                            icon: Icon(
-                                Icons.people), // Icone "Comunidade" na imagem
-                            label: 'Comunidade',
-                          ),
-                          BottomNavigationBarItem(
-                            icon:
-                                Icon(Icons.bolt), // Icone "Atividade" na imagem
-                            label: 'Atividade',
-                          ),
-                          BottomNavigationBarItem(
-                            icon: Icon(
-                                Icons.bar_chart), // Icone "Progresso" na imagem
-                            label: 'Progresso',
-                          ),
-                          BottomNavigationBarItem(
-                            icon:
-                                Icon(Icons.person), // Icone "Perfil" na imagem
-                            label: 'Perfil',
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                FuturisticChrono(seconds: _seconds, fontSize: 70),
+                const SizedBox(height: 15),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                    _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
+                    _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                  ],
                 ),
               ],
             ),
+          ),
+
+          // === BOTÃO FLUTUANTE INICIAR/PARAR ===
+          Positioned(
+            bottom: 120,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: GestureDetector(
+                onTap: _isRunning ? _stopRun : _startRun,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  height: 90,
+                  width: 90,
+                  decoration: BoxDecoration(
+                    color: _isRunning ? Colors.redAccent : Colors.pinkAccent,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: _isRunning
+                            ? Colors.redAccent.withOpacity(0.6)
+                            : Colors.pinkAccent.withOpacity(0.6),
+                        blurRadius: 20,
+                        spreadRadius: 5,
+                      )
+                    ],
+                  ),
+                  child: Icon(
+                    _isRunning ? Icons.stop : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 45,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // === NAVIGATION BAR MODERNA ===
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.black.withOpacity(0.9),
+              selectedItemColor: Colors.pinkAccent,
+              unselectedItemColor: Colors.white70,
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              items: const [
+                BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Feed"),
+                BottomNavigationBarItem(icon: Icon(Icons.people), label: "Comunidade"),
+                BottomNavigationBarItem(icon: Icon(Icons.bolt), label: "Atividade"),
+                BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: "Progresso"),
+                BottomNavigationBarItem(icon: Icon(Icons.person), label: "Perfil"),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+
+// Novo helper para métricas em card circular
+  Widget _buildMetricCard(IconData icon, String value, String label) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: Colors.white, size: 28),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
 
   // NOVO: Widget auxiliar para exibir as métricas (distância, calorias, ritmo)
   Widget _buildMetricColumn({required String value, required String unit}) {
@@ -729,3 +729,30 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 }
+
+Future<BitmapDescriptor> _createUserCircleIcon({
+  double size = 80,
+  Color borderColor = Colors.white,
+  Color fillColor = Colors.blueAccent,
+}) async {
+  final pictureRecorder = ui.PictureRecorder();
+  final canvas = Canvas(pictureRecorder);
+  final paint = Paint()..isAntiAlias = true;
+
+  // Fundo transparente
+  canvas.drawColor(Colors.transparent, BlendMode.clear);
+
+  // Círculo externo (borda)
+  paint.color = borderColor;
+  canvas.drawCircle(Offset(size / 2, size / 2), size / 2, paint);
+
+  // Círculo interno (preenchimento)
+  paint.color = fillColor;
+  canvas.drawCircle(Offset(size / 2, size / 2), size / 2.8, paint);
+
+  final img = await pictureRecorder.endRecording().toImage(size.toInt(), size.toInt());
+  final data = await img.toByteData(format: ui.ImageByteFormat.png);
+  return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
+}
+
+
