@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -51,7 +53,47 @@ class _LoginPageState extends State<LoginPage> {
         password: senhaController.text.trim(),
       );
 
-      if (userCredential.user != null) {
+      final user = userCredential.user;
+      if (user == null) return;
+
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDoc = await userDocRef.get();
+
+      // Se não existir, cria documento básico
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'email': user.email,
+          'photoURL': user.photoURL ?? '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/complete_profile');
+          return;
+        }
+      }
+
+      // 🔍 Verifica se o perfil está incompleto
+      final data = userDoc.data() ?? {};
+      final camposObrigatorios = [
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+            (valor) =>
+        valor == null ||
+            (valor is String && valor.trim().isEmpty) ||
+            (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
+      } else {
         navigateToRunTrackingPage();
       }
     } on FirebaseAuthException catch (e) {
@@ -65,6 +107,8 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => loading = false);
     }
   }
+
+
 
   Future<void> signInWithGoogle() async {
     setState(() => loading = true);
@@ -84,13 +128,57 @@ class _LoginPageState extends State<LoginPage> {
       final userCred =
       await FirebaseAuth.instance.signInWithCredential(credential);
 
-      if (userCred.user != null) navigateToRunTrackingPage();
+      final user = userCred.user;
+      if (user == null) return;
+
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDoc = await userDocRef.get();
+
+      // Se não existir, cria documento mínimo
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'email': user.email,
+          'photoURL': user.photoURL ?? '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/complete_profile');
+          return;
+        }
+      }
+
+      // 🔍 Verifica se o perfil está incompleto
+      final data = userDoc.data() ?? {};
+      final camposObrigatorios = [
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+            (valor) =>
+        valor == null ||
+            (valor is String && valor.trim().isEmpty) ||
+            (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
+      } else {
+        navigateToRunTrackingPage();
+      }
     } catch (e) {
       setState(() => mensagemErro = 'Erro ao autenticar: $e');
     } finally {
       setState(() => loading = false);
     }
   }
+
+
 
   Widget _buildTextField({
     required TextEditingController controller,

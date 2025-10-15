@@ -4,8 +4,10 @@ import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
 import 'package:run_walk_app/profile_page.dart';
+import 'package:run_walk_app/complete_profile_page.dart';
 import 'run_tracker.dart';
 import 'widgets//main_scaffold.dart';
+import 'auth_gate.dart';
 
 
 void main() async {
@@ -27,6 +29,7 @@ class MyApp extends StatelessWidget {
       home: const AuthGate(),
       routes: {
         '/main': (context) => const MainScaffold(),
+        '/complete_profile': (context) => const CompleteProfilePage(),
         '/feed': (context) => const FeedPage(),
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
