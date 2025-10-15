@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/profile_page.dart';
@@ -6,7 +7,7 @@ import 'package:run_walk_app/profile_page.dart';
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
 
-  const MainScaffold({super.key, this.initialIndex = 2});
+  const MainScaffold({super.key, this.initialIndex = 2}); // Inicia no Feed
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
@@ -15,8 +16,9 @@ class MainScaffold extends StatefulWidget {
 class _MainScaffoldState extends State<MainScaffold> {
   late int _selectedIndex;
 
+  // Substitui o placeholder pela FeedPage real
   final List<Widget> _pages = const [
-    Center(child: Text("Feed", style: TextStyle(color: Colors.white))),
+    FeedPage(),
     Center(child: Text("Comunidade", style: TextStyle(color: Colors.white))),
     RunTrackingPage(),
     HistoricoPage(),

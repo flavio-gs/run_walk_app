@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
 import 'package:run_walk_app/profile_page.dart';
@@ -26,6 +27,7 @@ class MyApp extends StatelessWidget {
       home: const LoginPage(),
       routes: {
         '/main': (context) => const MainScaffold(),
+        '/feed': (context) => const FeedPage(),
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
