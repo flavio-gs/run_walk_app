@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:run_walk_app/feed_page.dart';
+import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
+import 'package:run_walk_app/profile_page.dart';
 import 'run_tracker.dart';
+import 'widgets//main_scaffold.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,8 +26,12 @@ class MyApp extends StatelessWidget {
       ),
       home: const LoginPage(),
       routes: {
+        '/main': (context) => const MainScaffold(),
+        '/feed': (context) => const FeedPage(),
         '/tracker': (context) => const RunTrackingPage(),
-        '/login': (context) => const LoginPage()
+        '/login': (context) => const LoginPage(),
+        '/historico': (context) => const HistoricoPage(),
+        '/perfil': (context) => const ProfilePage(),
       },
       debugShowCheckedModeBanner: false,
     );
