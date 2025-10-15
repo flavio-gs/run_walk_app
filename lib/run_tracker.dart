@@ -7,6 +7,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'historico_page.dart'; // Certifique-se de que este caminho está correto
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:ui' as ui;
+import 'profile_page.dart';
+import 'widgets/main_scaffold.dart';
+
 
 class FuturisticChrono extends StatefulWidget {
   final int seconds;
@@ -439,6 +442,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.stop();
     _stopPulseEffect();
     setState(() => _isRunning = false);
+    _saveRun();
   }
 
   // NOVO: Função para calcular calorias e ritmo
@@ -483,28 +487,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // NOVO: Método para navegar entre as abas (se precisar em outras telas)
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-    // Aqui você pode adicionar a lógica para navegar para outras páginas
-    // switch (index) {
-    //   case 0:
-    //     Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => FeedPage()));
-    //     break;
-    //   case 1:
-    //     // Comunidade
-    //     break;
-    //   case 2:
-    //     // Atividade (já estamos aqui)
-    //     break;
-    //   case 3:
-    //     Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => HistoricoPage())); // Exemplo
-    //     break;
-    //   case 4:
-    //     // Perfil
-    //     break;
-    // }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => MainScaffold(initialIndex: index)),
+    );
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -613,28 +601,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
-
-          // === NAVIGATION BAR MODERNA ===
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.black.withOpacity(0.9),
-              selectedItemColor: Colors.pinkAccent,
-              unselectedItemColor: Colors.white70,
-              currentIndex: _selectedIndex,
-              onTap: _onItemTapped,
-              items: const [
-                BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "Feed"),
-                BottomNavigationBarItem(icon: Icon(Icons.people), label: "Comunidade"),
-                BottomNavigationBarItem(icon: Icon(Icons.bolt), label: "Atividade"),
-                BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: "Progresso"),
-                BottomNavigationBarItem(icon: Icon(Icons.person), label: "Perfil"),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -724,6 +690,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Future<void> _saveRun() async {
     _stopRun(); // Garante que a corrida está parada antes de salvar
 
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       if (context.mounted) {
@@ -767,9 +734,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
         // Opcional: Navegar para HistoricoPage após salvar, como no seu código original
-        Navigator.push(
+        Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HistoricoPage()),
+          MaterialPageRoute(builder: (context) => const MainScaffold(initialIndex: 3)),
         );
       }
     } catch (e) {

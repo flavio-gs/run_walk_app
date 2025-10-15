@@ -26,10 +26,7 @@ class _LoginPageState extends State<LoginPage> {
 
   // Função centralizada para navegação
   void navigateToRunTrackingPage() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const RunTrackingPage()),
-    );
+    Navigator.pushReplacementNamed(context, '/main');
   }
 
   // --- LÓGICA DE AUTENTICAÇÃO PADRÃO (E-MAIL/SENHA) ---

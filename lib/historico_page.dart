@@ -17,11 +17,22 @@ class HistoricoPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Histórico de Corridas')),
+      appBar: AppBar(
+        title: const Text('Histórico de Corridas'),
+        centerTitle: true,
+        backgroundColor: Colors.pinkAccent,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () {
+            Navigator.pop(context); // volta para a tela anterior
+          },
+        ),
+      ),
+      backgroundColor: Colors.grey[100],
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('corridas')
-            .orderBy('date', descending: true)
+            .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -46,14 +57,21 @@ class HistoricoPage extends StatelessWidget {
             itemCount: corridas.length,
             itemBuilder: (context, index) {
               final corrida = corridas[index];
-              return ListTile(
-                leading: const Icon(Icons.directions_run, color: Colors.blue),
-                title: Text(
-                  'Corrida em ${corrida.date.toLocal().toString().substring(0, 16)}',
-                ),
-                subtitle: Text(
-                  'Distância: ${(corrida.distance / 1000).toStringAsFixed(2)} km • '
-                  'Tempo: ${_formatDuration(corrida.duration)}',
+              return Card(
+                margin:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                elevation: 3,
+                child: ListTile(
+                  leading: const Icon(Icons.directions_run,
+                      color: Colors.pinkAccent, size: 30),
+                  title: Text(
+                    'Corrida em ${corrida.date.toLocal().toString().substring(0, 16)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    'Distância: ${(corrida.distance / 1000).toStringAsFixed(2)} km • '
+                        'Tempo: ${_formatDuration(corrida.duration)}',
+                  ),
                 ),
               );
             },
