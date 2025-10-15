@@ -442,8 +442,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.stop();
     _stopPulseEffect();
     setState(() => _isRunning = false);
-    _saveRun();
   }
+
 
   // NOVO: Função para calcular calorias e ritmo
   void _calculatePaceAndCalories() {
@@ -574,7 +574,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             right: 0,
             child: Center(
               child: GestureDetector(
-                onTap: _isRunning ? _stopRun : _startRun,
+                onTap: _isRunning
+                    ? () {
+                  _stopRun();
+                  _saveRun();
+                }
+                    : _startRun,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
                   height: 90,
@@ -688,8 +693,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // --- FUNÇÃO PARA SALVAR A CORRIDA ---
   Future<void> _saveRun() async {
-    _stopRun(); // Garante que a corrida está parada antes de salvar
 
+    if (loading) return;
+    setState(() => loading = true);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -728,12 +734,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     };
 
     try {
-      await FirebaseFirestore.instance.collection('corridas').add(runData);
+      final docRef = await FirebaseFirestore.instance.collection('corridas').add(runData);
+
+// Espera um pequeno delay antes de navegar
+      await Future.delayed(const Duration(milliseconds: 300));
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
-        // Opcional: Navegar para HistoricoPage após salvar, como no seu código original
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainScaffold(initialIndex: 3)),
@@ -746,6 +755,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         );
       }
     } finally {
+      setState(() => loading = false);
       // Opcional: Resetar a tela para um estado "pronto para nova corrida"
       setState(() {
         _seconds = 0;
