@@ -4,7 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'historico_page.dart'; // Certifique-se de que este caminho está correto
+import 'historico_page.dart'; 
 import 'package:flutter/services.dart' show rootBundle;
 import 'dart:ui' as ui;
 import 'profile_page.dart';

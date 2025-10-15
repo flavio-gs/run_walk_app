@@ -39,19 +39,19 @@ class HistoricoPage extends StatelessWidget {
             return const Center(child: Text('Erro ao carregar histórico.'));
           }
 
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          final docs = snapshot.data!.docs;
-          final corridas = docs
-              .map(
-                  (doc) => RunModel.fromMap(doc.data() as Map<String, dynamic>))
-              .toList();
+        final docs = snapshot.data!.docs;
+        final corridas = docs
+            .map(
+                (doc) => RunModel.fromMap(doc.data() as Map<String, dynamic>))
+            .toList();
 
-          if (corridas.isEmpty) {
-            return const Center(child: Text('Nenhuma corrida salva'));
-          }
+        if (corridas.isEmpty) {
+          return const Center(child: Text('Nenhuma corrida salva'));
+        }
 
           return ListView.builder(
             itemCount: corridas.length,
