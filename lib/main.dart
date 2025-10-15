@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:run_walk_app/auth_gate.dart';
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
@@ -24,7 +25,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const LoginPage(),
+      home: const AuthGate(),
       routes: {
         '/main': (context) => const MainScaffold(),
         '/feed': (context) => const FeedPage(),

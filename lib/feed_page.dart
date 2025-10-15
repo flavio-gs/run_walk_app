@@ -21,7 +21,12 @@ class _FeedPageState extends State<FeedPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Feed de Atividades'),
+        title: const Text('FEED',
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
         backgroundColor: Colors.grey[900],
         centerTitle: false,
         actions: [
