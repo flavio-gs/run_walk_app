@@ -9,7 +9,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'dart:ui' as ui;
 import 'profile_page.dart';
 import 'widgets/main_scaffold.dart';
-
+import 'package:flutter/services.dart';
 
 class FuturisticChrono extends StatefulWidget {
   final int seconds;
@@ -73,32 +73,31 @@ class _FuturisticChronoState extends State<FuturisticChrono>
             ),
           ),
           child: ShaderMask(
-            key: ValueKey(time), // troca suave a cada segundo
+            key: ValueKey(time),
             shaderCallback: (bounds) => const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color(0xFF00E5FF), // ciano
-                Color(0xFFFF00FF), // magenta
+                Color(0xFF00C853), // Verde vibrante
+                Color(0xFFFF6D00), // Laranja energético
               ],
             ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
             blendMode: BlendMode.srcIn,
             child: Text(
               time,
               textAlign: TextAlign.center,
-              style: TextStyle( // troque por TextStyle(...) se não usar google_fonts
+              style: TextStyle(
                 fontSize: widget.fontSize,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2,
-                // glow animado
                 shadows: [
                   Shadow(
                     blurRadius: 20 + 10 * glow,
-                    color: const Color(0xFF00E5FF).withOpacity(0.6 * glow),
+                    color: const Color(0xFF00C853).withOpacity(0.6 * glow),
                   ),
                   Shadow(
                     blurRadius: 30 + 15 * glow,
-                    color: const Color(0xFFFF00FF).withOpacity(0.5 * glow),
+                    color: const Color(0xFFFF6D00).withOpacity(0.5 * glow),
                   ),
                 ],
               ),
@@ -181,6 +180,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     });
 
     _checkLocationPermissionAndSetInitialLocation();
+    _loadSavedRuns();
   }
 
   // NOVO: Checa permissão de localização antes de tentar obter a posição
@@ -201,19 +201,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Future<void> _updateMarker() async {
     final customIcon = await _createUserCircleIcon(
-      size: 100,
-      borderColor: Colors.white.withOpacity(0.9),
-      fillColor: Colors.pinkAccent,
+      size: 60,
+      borderColor: const Color(0xFFFF6D00).withOpacity(0.9),
+      fillColor: const Color(0xFF00C853),
     );
 
+
     setState(() {
-      _markers.clear();
+      // Remove apenas o marcador de localização atual, mantendo os outros
+      _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
       _markers.add(
         Marker(
           markerId: const MarkerId('currentLocation'),
           position: _currentPosition,
           icon: customIcon,
-          anchor: const Offset(0.5, 0.5), // centraliza o círculo
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 10000, // garante que fique acima dos outros
         ),
       );
     });
@@ -241,6 +244,90 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       // Opcional: mostrar um SnackBar ou diálogo de erro para o usuário
     }
   }
+
+  Future<void> _loadSavedRuns() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final runs = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: user.uid)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      for (var doc in runs.docs) {
+        final data = doc.data();
+        final path = (data['path'] as List)
+            .map((p) => LatLng(p['lat'], p['lng']))
+            .toList();
+
+        // Cria a linha da corrida
+        final polyline = Polyline(
+          polylineId: PolylineId('run_${doc.id}'),
+          points: path,
+          color: const Color(0xFF00C853).withOpacity(0.8),
+          width: 6,
+          jointType: JointType.round,
+        );
+        _polylines.add(polyline);
+
+        // Adiciona marcador com dados da corrida
+        if (path.isNotEmpty) {
+          await _addRunMarker(
+            position: path.first,
+            userName: user.displayName ?? 'Você',
+            photoUrl: user.photoURL,
+            runData: data,
+          );
+        }
+        debugPrint("✅ Corrida carregada: ${doc.id} | pontos: ${(data['path'] as List).length}");
+      }
+
+      setState(() {});
+    } catch (e) {
+      debugPrint("Erro ao carregar corridas: $e");
+    }
+
+    if (_markers.isNotEmpty) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      _googleMapController?.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          _calculateBounds(_markers.map((m) => m.position).toList()),
+          80,
+        ),
+      );
+    }
+
+    // Centraliza automaticamente nos marcadores das corridas
+    if (_markers.isNotEmpty && _googleMapController != null) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      _googleMapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          _calculateBounds(_markers.map((m) => m.position).toList()),
+          80,
+        ),
+      );
+
+      // Depois de 3 segundos, move suavemente para a posição atual
+      Future.delayed(const Duration(seconds: 3), () {
+        if (_googleMapController != null) {
+          _googleMapController!.animateCamera(
+            CameraUpdate.newCameraPosition(
+              CameraPosition(
+                target: _currentPosition,
+                zoom: 17,
+              ),
+            ),
+          );
+        }
+      });
+    }
+
+
+  }
+
+
 
   void _startRun() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -377,9 +464,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     if (_positions.length < 2) return;
 
     final pulseIcon = await _createUserCircleIcon(
-      size: 80,
-      borderColor: Colors.pinkAccent.withOpacity(0.8),
-      fillColor: Colors.cyanAccent.withOpacity(0.8),
+      size: 60,
+      borderColor: const Color(0xFFFF6D00).withOpacity(0.8),
+      fillColor: const Color(0xFF00C853).withOpacity(0.8),
     );
 
     _pulseT = 0.0;
@@ -442,8 +529,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.stop();
     _stopPulseEffect();
     setState(() => _isRunning = false);
-    _saveRun();
   }
+
 
   // NOVO: Função para calcular calorias e ritmo
   void _calculatePaceAndCalories() {
@@ -476,6 +563,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  LatLngBounds _calculateBounds(List<LatLng> positions) {
+    double minLat = positions.first.latitude;
+    double maxLat = positions.first.latitude;
+    double minLng = positions.first.longitude;
+    double maxLng = positions.first.longitude;
+
+    for (final LatLng pos in positions) {
+      if (pos.latitude < minLat) minLat = pos.latitude;
+      if (pos.latitude > maxLat) maxLat = pos.latitude;
+      if (pos.longitude < minLng) minLng = pos.longitude;
+      if (pos.longitude > maxLng) maxLng = pos.longitude;
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+
+
   @override
   void dispose() {
     _timer?.cancel();
@@ -501,13 +608,31 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text(
-          "Empire of the Run",
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-            letterSpacing: 1.2,
-            color: Colors.white,
+        title: Padding(
+          padding: const EdgeInsets.only(top: 30), // ajuste o valor
+          child: ShaderMask(
+            shaderCallback: (bounds) => const LinearGradient(
+              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
+            child: const Text(
+              "Império da Corrida",
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w900,
+                fontSize: 22,
+                letterSpacing: 1.5,
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    blurRadius: 10,
+                    color: Colors.black45,
+                    offset: Offset(2, 2),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
         centerTitle: true,
@@ -530,79 +655,146 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             },
             polylines: _polylines,
             markers: _markers,
-            myLocationEnabled: true,
+            myLocationEnabled: false,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
+
+            // 🟢 ESSAS OPÇÕES GARANTEM MOVIMENTO
+            scrollGesturesEnabled: true,
+            zoomGesturesEnabled: true,
+            rotateGesturesEnabled: true,
+            tiltGesturesEnabled: true,
+            gestureRecognizers: {},
           ),
 
-          // === CAMADA DE INFORMAÇÕES ===
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.black87, Colors.transparent],
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
+          // Tudo que vem por cima do mapa, mas sem bloquear toques no mapa:
+          IgnorePointer(
+            ignoring: true, // deixa o toque passar pro mapa
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color.fromARGB(90, 0, 200, 83),
+                    Color.fromARGB(40, 255, 109, 0),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                ),
               ),
             ),
           ),
 
           // === CRONÔMETRO DIGITAL ===
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 60,
-            left: 0,
-            right: 0,
-            child: Column(
-              children: [
-                FuturisticChrono(seconds: _seconds, fontSize: 70),
-                const SizedBox(height: 15),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                    _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
-                    _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
-                  ],
-                ),
-              ],
+          IgnorePointer(
+            ignoring: true, // deixa o mapa ser arrastável por baixo
+            child: Positioned(
+              top: MediaQuery.of(context).padding.top + 60,
+              left: 0,
+              right: 0,
+              child: Column(
+                children: [
+                  FuturisticChrono(seconds: _seconds, fontSize: 70),
+                  const SizedBox(height: 15),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildMetricCard(Icons.route,
+                          (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                      _buildMetricCard(Icons.local_fire_department,
+                          _caloriesBurned.round().toString(), "Kcal"),
+                      _buildMetricCard(Icons.timer,
+                          _formatPace(_averagePace), "Ritmo"),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // === BOTÃO FLUTUANTE INICIAR/PARAR ===
+          // === BOTÃO FLUTUANTE (deve receber toques normalmente) ===
           Positioned(
             bottom: 120,
             left: 0,
             right: 0,
             child: Center(
               child: GestureDetector(
-                onTap: _isRunning ? _stopRun : _startRun,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  height: 90,
-                  width: 90,
-                  decoration: BoxDecoration(
-                    color: _isRunning ? Colors.redAccent : Colors.pinkAccent,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: _isRunning
-                            ? Colors.redAccent.withOpacity(0.6)
-                            : Colors.pinkAccent.withOpacity(0.6),
-                        blurRadius: 20,
-                        spreadRadius: 5,
-                      )
-                    ],
-                  ),
-                  child: Icon(
-                    _isRunning ? Icons.stop : Icons.play_arrow,
-                    color: Colors.white,
-                    size: 45,
-                  ),
+                onTap: _isRunning
+                    ? () {
+                  _stopRun();
+                  _saveRun();
+                }
+                    : _startRun,
+                child: AnimatedBuilder(
+                  animation: _animationController,
+                  builder: (context, child) {
+                    final pulse = (ui.lerpDouble(
+                        0, 1, (0.5 - (0.5 - _animationController.value).abs()) * 2)!);
+                    final scale = 1 + (pulse ?? 0) * 0.1;
+                    return Transform.scale(
+                      scale: _isRunning ? 1.0 : scale,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF00C853)
+                                  .withOpacity(0.6 * (pulse ?? 1)),
+                              blurRadius: 25 + 20 * (pulse ?? 1),
+                              spreadRadius: 6 + 2 * (pulse ?? 1),
+                            ),
+                            BoxShadow(
+                              color: const Color(0xFFFF6D00)
+                                  .withOpacity(0.5 * (pulse ?? 1)),
+                              blurRadius: 30 + 10 * (pulse ?? 1),
+                              spreadRadius: 3,
+                            ),
+                          ],
+                        ),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          height: 90,
+                          width: 90,
+                          decoration: BoxDecoration(
+                            gradient: _isRunning
+                                ? const LinearGradient(
+                              colors: [Colors.redAccent, Color(0xFFFF6D00)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                                : const LinearGradient(
+                              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: (_isRunning
+                                    ? Colors.redAccent
+                                    : const Color(0xFF00C853))
+                                    .withOpacity(0.6),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              )
+                            ],
+                          ),
+                          child: Icon(
+                            _isRunning ? Icons.stop : Icons.play_arrow,
+                            color: Colors.white,
+                            size: 45,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
           ),
         ],
       ),
+
     );
   }
 
@@ -613,8 +805,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         Container(
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
-            color: Colors.black54,
+            gradient: const LinearGradient(
+              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 6,
+                spreadRadius: 2,
+              ),
+            ],
           ),
           child: Icon(icon, color: Colors.white, size: 28),
         ),
@@ -634,6 +837,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ],
     );
   }
+
 
 
   // NOVO: Widget auxiliar para exibir as métricas (distância, calorias, ritmo)
@@ -688,8 +892,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // --- FUNÇÃO PARA SALVAR A CORRIDA ---
   Future<void> _saveRun() async {
-    _stopRun(); // Garante que a corrida está parada antes de salvar
 
+    if (loading) return;
+    setState(() => loading = true);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -728,12 +933,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     };
 
     try {
-      await FirebaseFirestore.instance.collection('corridas').add(runData);
+      final docRef = await FirebaseFirestore.instance.collection('corridas').add(runData);
+
+// Espera um pequeno delay antes de navegar
+      await Future.delayed(const Duration(milliseconds: 300));
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
-        // Opcional: Navegar para HistoricoPage após salvar, como no seu código original
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainScaffold(initialIndex: 3)),
@@ -746,6 +954,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         );
       }
     } finally {
+      setState(() => loading = false);
       // Opcional: Resetar a tela para um estado "pronto para nova corrida"
       setState(() {
         _seconds = 0;
@@ -759,10 +968,206 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       });
     }
   }
+  Future<void> _addRunMarker({
+    required LatLng position,
+    required String userName,
+    String? photoUrl,
+    required Map<String, dynamic> runData,
+  }) async {
+    try {
+      const double width = 120;
+      const double height = 60;
+
+      final pictureRecorder = ui.PictureRecorder();
+      final canvas = Canvas(pictureRecorder);
+      final paint = Paint()..isAntiAlias = true;
+
+      // Fundo arredondado sólido
+      final rrect = RRect.fromLTRBR(0, 0, width, height, const Radius.circular(12));
+      paint.color = const Color(0xFF111111);
+      canvas.drawRRect(rrect, paint);
+
+// Borda degradê verde-laranja
+      final borderPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..shader = const LinearGradient(
+          colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ).createShader(Rect.fromLTWH(0, 0, width, height));
+      canvas.drawRRect(rrect, borderPaint);
+
+
+
+      // Avatar do usuário
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        try {
+          final imageBytes =
+          (await NetworkAssetBundle(Uri.parse(photoUrl)).load(photoUrl))
+              .buffer
+              .asUint8List();
+          final codec =
+          await ui.instantiateImageCodec(imageBytes, targetWidth: 60, targetHeight: 60);
+          final frame = await codec.getNextFrame();
+          final userImage = frame.image;
+
+          final imgRect = Rect.fromLTWH(5, 5, 60, 60);
+          paintImage(canvas: canvas, rect: imgRect, image: userImage, fit: BoxFit.cover);
+        } catch (_) {
+          paint.color = const Color(0xFF00C853);
+          canvas.drawCircle(const Offset(35, 35), 25, paint);
+        }
+      } else {
+        paint.color = const Color(0xFF00C853);
+        canvas.drawCircle(const Offset(35, 35), 25, paint);
+      }
+
+      // Nome do usuário
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: userName,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      );
+      textPainter.layout(maxWidth: width - 75);
+      textPainter.paint(canvas, const Offset(75, 25));
+
+      // Converte pra imagem
+      final img = await pictureRecorder.endRecording().toImage(width.toInt(), height.toInt());
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+      final bytes = byteData!.buffer.asUint8List();
+
+      // Cria o marcador
+      final marker = Marker(
+        markerId: MarkerId("run_marker_${position.latitude}_${position.longitude}"),
+        position: position,
+        icon: BitmapDescriptor.fromBytes(bytes),
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 9999,
+        onTap: () {
+          debugPrint("🟢 Marcador ${userName} clicado!");
+          _showRunDetailsPopup(runData);
+        },
+      );
+
+      setState(() => _markers.add(marker));
+      debugPrint("✅ Marcador adicionado: $userName (${position.latitude}, ${position.longitude})");
+    } catch (e) {
+      debugPrint("❌ Erro ao criar marcador: $e");
+    }
+  }
+
+
+
+  void _showRunDetailsPopup(Map<String, dynamic> runData) {
+    final distanceKm = (runData['distance'] / 1000).toStringAsFixed(2);
+    final duration = Duration(seconds: runData['duration'] ?? 0);
+    final timeFormatted =
+        "${duration.inHours.toString().padLeft(2, '0')}:${(duration.inMinutes % 60).toString().padLeft(2, '0')}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}";
+    final calories = runData['calories']?.round() ?? 0;
+    final pace = runData['pace'] ?? 0.0;
+    final date = DateTime.tryParse(runData['endTime'] ?? '') ?? DateTime.now();
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF121212),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.85),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "🏁 Corrida registrada",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}",
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 15),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildPopupInfo(Icons.route, "$distanceKm km"),
+                    _buildPopupInfo(Icons.timer, timeFormatted),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildPopupInfo(Icons.local_fire_department, "$calories kcal"),
+                    _buildPopupInfo(Icons.speed, "${pace.toStringAsFixed(2)} min/km"),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  label: const Text(
+                    "Fechar",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6D00),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPopupInfo(IconData icon, String text) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white, size: 28),
+        const SizedBox(height: 5),
+        Text(
+          text,
+          style: const TextStyle(color: Colors.white, fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+
+
+
 }
 
 Future<BitmapDescriptor> _createUserCircleIcon({
-  double size = 80,
+  double size = 60,
   Color borderColor = Colors.white,
   Color fillColor = Colors.blueAccent,
 }) async {
@@ -785,5 +1190,8 @@ Future<BitmapDescriptor> _createUserCircleIcon({
   final data = await img.toByteData(format: ui.ImageByteFormat.png);
   return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
 }
+
+
+
 
 

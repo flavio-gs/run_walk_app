@@ -21,12 +21,7 @@ class _FeedPageState extends State<FeedPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('FEED',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        title: const Text('Feed de Atividades'),
         backgroundColor: Colors.grey[900],
         centerTitle: false,
         actions: [
@@ -79,7 +74,7 @@ class _FeedPageState extends State<FeedPage> {
             padding: const EdgeInsets.all(8.0),
             children: snapshot.data!.docs.map((DocumentSnapshot document) {
               Map<String, dynamic> data =
-                  document.data()! as Map<String, dynamic>;
+              document.data()! as Map<String, dynamic>;
               final postTime = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
               timeago.setLocaleMessages('pt_BR', timeago.PtBrMessages());
               final formattedTime = timeago.format(postTime, locale: 'pt_BR');
