@@ -180,6 +180,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     });
 
     _checkLocationPermissionAndSetInitialLocation();
+    _checkLocationPermissionAndSetInitialLocation().then((_) {
+      _startLocationTracking();
+    });
     _loadSavedRuns();
   }
 
@@ -581,6 +584,32 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       northeast: LatLng(maxLat, maxLng),
     );
   }
+
+  Future<void> _startLocationTracking() async {
+    try {
+      // Se já existe stream ativa, cancela pra evitar duplicidade
+      await _positionStream?.cancel();
+
+      // Inicia o stream contínuo da posição atual
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 3, // atualiza a cada ~3 metros
+        ),
+      ).listen((position) {
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+        });
+        _updateMarker();
+        _googleMapController?.animateCamera(
+          CameraUpdate.newLatLng(_currentPosition),
+        );
+      });
+    } catch (e) {
+      debugPrint("Erro ao iniciar rastreamento contínuo: $e");
+    }
+  }
+
 
 
   @override
