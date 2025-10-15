@@ -14,6 +14,7 @@ class _ProfilePageState extends State<ProfilePage> {
   int totalDuration = 0;
   double totalCalories = 0;
   bool loading = true;
+  String? photoURL; // 👈 nova variável para armazenar a foto de perfil
 
   @override
   void initState() {
@@ -26,6 +27,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (user == null) return;
 
     try {
+      // 👇 Carrega os dados das corridas
       final query = await FirebaseFirestore.instance
           .collection('corridas')
           .where('userId', isEqualTo: user.uid)
@@ -42,11 +44,20 @@ class _ProfilePageState extends State<ProfilePage> {
         calories += (data['calories'] as num?)?.toDouble() ?? 0.0;
       }
 
+      // 👇 Busca o photoURL do usuário na coleção "user"
+      final userDoc = await FirebaseFirestore.instance
+          .collection('user')
+          .doc(user.uid)
+          .get();
+
+      final userData = userDoc.data();
+      final url = userData?['photoURL'] as String?;
 
       setState(() {
         totalDistance = distance;
         totalDuration = duration;
         totalCalories = calories;
+        photoURL = url;
         loading = false;
       });
     } catch (e) {
@@ -86,11 +97,19 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           children: [
             const SizedBox(height: 20),
+
+            // 👇 Exibe a foto do perfil
             CircleAvatar(
               radius: 50,
               backgroundColor: Colors.pinkAccent,
-              child: const Icon(Icons.person, color: Colors.white, size: 60),
+              backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
+                  ? NetworkImage(photoURL!)
+                  : null,
+              child: (photoURL == null || photoURL!.isEmpty)
+                  ? const Icon(Icons.person, color: Colors.white, size: 60)
+                  : null,
             ),
+
             const SizedBox(height: 15),
             Text(
               user?.email ?? 'Usuário não identificado',
@@ -124,7 +143,8 @@ class _ProfilePageState extends State<ProfilePage> {
               onPressed: () async {
                 await FirebaseAuth.instance.signOut();
                 if (context.mounted) {
-                  Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
+                  Navigator.of(context)
+                      .pushNamedAndRemoveUntil('/', (r) => false);
                 }
               },
             ),
