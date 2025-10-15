@@ -24,9 +24,10 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const LoginPage(),
+      home: const AuthGate(),
       routes: {
         '/main': (context) => const MainScaffold(),
+        '/feed': (context) => const FeedPage(),
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
