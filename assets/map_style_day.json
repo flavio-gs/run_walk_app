@@ -2,7 +2,7 @@
   {
     "elementType": "geometry",
     "stylers": [
-      { "color": "#1d1b2f" }
+      { "color": "#d0f5e8" }
     ]
   },
   {
@@ -14,19 +14,61 @@
   {
     "elementType": "labels.text.fill",
     "stylers": [
-      { "color": "#70ffda" }
+      { "color": "#0b5345" }
     ]
   },
   {
     "elementType": "labels.text.stroke",
     "stylers": [
-      { "color": "#1d1b2f" }
+      { "color": "#ffffff" }
     ]
   },
   {
-    "featureType": "administrative",
+    "featureType": "landscape.natural",
     "stylers": [
-      { "visibility": "off" }
+      { "color": "#b6f2c3" }
+    ]
+  },
+  {
+    "featureType": "landscape.man_made",
+    "stylers": [
+      { "color": "#f9ffe5" }
+    ]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry",
+    "stylers": [
+      { "color": "#fff59d" }
+    ]
+  },
+  {
+    "featureType": "road",
+    "elementType": "geometry.stroke",
+    "stylers": [
+      { "color": "#c0ca33" },
+      { "weight": 0.4 }
+    ]
+  },
+  {
+    "featureType": "road",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      { "color": "#7b8a00" }
+    ]
+  },
+  {
+    "featureType": "water",
+    "elementType": "geometry",
+    "stylers": [
+      { "color": "#81d4fa" }
+    ]
+  },
+  {
+    "featureType": "water",
+    "elementType": "labels.text.fill",
+    "stylers": [
+      { "color": "#01579b" }
     ]
   },
   {
@@ -36,57 +78,9 @@
     ]
   },
   {
-    "featureType": "road",
-    "elementType": "geometry",
-    "stylers": [
-      { "color": "#3d385b" }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "geometry.stroke",
-    "stylers": [
-      { "color": "#00ffc3" },
-      { "weight": 0.3 }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      { "color": "#b1fff6" }
-    ]
-  },
-  {
     "featureType": "transit",
     "stylers": [
       { "visibility": "off" }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "geometry",
-    "stylers": [
-      { "color": "#09263f" }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "labels.text.fill",
-    "stylers": [
-      { "color": "#20c4ff" }
-    ]
-  },
-  {
-    "featureType": "landscape.man_made",
-    "stylers": [
-      { "color": "#24203b" }
-    ]
-  },
-  {
-    "featureType": "landscape.natural",
-    "stylers": [
-      { "color": "#0b4a3e" }
     ]
   }
 ]

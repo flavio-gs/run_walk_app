@@ -2,9 +2,10 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:audioplayers/audioplayers.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -24,10 +25,13 @@ class _LoginPageState extends State<LoginPage> {
   static const String logoUrl =
       "http://ninelabs-wordpress-1aba45-177-136-235-199.traefik.me/wp-content/uploads/2022/05/Group-1.png";
 
+  final AudioPlayer _player = AudioPlayer();
+
   void navigateToRunTrackingPage() {
     Navigator.pushReplacementNamed(context, '/main');
   }
 
+  // ------------------ 🔐 LOGIN / CADASTRO -------------------
   Future<void> handleAuthAction() async {
     if (emailController.text.trim().isEmpty ||
         senhaController.text.trim().isEmpty) {
@@ -60,7 +64,6 @@ class _LoginPageState extends State<LoginPage> {
       FirebaseFirestore.instance.collection('users').doc(user.uid);
       final userDoc = await userDocRef.get();
 
-      // Se não existir, cria documento básico
       if (!userDoc.exists) {
         await userDocRef.set({
           'email': user.email,
@@ -73,7 +76,6 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
 
-      // 🔍 Verifica se o perfil está incompleto
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
         data['displayName'],
@@ -108,11 +110,28 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-
-
+  // ------------------ 🔑 LOGIN COM GOOGLE -------------------
   Future<void> signInWithGoogle() async {
-    setState(() => loading = true);
+    // ✅ Simulação automática no Wear OS (para testes em emulador)
+    if (isWearOS) {
+      await _playFeedback();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Simulando login no Wear OS...",
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.black87,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 1));
+      navigateToRunTrackingPage();
+      return;
+    }
 
+    // 🔐 Login real no mobile
+    setState(() => loading = true);
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) return;
@@ -127,7 +146,6 @@ class _LoginPageState extends State<LoginPage> {
 
       final userCred =
       await FirebaseAuth.instance.signInWithCredential(credential);
-
       final user = userCred.user;
       if (user == null) return;
 
@@ -135,7 +153,6 @@ class _LoginPageState extends State<LoginPage> {
       FirebaseFirestore.instance.collection('users').doc(user.uid);
       final userDoc = await userDocRef.get();
 
-      // Se não existir, cria documento mínimo
       if (!userDoc.exists) {
         await userDocRef.set({
           'email': user.email,
@@ -148,7 +165,6 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
 
-      // 🔍 Verifica se o perfil está incompleto
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
         data['displayName'],
@@ -178,8 +194,13 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // ------------------ 🧭 DETECTOR WEAR OS -------------------
+  bool get isWearOS {
+    final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
+    return size.shortestSide < 300;
+  }
 
-
+  // ------------------ 🧱 CAMPOS DE TEXTO -------------------
   Widget _buildTextField({
     required TextEditingController controller,
     required String placeholder,
@@ -204,22 +225,29 @@ class _LoginPageState extends State<LoginPage> {
         cursorColor: Colors.orangeAccent,
         placeholderStyle: const TextStyle(color: Colors.white54),
         style: const TextStyle(color: Colors.white, fontSize: 15),
-        decoration: null,
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  // ------------------ 🎵 FEEDBACK HÁPTICO + SOM -------------------
+  Future<void> _playFeedback() async {
+    if (!isWearOS) return;
+    try {
+      await HapticFeedback.lightImpact();
+      await _player.play(AssetSource('click.mp3'));
+    } catch (e) {
+      debugPrint("Erro ao reproduzir som: $e");
+    }
+  }
+
+  // ------------------ 💻 MOBILE LOGIN -------------------
+  Widget _buildDefaultLogin() {
     return Scaffold(
       body: AnimatedContainer(
         duration: const Duration(seconds: 4),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [
-              Color(0xFF00C853), // Verde vibrante
-              Color(0xFFFF6D00), // Laranja energético
-            ],
+            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -253,7 +281,6 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
                     _buildTextField(
                       controller: emailController,
                       placeholder: "Digite seu e-mail",
@@ -266,7 +293,6 @@ class _LoginPageState extends State<LoginPage> {
                       icon: CupertinoIcons.lock_fill,
                     ),
                     const SizedBox(height: 10),
-
                     if (mensagemErro.isNotEmpty)
                       Text(
                         mensagemErro,
@@ -274,12 +300,14 @@ class _LoginPageState extends State<LoginPage> {
                             color: Colors.amberAccent, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
-
                     const SizedBox(height: 25),
-
-                    // Botão principal com gradiente verde-laranja
                     GestureDetector(
-                      onTap: loading ? null : handleAuthAction,
+                      onTap: loading
+                          ? null
+                          : () {
+                        _playFeedback();
+                        handleAuthAction();
+                      },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
                         width: double.infinity,
@@ -287,8 +315,8 @@ class _LoginPageState extends State<LoginPage> {
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [
-                              Color(0xFF00E676), // verde claro
-                              Color(0xFFFF9100), // laranja suave
+                              Color(0xFF00E676),
+                              Color(0xFFFF9100),
                             ],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
@@ -317,13 +345,14 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
-                    // Alternar Login / Cadastro
                     TextButton(
-                      onPressed: () => setState(() {
-                        isRegistering = !isRegistering;
-                        mensagemErro = '';
-                      }),
+                      onPressed: () {
+                        _playFeedback();
+                        setState(() {
+                          isRegistering = !isRegistering;
+                          mensagemErro = '';
+                        });
+                      },
                       child: Text(
                         isRegistering
                             ? "Já tenho conta, entrar"
@@ -334,7 +363,6 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 10),
                     Row(
                       children: const [
@@ -348,10 +376,13 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-
-                    // Botão Google
                     GestureDetector(
-                      onTap: loading ? null : signInWithGoogle,
+                      onTap: loading
+                          ? null
+                          : () {
+                        _playFeedback();
+                        signInWithGoogle();
+                      },
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 13),
@@ -362,9 +393,10 @@ class _LoginPageState extends State<LoginPage> {
                         child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.g_mobiledata, color: Colors.black87, size: 28),
-                            const SizedBox(width: 10),
-                            const Text(
+                            Icon(Icons.g_mobiledata,
+                                color: Colors.black87, size: 28),
+                            SizedBox(width: 10),
+                            Text(
                               "Entrar com Google",
                               style: TextStyle(
                                 color: Colors.black87,
@@ -383,5 +415,99 @@ class _LoginPageState extends State<LoginPage> {
         ),
       ),
     );
+  }
+
+  // ------------------ ⌚ WEAR OS LOGIN -------------------
+  Widget _buildWearOSLogin() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+            begin: Alignment.bottomLeft,
+            end: Alignment.topRight,
+          ),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ClipOval(
+                  child: Image.network(
+                    logoUrl,
+                    width: 70,
+                    height: 70,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Império da Corrida",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    letterSpacing: 1.2,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  "Toque para entrar",
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+                const SizedBox(height: 20),
+                GestureDetector(
+                  onTap: loading
+                      ? null
+                      : () async {
+                    await _playFeedback();
+                    await signInWithGoogle();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 400),
+                    height: 60,
+                    width: 60,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orangeAccent.withOpacity(0.7),
+                          blurRadius: 15,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: loading
+                        ? const CupertinoActivityIndicator(color: Colors.black)
+                        : const Icon(Icons.play_arrow_rounded,
+                        color: Colors.black, size: 32),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  "Google Login",
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------ 🧩 BUILD FINAL -------------------
+  @override
+  Widget build(BuildContext context) {
+    return isWearOS ? _buildWearOSLogin() : _buildDefaultLogin();
   }
 }

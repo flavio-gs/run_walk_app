@@ -1,15 +1,51 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart';
+import 'dart:ui' as ui;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'historico_page.dart'; 
-import 'package:flutter/services.dart' show rootBundle;
-import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // HapticFeedback + rootBundle
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:model_viewer_plus/model_viewer_plus.dart';
+
+// Páginas e widgets do seu app
+import 'historico_page.dart';
 import 'profile_page.dart';
 import 'widgets/main_scaffold.dart';
-import 'package:flutter/services.dart';
+
+// Som (apenas Wear OS usará)
+import 'package:audioplayers/audioplayers.dart';
+
+class Character3D extends StatelessWidget {
+  final double bearing;
+
+  const Character3D({super.key, required this.bearing});
+
+  @override
+  Widget build(BuildContext context) {
+    return ModelViewer(
+      src: 'assets/models/runner.glb',
+      backgroundColor: Colors.transparent,
+      disableZoom: true,
+      cameraControls: false,
+      autoPlay: true,
+      animationName: "Run",
+      autoRotate: false,
+
+      // 📸 Ajustes finos:
+      // - 180° pra virar o personagem “de frente pra frente do mapa”
+      // - 3m de distância pra mostrar o corpo todo
+      // - alvo da câmera levemente mais alto (1.7m)
+      cameraOrbit: "${(bearing + 180).toStringAsFixed(0)}deg 65deg 3m",
+      cameraTarget: "0m 1.7m 0m",
+      fieldOfView: "28deg",
+      exposure: 1.2,
+      disableTap: true,
+    );
+  }
+}
 
 class FuturisticChrono extends StatefulWidget {
   final int seconds;
@@ -112,12 +148,40 @@ class _FuturisticChronoState extends State<FuturisticChrono>
 class RunTrackingPage extends StatefulWidget {
   const RunTrackingPage({super.key});
 
+
   @override
   State<RunTrackingPage> createState() => _RunTrackingPageState();
 }
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+
+  bool _isNightMode = false;
+
+
+  Future<void> _recenterMap() async {
+    if (_googleMapController == null) return;
+
+    // Se estiver em execução, centraliza na posição atual em movimento;
+    // senão, centraliza na última posição conhecida.
+    final target = _currentPosition;
+
+    await _googleMapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: target, zoom: 17),
+      ),
+    );
+
+    // Pequeno feedback tátil
+    HapticFeedback.lightImpact();
+  }
+
+  // ===== Wear OS detection =====
+  bool get isWearOS {
+    final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
+    return size.shortestSide < 300; // heurística prática p/ relógios
+  }
+
   bool loading = false;
 
   GoogleMapController? _googleMapController;
@@ -130,16 +194,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   final List<LatLng> _positions = [];
   double _totalDistance = 0;
-  // NOVO: Calorias e Ritmo Médio
   double _caloriesBurned = 0;
   double _averagePace = 0; // min/km
 
   StreamSubscription<Position>? _positionStream;
   LatLng _currentPosition =
-      const LatLng(-23.5505, -46.6333); // fallback (São Paulo)
+  const LatLng(-23.5505, -46.6333); // fallback (São Paulo)
   bool _loadingLocation = true;
-  LocationPermission?
-      _locationPermission; // NOVO: Para exibir status da permissão
+  LocationPermission? _locationPermission;
 
   late AnimationController _animationController;
   LatLng? _previousPosition;
@@ -148,15 +210,36 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
 
-  // NOVO: Índice da aba selecionada para BottomNavigationBar
-  int _selectedIndex = 2; // Atividade selecionada
+  int _selectedIndex = 2;
   String? _mapStyle;
+
+  // ===== Áudio (som digital suave) — apenas Wear OS =====
+  final AudioPlayer _audio = AudioPlayer();
+  Future<void> _playStart() async {
+    if (!isWearOS) return;
+    try {
+      await HapticFeedback.lightImpact();
+      await _audio.play(AssetSource('sounds/start.wav'));
+    } catch (e) {
+      debugPrint('Erro som start: $e');
+    }
+  }
+
+  Future<void> _playStop() async {
+    if (!isWearOS) return;
+    try {
+      await HapticFeedback.lightImpact();
+      await _audio.play(AssetSource('sounds/stop.wav'));
+    } catch (e) {
+      debugPrint('Erro som stop: $e');
+    }
+  }
 
   @override
   void initState() {
     super.initState();
 
-    // Carregar estilo do mapa
+    // Carrega estilo do mapa (mobile)
     rootBundle.loadString('assets/map_style.json').then((style) {
       _mapStyle = style;
     });
@@ -170,48 +253,55 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           final t = _animationController.value;
           _currentPosition = LatLng(
             _previousPosition!.latitude +
-                (_animatedPosition!.latitude - _previousPosition!.latitude) * t,
+                (_animatedPosition!.latitude - _previousPosition!.latitude) *
+                    t,
             _previousPosition!.longitude +
-                (_animatedPosition!.longitude - _previousPosition!.longitude) * t,
+                (_animatedPosition!.longitude -
+                    _previousPosition!.longitude) *
+                    t,
           );
           _updateMarker();
         });
       }
     });
 
-    _checkLocationPermissionAndSetInitialLocation();
-    _checkLocationPermissionAndSetInitialLocation().then((_) {
-      _startLocationTracking();
-    });
-    _loadSavedRuns();
+    // Localização sempre (Wear e Mobile)
+    _initLocationFlow();
+
+    // Carregamento do histórico — desativado no Wear para poupar recursos
+    if (!isWearOS) {
+      _loadSavedRuns();
+    }
   }
 
-  // NOVO: Checa permissão de localização antes de tentar obter a posição
+  Future<void> _initLocationFlow() async {
+    await _checkLocationPermissionAndSetInitialLocation();
+    await _startLocationTracking(); // atualiza posição mesmo sem iniciar corrida
+  }
+
   Future<void> _checkLocationPermissionAndSetInitialLocation() async {
     _locationPermission = await Geolocator.checkPermission();
     if (_locationPermission == LocationPermission.denied) {
       _locationPermission = await Geolocator.requestPermission();
     }
     if (_locationPermission == LocationPermission.deniedForever) {
-      // Handle denied forever
       setState(() {
         _loadingLocation = false;
       });
       return;
     }
-    _setInitialLocation();
+    await _setInitialLocation();
   }
 
   Future<void> _updateMarker() async {
+    if (isWearOS) return; // sem marcador/Mapa no Wear
     final customIcon = await _createUserCircleIcon(
       size: 60,
       borderColor: const Color(0xFFFF6D00).withOpacity(0.9),
       fillColor: const Color(0xFF00C853),
     );
 
-
     setState(() {
-      // Remove apenas o marcador de localização atual, mantendo os outros
       _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
       _markers.add(
         Marker(
@@ -219,7 +309,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           position: _currentPosition,
           icon: customIcon,
           anchor: const Offset(0.5, 0.5),
-          zIndex: 10000, // garante que fique acima dos outros
+          zIndex: 10000,
         ),
       );
     });
@@ -234,19 +324,42 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
         _loadingLocation = false;
-        _updateMarker();
       });
 
-      _googleMapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(target: _currentPosition, zoom: 17),
-        ),
-      );
+      await _updateMarker();
+
+      if (!isWearOS) {
+        _googleMapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(target: _currentPosition, zoom: 17),
+          ),
+        );
+      }
     } catch (e) {
       setState(() => _loadingLocation = false);
-      // Opcional: mostrar um SnackBar ou diálogo de erro para o usuário
     }
   }
+
+  Future<void> _toggleMapStyle() async {
+    _isNightMode = !_isNightMode;
+
+    final stylePath = _isNightMode
+        ? 'assets/map_style_day.json'
+        : 'assets/map_style.json';
+
+    try {
+      _mapStyle = await rootBundle.loadString(stylePath);
+      await _googleMapController?.setMapStyle(_mapStyle);
+
+      // 🔸 Feedback visual e tátil
+      HapticFeedback.selectionClick();
+    } catch (e) {
+      debugPrint("Erro ao alternar estilo do mapa: $e");
+    }
+
+    setState(() {}); // Atualiza o ícone do botão
+  }
+
 
   Future<void> _loadSavedRuns() async {
     try {
@@ -255,36 +368,69 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       final runs = await FirebaseFirestore.instance
           .collection('corridas')
-          .where('userId', isEqualTo: user.uid)
           .orderBy('createdAt', descending: true)
           .get();
 
+      final colorPalette = [
+        Colors.orangeAccent,
+        Colors.cyanAccent,
+        Colors.purpleAccent,
+        Colors.amberAccent,
+        Colors.pinkAccent,
+        Colors.lightGreenAccent,
+        Colors.blueAccent,
+      ];
+
+      final userColors = <String, Color>{};
+      int colorIndex = 0;
+
       for (var doc in runs.docs) {
         final data = doc.data();
+        final userId = data['userId'];
+
+        if (data['path'] == null || (data['path'] as List).isEmpty) continue;
+
+        // 🔹 Define uma cor para cada usuário (a sua sempre verde)
+        userColors.putIfAbsent(
+          userId,
+              () => colorPalette[colorIndex++ % colorPalette.length],
+        );
+
+        final color = userId == user.uid
+            ? const Color(0xFF00C853) // 💚 você
+            : userColors[userId]!;     // 🎨 outros
+
+        // 🔹 Caminho
         final path = (data['path'] as List)
             .map((p) => LatLng(p['lat'], p['lng']))
             .toList();
 
-        // Cria a linha da corrida
+        // 🔹 Linha colorida
         final polyline = Polyline(
           polylineId: PolylineId('run_${doc.id}'),
           points: path,
-          color: const Color(0xFF00C853).withOpacity(0.8),
+          color: color.withOpacity(0.85),
           width: 6,
           jointType: JointType.round,
         );
         _polylines.add(polyline);
 
-        // Adiciona marcador com dados da corrida
-        if (path.isNotEmpty) {
-          await _addRunMarker(
-            position: path.first,
-            userName: user.displayName ?? 'Você',
-            photoUrl: user.photoURL,
-            runData: data,
-          );
-        }
-        debugPrint("✅ Corrida carregada: ${doc.id} | pontos: ${(data['path'] as List).length}");
+        // 🔹 Pega nome e foto do jogador
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+
+        final userName =
+            userDoc.data()?['displayName'] ?? 'Jogador'; // <-- usa displayName
+        final photoUrl = userDoc.data()?['photoURL'];   // <-- foto do perfil
+
+        await _addRunMarker(
+          position: path.first,
+          userName: userId == user.uid ? 'Você' : userName,
+          photoUrl: photoUrl,
+          runData: data,
+        );
       }
 
       setState(() {});
@@ -292,8 +438,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       debugPrint("Erro ao carregar corridas: $e");
     }
 
-    if (_markers.isNotEmpty) {
-      await Future.delayed(const Duration(milliseconds: 500));
+    // 🔹 Ajuste automático do zoom
+    if (_markers.isNotEmpty && _googleMapController != null) {
+      await Future.delayed(const Duration(milliseconds: 800));
       _googleMapController?.animateCamera(
         CameraUpdate.newLatLngBounds(
           _calculateBounds(_markers.map((m) => m.position).toList()),
@@ -301,33 +448,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         ),
       );
     }
-
-    // Centraliza automaticamente nos marcadores das corridas
-    if (_markers.isNotEmpty && _googleMapController != null) {
-      await Future.delayed(const Duration(milliseconds: 800));
-      _googleMapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(
-          _calculateBounds(_markers.map((m) => m.position).toList()),
-          80,
-        ),
-      );
-
-      // Depois de 3 segundos, move suavemente para a posição atual
-      Future.delayed(const Duration(seconds: 3), () {
-        if (_googleMapController != null) {
-          _googleMapController!.animateCamera(
-            CameraUpdate.newCameraPosition(
-              CameraPosition(
-                target: _currentPosition,
-                zoom: 17,
-              ),
-            ),
-          );
-        }
-      });
-    }
-
-
   }
 
 
@@ -362,17 +482,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     setState(() => _isRunning = true);
 
+    await _playStart(); // som apenas no Wear
+
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
         _seconds++;
-        _calculatePaceAndCalories(); // NOVO: Recalcula a cada segundo
+        _calculatePaceAndCalories();
       });
     });
 
+    // Stream para corrida (mantido; no Wear não desenhamos polylines/mapa)
+    _positionStream?.cancel();
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
-        distanceFilter: 5, // Notifica a cada 5m para mais precisão
+        distanceFilter: 5,
       ),
     ).listen((position) {
       final latLngPos = LatLng(position.latitude, position.longitude);
@@ -385,13 +509,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           latLngPos.longitude,
         );
 
-        // Adiciona a distância apenas se houve movimento significativo
         if (distance > 0.5) {
-          // Evitar pequenas flutuações de GPS
           _totalDistance += distance;
           _positions.add(latLngPos);
-          _updatePolyline();
-          _calculatePaceAndCalories(); // Recalcula quando a posição muda
+
+          if (!isWearOS) {
+            _updatePolyline();
+          }
+          _calculatePaceAndCalories();
         }
       } else {
         _positions.add(latLngPos);
@@ -400,22 +525,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       _previousPosition = _currentPosition;
       _animatedPosition = latLngPos;
       _animationController.forward(from: 0.0);
-      _startPulseEffect();
-      _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(latLngPos)); // Centraliza no usuário
+
+      if (!isWearOS) {
+        _googleMapController?.animateCamera(
+          CameraUpdate.newLatLng(latLngPos),
+        );
+      }
+
+      if (!isWearOS) {
+        _startPulseEffect();
+      }
     });
   }
 
   DateTime? _lastPointTime;
 
   void _updatePolyline() {
+    if (isWearOS) return; // economiza no Wear
     if (_positions.length < 2) return;
 
     final i = _positions.length - 2;
     final start = _positions[i];
     final end = _positions[i + 1];
 
-    // Tempo decorrido entre pontos
     final now = DateTime.now();
     double elapsed = 1.0;
     if (_lastPointTime != null) {
@@ -423,7 +555,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
     _lastPointTime = now;
 
-    // Distância e velocidade real
     final distance = Geolocator.distanceBetween(
       start.latitude,
       start.longitude,
@@ -434,7 +565,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     final speed = (distance / elapsed).clamp(0.2, 6.0); // m/s
 
-    // Gradiente: azul → ciano → rosa → vermelho
     final color = Color.lerp(
       const Color(0xFF3FA9F5), // Azul
       const Color(0xFFFF3D00), // Vermelho
@@ -463,6 +593,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Timer? _pulseTimer;
 
   Future<void> _startPulseEffect() async {
+    if (isWearOS) return;
     _pulseTimer?.cancel();
     if (_positions.length < 2) return;
 
@@ -485,8 +616,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final start = _positions[index];
       final end = _positions[index + 1];
 
-      final lat = start.latitude + (end.latitude - start.latitude) * (_pulseT * (_positions.length - 1) - index);
-      final lng = start.longitude + (end.longitude - start.longitude) * (_pulseT * (_positions.length - 1) - index);
+      final t = (_pulseT * (_positions.length - 1) - index);
+      final lat = start.latitude + (end.latitude - start.latitude) * t;
+      final lng = start.longitude + (end.longitude - start.longitude) * t;
       final pulsePos = LatLng(lat, lng);
 
       _pulseMarker = Marker(
@@ -503,47 +635,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     });
   }
 
-
   void _stopPulseEffect() {
     _pulseTimer?.cancel();
     _pulseMarker = null;
   }
 
-
-// Função auxiliar: retorna cor conforme velocidade
-  Color _getSpeedColor(double speed) {
-    // Mapeia velocidade (m/s) em um gradiente de cores suaves e modernas
-    if (speed < 1.0) {
-      return const Color(0xFF3FA9F5); // Azul - caminhada leve
-    } else if (speed < 2.0) {
-      return const Color(0xFF00FFFF); // Ciano - ritmo leve
-    } else if (speed < 3.5) {
-      return const Color(0xFFFF80FF); // Rosa - corrida média
-    } else {
-      return const Color(0xFFFF3D00); // Vermelho - corrida intensa
-    }
-  }
-
-
-
-  void _stopRun() {
+  void _stopRun() async {
     _timer?.cancel();
-    _positionStream?.cancel();
     _stopwatch.stop();
     _stopPulseEffect();
     setState(() => _isRunning = false);
+    await _playStop(); // som apenas no Wear
   }
 
-
-  // NOVO: Função para calcular calorias e ritmo
   void _calculatePaceAndCalories() {
     if (_seconds > 0 && _totalDistance > 0) {
-      // Ritmo médio: tempo total (min) / distância total (km)
       _averagePace = (_seconds / 60) / (_totalDistance / 1000); // min/km
-
-      // Cálculo de calorias (simplificado, pode ser mais complexo)
-      // Ex: 0.05 calorias por metro percorrido (aproximado)
-      _caloriesBurned = (_totalDistance * 0.05); // Exemplo simplificado
+      _caloriesBurned = (_totalDistance * 0.05);
     } else {
       _averagePace = 0;
       _caloriesBurned = 0;
@@ -558,7 +666,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return '$hours:$minutes:$seconds';
   }
 
-  // NOVO: Formata o ritmo para "min/km"
   String _formatPace(double pace) {
     if (pace.isInfinite || pace.isNaN || pace <= 0) return '00:00';
     int minutes = pace.floor();
@@ -587,30 +694,28 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Future<void> _startLocationTracking() async {
     try {
-      // Se já existe stream ativa, cancela pra evitar duplicidade
       await _positionStream?.cancel();
-
-      // Inicia o stream contínuo da posição atual
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: 3, // atualiza a cada ~3 metros
+          distanceFilter: 3,
         ),
       ).listen((position) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
         });
         _updateMarker();
-        _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(_currentPosition),
-        );
+
+        if (!isWearOS) {
+          _googleMapController?.animateCamera(
+            CameraUpdate.newLatLng(_currentPosition),
+          );
+        }
       });
     } catch (e) {
       debugPrint("Erro ao iniciar rastreamento contínuo: $e");
     }
   }
-
-
 
   @override
   void dispose() {
@@ -618,10 +723,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _positionStream?.cancel();
     _animationController.dispose();
     _googleMapController?.dispose();
+    _audio.dispose();
     super.dispose();
   }
 
-  // NOVO: Método para navegar entre as abas (se precisar em outras telas)
   void _onItemTapped(int index) {
     Navigator.pushReplacement(
       context,
@@ -629,38 +734,175 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
+  // ===== UI =====
 
-  @override
-  Widget build(BuildContext context) {
+  // Wear OS: UI leve, sem Google Map
+  // 🕶️ -------- WEAR OS BODY (cronômetro + botão central + métricas) --------
+  Widget _buildWearBody() {
+    final size = MediaQuery.of(context).size;
+    final shortest = size.shortestSide;
+    final scale = (shortest / 390).clamp(0.7, 1.0); // escala adaptável p/ relógios menores
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Fundo animado sutil
+            IgnorePointer(
+              ignoring: true,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color.fromARGB(100, 0, 200, 83),
+                      Color.fromARGB(40, 255, 109, 0),
+                      Colors.transparent,
+                    ],
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                  ),
+                ),
+              ),
+            ),
+
+            // Conteúdo principal
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // ⏱️ Cronômetro centralizado
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Transform.scale(
+                    scale: scale * 0.95,
+                    child: FuturisticChrono(
+                      seconds: _seconds,
+                      fontSize: 48 * scale,
+                    ),
+                  ),
+                ),
+
+                // 📊 Métricas
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildMetricWear(Icons.route,
+                        (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                    _buildMetricWear(
+                        Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                  ],
+                ),
+                SizedBox(height: 14 * scale),
+
+                // ▶️ Botão principal
+                GestureDetector(
+                  onTap: _isRunning
+                      ? () async {
+                    _stopRun();
+                    await _saveRun(wearMode: true);
+                  }
+                      : _startRun,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: 90 * scale,
+                    width: 90 * scale,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: _isRunning
+                            ? [Colors.redAccent, const Color(0xFFFF6D00)]
+                            : [const Color(0xFF00C853), const Color(0xFFFF6D00)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (_isRunning
+                              ? Colors.redAccent
+                              : const Color(0xFF00C853))
+                              .withOpacity(0.6),
+                          blurRadius: 20,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      _isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 40 * scale,
+                    ),
+                  ),
+                ),
+
+                // 🔴 Estado da corrida
+                const SizedBox(height: 10),
+                Text(
+                  _isRunning ? "Correndo..." : "Toque para começar",
+                  style: TextStyle(
+                    color: _isRunning
+                        ? Colors.redAccent.withOpacity(0.9)
+                        : Colors.white70,
+                    fontSize: 12 * scale,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  Widget _buildMetricWear(IconData icon, String value, String label) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10))
+      ],
+    );
+  }
+
+  // Mobile: UI completa com Google Map e tudo
+  Widget _buildMobileBody() {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Padding(
-          padding: const EdgeInsets.only(top: 30), // ajuste o valor
+          padding: const EdgeInsets.only(top: 10),
           child: ShaderMask(
             shaderCallback: (bounds) => const LinearGradient(
               colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
-            child: const Text(
+            child: Text(
               "Império da Corrida",
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w900,
-                fontSize: 22,
-                letterSpacing: 1.5,
-                color: Colors.white,
-                shadows: [
-                  Shadow(
-                    blurRadius: 10,
-                    color: Colors.black45,
-                    offset: Offset(2, 2),
+                style: GoogleFonts.russoOne(
+                  textStyle: const TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 1.8,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 12,
+                        color: Colors.black45,
+                        offset: Offset(2, 2),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
             ),
           ),
         ),
@@ -668,27 +910,40 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
       body: Stack(
         children: [
-          // === MAPA ===
           GoogleMap(
             mapType: MapType.normal,
             initialCameraPosition: CameraPosition(
               target: _currentPosition,
               zoom: 16,
             ),
-            onMapCreated: (GoogleMapController controller) {
+            onMapCreated: (GoogleMapController controller) async {
               _googleMapController = controller;
-              if (_mapStyle != null) {
-                _googleMapController?.setMapStyle(_mapStyle);
+
+              // 🌗 Alterna automaticamente entre dia e noite
+              final hour = DateTime.now().hour;
+              final isNight = hour >= 18 || hour < 6;
+
+              final stylePath = isNight
+                  ? 'assets/map_style.json'
+                  : 'assets/map_style_day.json';
+
+              try {
+                _mapStyle = await rootBundle.loadString(stylePath);
+                await _googleMapController?.setMapStyle(_mapStyle);
+              } catch (e) {
+                debugPrint("Erro ao aplicar estilo do mapa: $e");
               }
+
+              // 🔹 Atualiza o marcador atual
               _updateMarker();
             },
+
+
             polylines: _polylines,
             markers: _markers,
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
-
-            // 🟢 ESSAS OPÇÕES GARANTEM MOVIMENTO
             scrollGesturesEnabled: true,
             zoomGesturesEnabled: true,
             rotateGesturesEnabled: true,
@@ -696,9 +951,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             gestureRecognizers: {},
           ),
 
-          // Tudo que vem por cima do mapa, mas sem bloquear toques no mapa:
           IgnorePointer(
-            ignoring: true, // deixa o toque passar pro mapa
+            ignoring: true,
             child: Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -714,52 +968,132 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
-          // === CRONÔMETRO DIGITAL ===
           IgnorePointer(
-            ignoring: true, // deixa o mapa ser arrastável por baixo
+            ignoring: true,
             child: Positioned(
-              top: MediaQuery.of(context).padding.top + 60,
+              top: 0,
               left: 0,
               right: 0,
-              child: Column(
-                children: [
-                  FuturisticChrono(seconds: _seconds, fontSize: 70),
-                  const SizedBox(height: 15),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildMetricCard(Icons.route,
-                          (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                      _buildMetricCard(Icons.local_fire_department,
-                          _caloriesBurned.round().toString(), "Kcal"),
-                      _buildMetricCard(Icons.timer,
-                          _formatPace(_averagePace), "Ritmo"),
+              child: Container(
+                padding: EdgeInsets.only(
+                  top: MediaQuery.of(context).padding.top + 40,
+                  bottom: 10,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withOpacity(0.4),
+                      Colors.transparent,
                     ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                   ),
-                ],
+                ),
+                child: Column(
+                  children: [
+                    FuturisticChrono(seconds: _seconds, fontSize: 70),
+                    const SizedBox(height: 15),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                        _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
+                        _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
 
-          // === BOTÃO FLUTUANTE (deve receber toques normalmente) ===
+// 🌞🌙 Botão de alternância de modo do mapa
           Positioned(
-            bottom: 120,
+            bottom: 20,
+            left: 20,
+            child: GestureDetector(
+              onTap: _toggleMapStyle,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: _isNightMode
+                        ? [const Color(0xFF00C853), const Color(0xFFFF6D00)] // noite
+                        : [const Color(0xFFFFD740), const Color(0xFFFF6D00)], // dia
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 8,
+                      offset: const Offset(2, 3),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  _isNightMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+
+// 🧭 Botão de recentralizar
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: GestureDetector(
+              onTap: _recenterMap,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 8,
+                      offset: const Offset(2, 3),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.my_location_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 20,
             left: 0,
             right: 0,
             child: Center(
               child: GestureDetector(
                 onTap: _isRunning
-                    ? () {
+                    ? () async {
                   _stopRun();
-                  _saveRun();
+                  await _saveRun();
                 }
                     : _startRun,
                 child: AnimatedBuilder(
                   animation: _animationController,
                   builder: (context, child) {
                     final pulse = (ui.lerpDouble(
-                        0, 1, (0.5 - (0.5 - _animationController.value).abs()) * 2)!);
-                    final scale = 1 + (pulse ?? 0) * 0.1;
+                        0,
+                        1,
+                        (0.5 - (0.5 - _animationController.value).abs()) *
+                            2)!);
+                    final scale = 1 + (pulse) * 0.1;
                     return Transform.scale(
                       scale: _isRunning ? 1.0 : scale,
                       child: Container(
@@ -768,14 +1102,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           boxShadow: [
                             BoxShadow(
                               color: const Color(0xFF00C853)
-                                  .withOpacity(0.6 * (pulse ?? 1)),
-                              blurRadius: 25 + 20 * (pulse ?? 1),
-                              spreadRadius: 6 + 2 * (pulse ?? 1),
+                                  .withOpacity(0.6 * pulse),
+                              blurRadius: 25 + 20 * pulse,
+                              spreadRadius: 6 + 2 * pulse,
                             ),
                             BoxShadow(
                               color: const Color(0xFFFF6D00)
-                                  .withOpacity(0.5 * (pulse ?? 1)),
-                              blurRadius: 30 + 10 * (pulse ?? 1),
+                                  .withOpacity(0.5 * pulse),
+                              blurRadius: 30 + 10 * pulse,
                               spreadRadius: 3,
                             ),
                           ],
@@ -792,7 +1126,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               end: Alignment.bottomRight,
                             )
                                 : const LinearGradient(
-                              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                              colors: [
+                                Color(0xFF00C853),
+                                Color(0xFFFF6D00)
+                              ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -823,11 +1160,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ),
         ],
       ),
-
     );
   }
 
-// Novo helper para métricas em card circular
+  @override
+  Widget build(BuildContext context) {
+    return isWearOS ? _buildWearBody() : _buildMobileBody();
+  }
+
+  // ===== Helpers de UI (mobile) =====
   Widget _buildMetricCard(IconData icon, String value, String label) {
     return Column(
       children: [
@@ -867,83 +1208,31 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-
-
-  // NOVO: Widget auxiliar para exibir as métricas (distância, calorias, ritmo)
-  Widget _buildMetricColumn({required String value, required String unit}) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 28, // Tamanho da fonte para os valores
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          unit,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.7),
-            fontSize: 12,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // NOVO: Widget auxiliar para os botões de modo de atividade
-  Widget _buildActivityModeButton(
-      IconData icon, String label, bool isSelected) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? Colors.grey[800]
-                : Colors.transparent, // Fundo cinza se selecionado
-            borderRadius: BorderRadius.circular(8),
-            border:
-                isSelected ? Border.all(color: Colors.white, width: 0.5) : null,
-          ),
-          child: Icon(icon, color: Colors.white, size: 24),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          label,
-          style: TextStyle(
-              color: isSelected ? Colors.white : Colors.grey, fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  // --- FUNÇÃO PARA SALVAR A CORRIDA ---
-  Future<void> _saveRun() async {
-
+  // ===== Persistência =====
+  Future<void> _saveRun({bool wearMode = false}) async {
     if (loading) return;
     setState(() => loading = true);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      if (context.mounted) {
+      if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text(
                   "Usuário não autenticado. Login necessário para salvar.")),
         );
       }
+      setState(() => loading = false);
       return;
     }
 
     if (_totalDistance < 10) {
-      // Não salva corridas muito curtas (ex: menos de 10 metros)
-      if (context.mounted) {
+      if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Corrida muito curta para ser salva.")),
         );
       }
+      setState(() => loading = false);
       return;
     }
 
@@ -953,8 +1242,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       'endTime': DateTime.now().toIso8601String(),
       'duration': _stopwatch.elapsed.inSeconds,
       'distance': _totalDistance,
-      'calories': _caloriesBurned, // Salva as calorias
-      'pace': _averagePace, // Salva o ritmo médio
+      'calories': _caloriesBurned,
+      'pace': _averagePace,
       'path': _positions
           .map((point) => {'lat': point.latitude, 'lng': point.longitude})
           .toList(),
@@ -962,137 +1251,192 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     };
 
     try {
-      final docRef = await FirebaseFirestore.instance.collection('corridas').add(runData);
+      await FirebaseFirestore.instance.collection('corridas').add(runData);
 
-// Espera um pequeno delay antes de navegar
-      await Future.delayed(const Duration(milliseconds: 300));
-
-      if (context.mounted) {
+      if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MainScaffold(initialIndex: 3)),
+          MaterialPageRoute(
+              builder: (context) => const MainScaffold(initialIndex: 3)),
         );
       }
     } catch (e) {
-      if (context.mounted) {
+      if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Erro ao salvar corrida: $e")),
         );
       }
     } finally {
       setState(() => loading = false);
-      // Opcional: Resetar a tela para um estado "pronto para nova corrida"
+      // Reset para próxima corrida
       setState(() {
         _seconds = 0;
         _totalDistance = 0;
         _caloriesBurned = 0;
         _averagePace = 0;
         _positions.clear();
-        _polylines.clear();
-        _markers.clear();
-        _setInitialLocation(); // Volta para a localização inicial
+        if (!isWearOS) {
+          _polylines.clear();
+          _markers.clear();
+        }
       });
+      await _setInitialLocation();
     }
   }
+
   Future<void> _addRunMarker({
     required LatLng position,
     required String userName,
     String? photoUrl,
     required Map<String, dynamic> runData,
   }) async {
-    try {
-      const double width = 120;
-      const double height = 60;
+    if (isWearOS) return; // sem marcador no relógio
 
-      final pictureRecorder = ui.PictureRecorder();
-      final canvas = Canvas(pictureRecorder);
+    try {
+      const double width = 180;
+      const double height = 90;
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
       final paint = Paint()..isAntiAlias = true;
 
-      // Fundo arredondado sólido
-      final rrect = RRect.fromLTRBR(0, 0, width, height, const Radius.circular(12));
-      paint.color = const Color(0xFF111111);
+      // Fundo do card com leve gradiente diagonal
+      final gradient = ui.Gradient.linear(
+        const Offset(0, 0),
+        Offset(width, height),
+        [
+          const Color(0xFF00C853).withOpacity(0.9),
+          const Color(0xFFFF6D00).withOpacity(0.9),
+        ],
+      );
+      paint.shader = gradient;
+      final rrect = RRect.fromLTRBR(0, 0, width, height, const Radius.circular(18));
       canvas.drawRRect(rrect, paint);
 
-// Borda degradê verde-laranja
-      final borderPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..shader = const LinearGradient(
-          colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ).createShader(Rect.fromLTWH(0, 0, width, height));
-      canvas.drawRRect(rrect, borderPaint);
+      // Camada de sombra interna estilo Pokémon Go
+      paint.shader = null;
+      paint.color = Colors.black.withOpacity(0.25);
+      canvas.drawRRect(
+        RRect.fromLTRBR(2, 2, width - 2, height - 2, const Radius.circular(16)),
+        paint,
+      );
 
+      // Foto circular do jogador
+      const double avatarSize = 70;
+      final avatarOffset = const Offset(15, 10);
+      final avatarRect = Rect.fromCircle(center: avatarOffset.translate(avatarSize / 2, avatarSize / 2), radius: avatarSize / 2);
 
-
-      // Avatar do usuário
       if (photoUrl != null && photoUrl.isNotEmpty) {
         try {
-          final imageBytes =
+          final bytes =
           (await NetworkAssetBundle(Uri.parse(photoUrl)).load(photoUrl))
               .buffer
               .asUint8List();
-          final codec =
-          await ui.instantiateImageCodec(imageBytes, targetWidth: 60, targetHeight: 60);
+          final codec = await ui.instantiateImageCodec(bytes,
+              targetWidth: avatarSize.toInt(), targetHeight: avatarSize.toInt());
           final frame = await codec.getNextFrame();
-          final userImage = frame.image;
+          final image = frame.image;
 
-          final imgRect = Rect.fromLTWH(5, 5, 60, 60);
-          paintImage(canvas: canvas, rect: imgRect, image: userImage, fit: BoxFit.cover);
+          paint.isAntiAlias = true;
+          final clipPath = Path()..addOval(avatarRect);
+          canvas.save();
+          canvas.clipPath(clipPath);
+          paintImage(canvas: canvas, rect: avatarRect, image: image, fit: BoxFit.cover);
+          canvas.restore();
+
+          // borda branca fina ao redor do avatar
+          paint
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = Colors.white.withOpacity(0.9);
+          canvas.drawCircle(
+              avatarOffset.translate(avatarSize / 2, avatarSize / 2),
+              avatarSize / 2,
+              paint);
         } catch (_) {
-          paint.color = const Color(0xFF00C853);
-          canvas.drawCircle(const Offset(35, 35), 25, paint);
+          _drawDefaultAvatar(canvas, avatarOffset, avatarSize);
         }
       } else {
-        paint.color = const Color(0xFF00C853);
-        canvas.drawCircle(const Offset(35, 35), 25, paint);
+        _drawDefaultAvatar(canvas, avatarOffset, avatarSize);
       }
 
-      // Nome do usuário
+      // Nome do jogador
       final textPainter = TextPainter(
         text: TextSpan(
           text: userName,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            shadows: [
+              Shadow(color: Colors.black54, blurRadius: 4),
+            ],
+          ),
         ),
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
       );
-      textPainter.layout(maxWidth: width - 75);
-      textPainter.paint(canvas, const Offset(75, 25));
+      textPainter.layout(maxWidth: width - avatarSize - 40);
+      textPainter.paint(canvas, Offset(avatarSize + 30, height / 2 - 10));
 
-      // Converte pra imagem
-      final img = await pictureRecorder.endRecording().toImage(width.toInt(), height.toInt());
-      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-      final bytes = byteData!.buffer.asUint8List();
+      // Subtexto com data ou distância (extra Pokémon Go vibe)
+      final distanceKm = (runData['distance'] / 1000).toStringAsFixed(2);
+      final subText = TextPainter(
+        text: TextSpan(
+          text: '$distanceKm km',
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      subText.layout(maxWidth: width - avatarSize - 40);
+      subText.paint(canvas, Offset(avatarSize + 30, height / 2 + 12));
 
-      // Cria o marcador
+      // Finaliza imagem
+      final img = await recorder.endRecording().toImage(width.toInt(), height.toInt());
+      final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+
       final marker = Marker(
         markerId: MarkerId("run_marker_${position.latitude}_${position.longitude}"),
         position: position,
         icon: BitmapDescriptor.fromBytes(bytes),
-        anchor: const Offset(0.5, 0.5),
+        anchor: const Offset(0.5, 1.1),
         zIndex: 9999,
-        onTap: () {
-          debugPrint("🟢 Marcador ${userName} clicado!");
-          _showRunDetailsPopup(runData);
-        },
+        onTap: () => _showRunDetailsPopup(runData),
       );
 
       setState(() => _markers.add(marker));
-      debugPrint("✅ Marcador adicionado: $userName (${position.latitude}, ${position.longitude})");
     } catch (e) {
-      debugPrint("❌ Erro ao criar marcador: $e");
+      debugPrint("❌ Erro ao criar marcador estilizado: $e");
     }
   }
 
+  void _drawDefaultAvatar(Canvas canvas, Offset offset, double size) {
+    final paint = Paint()
+      ..color = const Color(0xFF00C853)
+      ..isAntiAlias = true;
+    canvas.drawCircle(offset.translate(size / 2, size / 2), size / 2, paint);
+    final iconPainter = TextPainter(
+      text: const TextSpan(
+        text: "🏃‍♀️",
+        style: TextStyle(fontSize: 32),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    iconPainter.layout();
+    iconPainter.paint(canvas, offset.translate(size / 2 - 16, size / 2 - 16));
+  }
 
 
   void _showRunDetailsPopup(Map<String, dynamic> runData) {
+    if (isWearOS) return; // dialog é desconfortável no relógio
     final distanceKm = (runData['distance'] / 1000).toStringAsFixed(2);
     final duration = Duration(seconds: runData['duration'] ?? 0);
     final timeFormatted =
@@ -1151,7 +1495,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildPopupInfo(Icons.local_fire_department, "$calories kcal"),
-                    _buildPopupInfo(Icons.speed, "${pace.toStringAsFixed(2)} min/km"),
+                    _buildPopupInfo(
+                        Icons.speed, "${pace.toStringAsFixed(2)} min/km"),
                   ],
                 ),
                 const SizedBox(height: 15),
@@ -1189,10 +1534,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ],
     );
   }
-
-
-
-
 }
 
 Future<BitmapDescriptor> _createUserCircleIcon({
@@ -1215,12 +1556,8 @@ Future<BitmapDescriptor> _createUserCircleIcon({
   paint.color = fillColor;
   canvas.drawCircle(Offset(size / 2, size / 2), size / 2.8, paint);
 
-  final img = await pictureRecorder.endRecording().toImage(size.toInt(), size.toInt());
+  final img =
+  await pictureRecorder.endRecording().toImage(size.toInt(), size.toInt());
   final data = await img.toByteData(format: ui.ImageByteFormat.png);
   return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
 }
-
-
-
-
-
