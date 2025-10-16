@@ -14,6 +14,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  audioplayers: ^6.0.0
 
   cupertino_icons: ^1.0.8
 
@@ -71,4 +72,7 @@ flutter:
 
   assets: 
     - assets/map_style.json
+    - assets/click.mp3
+    - assets/sounds/start.mp3
+    - assets/sounds/stop.mp3
  
