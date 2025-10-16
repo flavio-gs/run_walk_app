@@ -8,6 +8,7 @@ import 'package:flutter/services.dart'; // HapticFeedback + rootBundle
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 // Páginas e widgets do seu app
 import 'historico_page.dart';
@@ -16,6 +17,35 @@ import 'widgets/main_scaffold.dart';
 
 // Som (apenas Wear OS usará)
 import 'package:audioplayers/audioplayers.dart';
+
+class Character3D extends StatelessWidget {
+  final double bearing;
+
+  const Character3D({super.key, required this.bearing});
+
+  @override
+  Widget build(BuildContext context) {
+    return ModelViewer(
+      src: 'assets/models/runner.glb',
+      backgroundColor: Colors.transparent,
+      disableZoom: true,
+      cameraControls: false,
+      autoPlay: true,
+      animationName: "Run",
+      autoRotate: false,
+
+      // 📸 Ajustes finos:
+      // - 180° pra virar o personagem “de frente pra frente do mapa”
+      // - 3m de distância pra mostrar o corpo todo
+      // - alvo da câmera levemente mais alto (1.7m)
+      cameraOrbit: "${(bearing + 180).toStringAsFixed(0)}deg 65deg 3m",
+      cameraTarget: "0m 1.7m 0m",
+      fieldOfView: "28deg",
+      exposure: 1.2,
+      disableTap: true,
+    );
+  }
+}
 
 class FuturisticChrono extends StatefulWidget {
   final int seconds;
