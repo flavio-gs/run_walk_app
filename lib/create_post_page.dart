@@ -13,6 +13,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
   final TextEditingController _textController = TextEditingController();
   bool _isPosting = false;
 
+  // FIX 1: Função de publicar corrigida para ser mais robusta
   Future<void> _publishPost() async {
     if (_textController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -27,31 +28,39 @@ class _CreatePostPageState extends State<CreatePostPage> {
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      setState(() => _isPosting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Você precisa estar logado para publicar.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Você precisa estar logado para publicar.')),
+        );
+        setState(() => _isPosting = false);
+      }
       return;
     }
 
     try {
       await FirebaseFirestore.instance.collection('posts').add({
         'text': _textController.text,
-        'timestamp': FieldValue.serverTimestamp(), // Usa o tempo do servidor
+        'timestamp': FieldValue.serverTimestamp(), 
         'authorId': user.uid,
         'authorName': user.displayName ?? 'Usuário Anônimo',
         'authorPhotoUrl': user.photoURL,
-        // Futuramente, podemos adicionar campos para imagem, dados de corrida, etc.
+        'likes': [], // Inicializa o campo de curtidas para evitar erros
       });
 
       if (mounted) {
         Navigator.pop(context); // Fecha a tela de criação após publicar
       }
     } catch (e) {
-      setState(() => _isPosting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao publicar: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao publicar: $e')),
+        );
+      }
+    } finally {
+      // Garante que o estado de carregamento seja sempre desativado
+      if (mounted) {
+        setState(() => _isPosting = false);
+      }
     }
   }
 
@@ -60,9 +69,7 @@ class _CreatePostPageState extends State<CreatePostPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Nova Publicação'),
-        backgroundColor: Colors.grey[900],
         actions: [
-          // Botão de Publicar na AppBar
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: TextButton(
@@ -73,10 +80,12 @@ class _CreatePostPageState extends State<CreatePostPage> {
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text(
+                  : Text(
                       'Publicar',
                       style: TextStyle(
-                          color: Colors.pinkAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                          color: Theme.of(context).colorScheme.primary, // Usa a cor do tema
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16),
                     ),
             ),
           ),
@@ -85,15 +94,18 @@ class _CreatePostPageState extends State<CreatePostPage> {
       backgroundColor: Colors.black,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
+        // FIX 2: Campo de texto corrigido para melhor digitação
         child: TextField(
           controller: _textController,
           autofocus: true,
-          maxLines: 10, // Define um bom espaço para escrever
+          maxLines: null, // Permite que o campo cresça indefinidamente
+          keyboardType: TextInputType.multiline, // Garante o teclado correto
+          textCapitalization: TextCapitalization.sentences, // Capitaliza o início das frases
           style: const TextStyle(color: Colors.white, fontSize: 18),
           decoration: const InputDecoration(
             hintText: 'No que você está pensando?',
             hintStyle: TextStyle(color: Colors.white54),
-            border: InputBorder.none, // Borda limpa
+            border: InputBorder.none,
           ),
         ),
       ),

@@ -4,7 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final String? userId;
+  const ProfilePage({super.key, this.userId});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -22,13 +23,20 @@ class _ProfilePageState extends State<ProfilePage> {
   final Color accentOrange = const Color(0xFFFF6D00);
   final Color logoutRed = const Color(0xFFE53935);
 
+  late final String _profileUserId;
+  late final bool _isCurrentUserProfile;
+
   @override
   void initState() {
     super.initState();
+    _profileUserId = widget.userId ?? FirebaseAuth.instance.currentUser!.uid;
+    _isCurrentUserProfile = _profileUserId == FirebaseAuth.instance.currentUser!.uid;
     _loadUserStats();
   }
 
   Future<void> _loadUserStats() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return;
     final user = FirebaseAuth.instance.currentUser;
 
     // 🔹 Detecta simulação ou ausência de login
@@ -64,22 +72,21 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // 🔹 Caso seja usuário real (Firebase)
     try {
+      final corridasQuery = await FirebaseFirestore.instance
       final query = await FirebaseFirestore.instance
           .collection('corridas')
-          .where('userId', isEqualTo: user.uid)
+          .where('userId', isEqualTo: _profileUserId)
           .get();
 
-      double distance = 0;
-      int duration = 0;
-      double calories = 0;
-
-      for (var doc in query.docs) {
+      double distance = 0; int duration = 0; double calories = 0;
+      for (var doc in corridasQuery.docs) {
         final data = doc.data();
         distance += (data['distance'] as num?)?.toDouble() ?? 0.0;
         duration += (data['duration'] as num?)?.toInt() ?? 0;
         calories += (data['calories'] as num?)?.toDouble() ?? 0.0;
       }
 
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(_profileUserId).get();
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -90,7 +97,8 @@ class _ProfilePageState extends State<ProfilePage> {
         totalDuration = duration;
         totalCalories = calories;
         userData = userDoc.data() ?? {};
-        photoURL = userData?['photoURL'] ?? user.photoURL;
+        // Fallback para a foto do provedor de autenticação
+        photoURL = userData?['photoURL'] ?? (userDoc.id == currentUser.uid ? currentUser.photoURL : null);
         loading = false;
       });
     } catch (e) {
@@ -302,6 +310,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String _formatDuration(int seconds) {
+    final hours = seconds ~/ 3600; final minutes = (seconds % 3600) ~/ 60; final secs = seconds % 60;
+    if (hours > 0) return '${hours}h ${minutes}min';
+    if (minutes > 0) return '${minutes}min ${secs}s';
+    return '${secs}s';
     final h = seconds ~/ 3600;
     final m = (seconds % 3600) ~/ 60;
     final s = seconds % 60;
@@ -310,6 +322,8 @@ class _ProfilePageState extends State<ProfilePage> {
     return '${s}s';
   }
 
+  @override
+  Widget build(BuildContext context) {
   // -------------------------------------------------------------
   //  VISUAL MOBILE
   // -------------------------------------------------------------
@@ -387,15 +401,61 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
+              slivers: [
+                SliverAppBar(
+                  pinned: true,
+                  backgroundColor: primaryGreen,
+                  expandedHeight: 220,
+                  flexibleSpace: FlexibleSpaceBar(
+                    titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
+                    title: Text(
+                      userData?['displayName'] ?? 'Perfil',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    background: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Container(decoration: BoxDecoration(gradient: LinearGradient(colors: [primaryGreen, accentOrange], begin: Alignment.topLeft, end: Alignment.bottomRight))),
+                        Align(alignment: Alignment.bottomLeft, child: Padding(padding: const EdgeInsets.all(16), child: CircleAvatar(radius: 45, backgroundColor: Colors.white.withOpacity(0.25), backgroundImage: (photoURL != null && photoURL!.isNotEmpty) ? NetworkImage(photoURL!) : null, child: (photoURL == null || photoURL!.isEmpty) ? const Icon(Icons.person, color: Colors.white, size: 50) : null))),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        _buildInfoCard(),
+                        const SizedBox(height: 20),
+                        if (!_isCurrentUserProfile)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 20.0),
+                            child: _FollowButton(profileUserId: _profileUserId),
+                          ),
+                        _buildStatsGrid(),
+                        const SizedBox(height: 25),
+                        _buildUserDetails(),
+                        const SizedBox(height: 40),
+                        if (_isCurrentUserProfile)
+                          _buildLogoutButton(),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
   // -------------------------------------------------------------
   //  MOBILE HELPERS
   // -------------------------------------------------------------
+  // SEU CÓDIGO ORIGINAL RESTAURADO
   Widget _buildInfoCard() {
     final email = FirebaseAuth.instance.currentUser?.email ??
         'Usuário não identificado';
+    final emailKey = _isCurrentUserProfile ? FirebaseAuth.instance.currentUser?.email : userData?['email'];
     return Card(
       elevation: 5,
       shape:
@@ -409,6 +469,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 style:
                 const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 textAlign: TextAlign.center),
+            Text(
+              emailKey ?? 'E-mail não disponível',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
             Text(
               userData?['city'] != null
@@ -423,6 +488,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildStatsGrid() {
+    final List<Map<String, dynamic>> stats = [
+      {'icon': Icons.directions_run, 'label': 'Distância Total', 'value': "${totalDistance.toStringAsFixed(2)} km", 'color': primaryGreen,},
+      {'icon': Icons.access_time, 'label': 'Tempo Total', 'value': _formatDuration(totalDuration), 'color': accentOrange,},
+      {'icon': Icons.local_fire_department, 'label': 'Calorias', 'value': "${totalCalories.toStringAsFixed(0)} kcal", 'color': softOrange,},
     final stats = [
       {
         'icon': Icons.directions_run,
@@ -452,6 +521,10 @@ class _ProfilePageState extends State<ProfilePage> {
       const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3),
       itemBuilder: (context, i) {
         final s = stats[i];
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12),
+      itemBuilder: (context, index) {
+        final stat = stats[index];
+        final Color color = stat['color'] as Color;
         return Container(
           margin: const EdgeInsets.all(6),
           decoration: BoxDecoration(
@@ -471,6 +544,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   style: const TextStyle(fontSize: 12, color: Colors.black54)),
             ],
           ),
+          decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(15)),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(stat['icon'] as IconData, color: color, size: 30),
+              const SizedBox(height: 8),
+              Text(stat['value'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              const SizedBox(height: 4),
+              Text(stat['label'] as String, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+            ],),
         );
       },
     );
@@ -508,6 +589,8 @@ class _ProfilePageState extends State<ProfilePage> {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(children: [
           Icon(icon, color: primaryGreen),
           const SizedBox(width: 10),
           Expanded(
@@ -519,6 +602,9 @@ class _ProfilePageState extends State<ProfilePage> {
               overflow: TextOverflow.ellipsis),
         ],
       ),
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
+          Text(value, style: const TextStyle(fontSize: 14, color: Colors.black87), overflow: TextOverflow.ellipsis),
+        ],),
     );
   }
 
@@ -526,12 +612,7 @@ class _ProfilePageState extends State<ProfilePage> {
     return ElevatedButton.icon(
       icon: const Icon(Icons.logout),
       label: const Text('Sair da Conta'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: logoutRed,
-        foregroundColor: Colors.white,
-        minimumSize: const Size(double.infinity, 50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+      style: ElevatedButton.styleFrom(backgroundColor: logoutRed, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
       onPressed: () async {
         await FirebaseAuth.instance.signOut();
         if (context.mounted) {
@@ -547,5 +628,78 @@ class _ProfilePageState extends State<ProfilePage> {
     final isWear =
         MediaQuery.of(context).size.shortestSide < 300; // WearOS detection
     return isWear ? _buildWearView(user) : _buildMobileView(user);
+  }
+}
+
+// WIDGET ISOLADO PARA O BOTÃO DE SEGUIR
+class _FollowButton extends StatefulWidget {
+  final String profileUserId;
+  const _FollowButton({required this.profileUserId});
+
+  @override
+  State<_FollowButton> createState() => _FollowButtonState();
+}
+
+class _FollowButtonState extends State<_FollowButton> {
+  final _currentUser = FirebaseAuth.instance.currentUser!;
+  bool _isFollowing = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfFollowing();
+  }
+
+  Future<void> _checkIfFollowing() async {
+    final doc = await FirebaseFirestore.instance.collection('users').doc(_currentUser.uid).collection('following').doc(widget.profileUserId).get();
+    if (mounted) {
+      setState(() {
+        _isFollowing = doc.exists;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _toggleFollow() async {
+    setState(() => _isLoading = true);
+    final currentUserRef = FirebaseFirestore.instance.collection('users').doc(_currentUser.uid);
+    final targetUserRef = FirebaseFirestore.instance.collection('users').doc(widget.profileUserId);
+    final newFollowingState = !_isFollowing;
+
+    try {
+      if (newFollowingState) {
+        await currentUserRef.collection('following').doc(widget.profileUserId).set({'timestamp': FieldValue.serverTimestamp()});
+        await targetUserRef.collection('followers').doc(_currentUser.uid).set({'timestamp': FieldValue.serverTimestamp()});
+        await targetUserRef.collection('notifications').add({
+          'type': 'follow',
+          'followerId': _currentUser.uid,
+          'message': '${_currentUser.displayName ?? 'Alguém'} começou a seguir você.',
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await currentUserRef.collection('following').doc(widget.profileUserId).delete();
+        await targetUserRef.collection('followers').doc(_currentUser.uid).delete();
+      }
+      if(mounted) setState(() => _isFollowing = newFollowingState);
+    } finally {
+      if(mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const SizedBox(height: 48, child: Center(child: CircularProgressIndicator()));
+    }
+    return ElevatedButton(
+      onPressed: _toggleFollow,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _isFollowing ? Colors.grey[700] : Theme.of(context).primaryColor,
+        foregroundColor: _isFollowing ? Colors.white : Colors.black,
+        minimumSize: const Size(double.infinity, 48),
+      ),
+      child: Text(_isFollowing ? 'Deixar de Seguir' : 'Seguir', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+    );
   }
 }
