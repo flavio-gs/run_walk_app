@@ -1,9 +1,20 @@
+import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:run_walk_app/detalhe_corrida_page.dart';
 import 'model/run_model.dart';
 
-class HistoricoPage extends StatelessWidget {
+class HistoricoPage extends StatefulWidget {
   const HistoricoPage({super.key});
+
+  @override
+  State<HistoricoPage> createState() => _HistoricoPageState();
+}
+
+class _HistoricoPageState extends State<HistoricoPage> {
+  String? _filtroSelecionado;
 
   bool get isWearOS {
     final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
@@ -24,33 +35,86 @@ class HistoricoPage extends StatelessWidget {
     return isWearOS ? _buildWearView() : _buildMobileView(context);
   }
 
-  // 📱 -------- VISUAL MOBILE --------
+  // -------- 📱 MOBILE VIEW --------
   Widget _buildMobileView(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Histórico de Corridas'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         centerTitle: true,
-        backgroundColor: Colors.pinkAccent,
+        title: Text(
+          "Histórico de Corridas",
+          style: GoogleFonts.inter(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      backgroundColor: Colors.grey[100],
-      body: _buildRunStream(
-        itemBuilder: (corrida, index) => Card(
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          elevation: 3,
-          child: ListTile(
-            leading: const Icon(Icons.directions_run,
-                color: Colors.pinkAccent, size: 30),
-            title: Text(
-              'Corrida em ${corrida.date.toLocal().toString().substring(0, 16)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              'Distância: ${(corrida.distance / 1000).toStringAsFixed(2)} km • '
-                  'Tempo: ${_formatDuration(corrida.duration)}',
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+          child: Container(
+            color: Colors.black.withOpacity(0.35),
+            child: Column(
+              children: [
+                // 🔹 Filtro de corridas
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 100, 16, 8),
+                  child: DropdownButtonFormField<String>(
+                    dropdownColor: Colors.grey[900],
+                    style: GoogleFonts.inter(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: "Filtrar por",
+                      labelStyle:
+                      GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.1),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    value: _filtroSelecionado,
+                    items: const [
+                      DropdownMenuItem(
+                        value: "hoje",
+                        child: Text("Hoje"),
+                      ),
+                      DropdownMenuItem(
+                        value: "semana",
+                        child: Text("Últimos 7 dias"),
+                      ),
+                      DropdownMenuItem(
+                        value: "mes",
+                        child: Text("Últimos 30 dias"),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setState(() => _filtroSelecionado = value);
+                    },
+                  ),
+                ),
+
+                // 🔁 Lista de corridas
+                Expanded(
+                  child: _buildRunStream(
+                    filtro: _filtroSelecionado,
+                    itemBuilder: (corrida, index) => _buildRunCard(corrida),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -58,202 +122,145 @@ class HistoricoPage extends StatelessWidget {
     );
   }
 
-  // ⌚ -------- VISUAL WEAR OS (carrossel horizontal de corridas) --------
-  Widget _buildWearView() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('corridas')
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return const Center(
-                child: Text(
-                  'Erro ao carregar histórico',
-                  style: TextStyle(color: Colors.redAccent, fontSize: 11),
-                ),
-              );
-            }
-
-            if (!snapshot.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(color: Color(0xFFFF6D00)),
-              );
-            }
-
-            final docs = snapshot.data!.docs;
-            final corridas = docs
-                .map((doc) =>
-                RunModel.fromMap(doc.data() as Map<String, dynamic>))
-                .toList();
-
-            if (corridas.isEmpty) {
-              return const Center(
-                child: Text(
-                  'Nenhuma corrida salva',
-                  style: TextStyle(color: Colors.white70, fontSize: 11),
-                ),
-              );
-            }
-
-            return Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color.fromARGB(90, 0, 200, 83),
-                    Color.fromARGB(40, 255, 109, 0),
-                    Colors.transparent,
-                  ],
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                ),
-              ),
-              child: Column(
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6, bottom: 4),
-                    child: Text(
-                      '🏃 Histórico',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                  ),
-
-                  // 🔹 Carrossel horizontal de corridas
-                  Expanded(
-                    child: PageView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: corridas.length,
-                      itemBuilder: (context, index) {
-                        final corrida = corridas[index];
-                        final dataFormatada =
-                            "${corrida.date.day.toString().padLeft(2, '0')}/"
-                            "${corrida.date.month.toString().padLeft(2, '0')} "
-                            "${corrida.date.hour.toString().padLeft(2, '0')}:"
-                            "${corrida.date.minute.toString().padLeft(2, '0')}";
-
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 10),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              gradient: const LinearGradient(
-                                colors: [
-                                  Color(0xFF00C853),
-                                  Color(0xFFFF6D00)
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.85),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding: const EdgeInsets.all(10),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    dataFormatada,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    "${(corrida.distance / 1000).toStringAsFixed(2)} km",
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "⏱ ${_formatDuration(corrida.duration)}",
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Icon(
-                                    Icons.directions_run,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  // 🔹 Indicadores de posição do carrossel
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(
-                        corridas.length,
-                            (i) => Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.5),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+  // -------- 💳 CARD DE CADA CORRIDA --------
+  Widget _buildRunCard(RunModel corrida) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.white.withOpacity(0.08),
+          border: Border.all(color: Colors.white24, width: 1),
+        ),
+        child: ListTile(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DetalheCorridaPage(corrida: corrida),
               ),
             );
           },
+          leading: const CircleAvatar(
+            radius: 22,
+            backgroundColor: Color(0xFFFF6D00),
+            child: Icon(Icons.directions_run, color: Colors.white),
+          ),
+          title: Text(
+            "Corrida em ${corrida.date.toLocal().toString().substring(0, 16)}",
+            style: GoogleFonts.inter(
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+          subtitle: Text(
+            "Distância ${(corrida.distance / 1000).toStringAsFixed(2)} km  •  "
+                "Tempo ${_formatDuration(corrida.duration)}",
+            style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+          ),
+          trailing: const Icon(Icons.chevron_right, color: Colors.white54),
         ),
       ),
     );
   }
 
+  // -------- ⌚ WEAR OS VIEW --------
+  Widget _buildWearView() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: _buildRunStream(
+          itemBuilder: (corrida, index) => Padding(
+            padding: const EdgeInsets.all(8),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.white.withOpacity(0.1),
+              ),
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "${(corrida.distance / 1000).toStringAsFixed(2)} km",
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatDuration(corrida.duration),
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-
-  // 🔁 -------- STREAM COMPARTILHADA --------
+  // -------- 🔁 STREAM COMPARTILHADA --------
   Widget _buildRunStream({
     required Widget Function(RunModel corrida, int index) itemBuilder,
+    String? filtro,
   }) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Center(
+        child: Text(
+          "Usuário não autenticado",
+          style: TextStyle(color: Colors.redAccent),
+        ),
+      );
+    }
+
+    Query query = FirebaseFirestore.instance
+        .collection('corridas')
+        .where('userId', isEqualTo: user.uid)
+        .orderBy('createdAt', descending: true);
+
+    // Filtros simples
+    final agora = DateTime.now();
+    if (filtro == "hoje") {
+      query = query.where(
+        "createdAt",
+        isGreaterThanOrEqualTo: Timestamp.fromDate(
+          DateTime(agora.year, agora.month, agora.day),
+        ),
+      );
+    } else if (filtro == "semana") {
+      query = query.where(
+        "createdAt",
+        isGreaterThanOrEqualTo: Timestamp.fromDate(
+          agora.subtract(const Duration(days: 7)),
+        ),
+      );
+    } else if (filtro == "mes") {
+      query = query.where(
+        "createdAt",
+        isGreaterThanOrEqualTo: Timestamp.fromDate(
+          agora.subtract(const Duration(days: 30)),
+        ),
+      );
+    }
+
+
+
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('corridas')
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
+      stream: query.snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const Center(
-            child: Text('Erro ao carregar histórico.',
-                style: TextStyle(color: Colors.redAccent)),
-          );
+              child: Text("Erro ao carregar histórico.",
+                  style: TextStyle(color: Colors.redAccent)));
         }
 
         if (!snapshot.hasData) {
           return const Center(
-            child:
-            CircularProgressIndicator(color: Color(0xFFFF6D00)),
-          );
+              child: CircularProgressIndicator(color: Color(0xFFFF6D00)));
         }
 
         final docs = snapshot.data!.docs;
@@ -263,10 +270,10 @@ class HistoricoPage extends StatelessWidget {
             .toList();
 
         if (corridas.isEmpty) {
-          return const Center(
+          return Center(
             child: Text(
-              'Nenhuma corrida salva',
-              style: TextStyle(color: Colors.white70),
+              "Nenhuma corrida encontrada",
+              style: GoogleFonts.inter(color: Colors.white70),
             ),
           );
         }
