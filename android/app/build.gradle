@@ -23,7 +23,7 @@ android {
        
         applicationId = "com.example.run_walk_app"
        
-        minSdkVersion flutter.minSdkVersion
+        minSdkVersion 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
