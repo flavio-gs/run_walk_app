@@ -72,6 +72,7 @@ flutter:
 
   assets: 
     - assets/map_style.json
+    - assets/map_style_day.json
     - assets/click.mp3
     - assets/sounds/start.mp3
     - assets/sounds/stop.mp3
