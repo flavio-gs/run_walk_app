@@ -84,7 +84,7 @@ class _MainScaffoldState extends State<MainScaffold>
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -120,7 +120,7 @@ class _MainScaffoldState extends State<MainScaffold>
           shape: BoxShape.circle,
           gradient: isSelected
               ? const LinearGradient(
-            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           )
@@ -153,7 +153,7 @@ class _MainScaffoldState extends State<MainScaffold>
                 shape: BoxShape.circle,
                 gradient: isSelected
                     ? const LinearGradient(
-                  colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
@@ -161,16 +161,14 @@ class _MainScaffoldState extends State<MainScaffold>
                 boxShadow: isSelected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF00C853)
-                        .withOpacity(0.5 * glowOpacity),
-                    blurRadius: 15 + 10 * glowOpacity,
+                    color: const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
+                    blurRadius: 18 + 10 * glowOpacity,
                     spreadRadius: 2,
                   ),
                   BoxShadow(
-                    color: const Color(0xFFFF6D00)
-                        .withOpacity(0.5 * glowOpacity),
-                    blurRadius: 20 + 10 * glowOpacity,
-                    spreadRadius: 4,
+                    color: const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
+                    blurRadius: 22 + 10 * glowOpacity,
+                    spreadRadius: 3,
                   ),
                 ]
                     : [],
@@ -228,7 +226,7 @@ class _MainScaffoldState extends State<MainScaffold>
                       shape: BoxShape.circle,
                       gradient: isActive
                           ? const LinearGradient(
-                        colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                        colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       )

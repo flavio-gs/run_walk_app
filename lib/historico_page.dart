@@ -30,6 +30,16 @@ class _HistoricoPageState extends State<HistoricoPage> {
     return "$h:$m:$s";
   }
 
+  String _formatarData(DateTime date) {
+    final dia = date.day.toString().padLeft(2, '0');
+    final mes = date.month.toString().padLeft(2, '0');
+    final ano = date.year.toString();
+    final hora = date.hour.toString().padLeft(2, '0');
+    final minuto = date.minute.toString().padLeft(2, '0');
+    return "$dia/$mes/$ano $hora:$minuto";
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return isWearOS ? _buildWearView() : _buildMobileView(context);
@@ -135,12 +145,15 @@ class _HistoricoPageState extends State<HistoricoPage> {
         ),
         child: ListTile(
           onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DetalheCorridaPage(corrida: corrida),
-              ),
-            );
+            Navigator.of(context).push(PageRouteBuilder(
+              transitionDuration: const Duration(milliseconds: 500),
+              reverseTransitionDuration: const Duration(milliseconds: 400),
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  FadeTransition(
+                    opacity: animation,
+                    child: DetalheCorridaPage(corrida: corrida),
+                  ),
+            ));
           },
           leading: const CircleAvatar(
             radius: 22,
@@ -148,7 +161,7 @@ class _HistoricoPageState extends State<HistoricoPage> {
             child: Icon(Icons.directions_run, color: Colors.white),
           ),
           title: Text(
-            "Corrida em ${corrida.date.toLocal().toString().substring(0, 16)}",
+            "Corrida em ${_formatarData(corrida.date)}",
             style: GoogleFonts.inter(
               fontWeight: FontWeight.w600,
               color: Colors.white,

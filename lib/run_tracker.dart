@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'dart:math' as math;
 
 // Páginas e widgets do seu app
 import 'historico_page.dart';
@@ -114,8 +115,8 @@ class _FuturisticChronoState extends State<FuturisticChrono>
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Color(0xFF00C853), // Verde vibrante
-                Color(0xFFFF6D00), // Laranja energético
+                Color(0xFF4A90E2),
+                Color(0xFF007AFF),
               ],
             ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
             blendMode: BlendMode.srcIn,
@@ -129,11 +130,11 @@ class _FuturisticChronoState extends State<FuturisticChrono>
                 shadows: [
                   Shadow(
                     blurRadius: 20 + 10 * glow,
-                    color: const Color(0xFF00C853).withOpacity(0.6 * glow),
+                    color: const Color(0xFF4A90E2).withOpacity(0.5 * glow),
                   ),
                   Shadow(
                     blurRadius: 30 + 15 * glow,
-                    color: const Color(0xFFFF6D00).withOpacity(0.5 * glow),
+                    color: const Color(0xFF007AFF).withOpacity(0.4 * glow),
                   ),
                 ],
               ),
@@ -156,8 +157,15 @@ class RunTrackingPage extends StatefulWidget {
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
 
+  String _areaCapturedFormatted = "0 m²";
+
+  final Set<Polygon> _territoryPolygons = {}; // 🟩 Territórios salvos
+
   bool _isNightMode = false;
 
+  // 🟩 NOVO: Área conquistada
+  final Set<Polygon> _polygons = {};
+  double _areaCaptured = 0;
 
   Future<void> _recenterMap() async {
     if (_googleMapController == null) return;
@@ -209,6 +217,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
+
 
   int _selectedIndex = 2;
   String? _mapStyle;
@@ -340,26 +349,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
-  Future<void> _toggleMapStyle() async {
-    _isNightMode = !_isNightMode;
-
-    final stylePath = _isNightMode
-        ? 'assets/map_style_day.json'
-        : 'assets/map_style.json';
-
-    try {
-      _mapStyle = await rootBundle.loadString(stylePath);
-      await _googleMapController?.setMapStyle(_mapStyle);
-
-      // 🔸 Feedback visual e tátil
-      HapticFeedback.selectionClick();
-    } catch (e) {
-      debugPrint("Erro ao alternar estilo do mapa: $e");
-    }
-
-    setState(() {}); // Atualiza o ícone do botão
-  }
-
 
   Future<void> _loadSavedRuns() async {
     try {
@@ -433,6 +422,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         );
       }
 
+      await _loadTerritories(); // 🟩 Carrega territórios conquistados
+
+
       setState(() {});
     } catch (e) {
       debugPrint("Erro ao carregar corridas: $e");
@@ -447,6 +439,56 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           80,
         ),
       );
+    }
+  }
+
+  Future<void> _loadTerritories() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('territorios')
+          .get();
+
+      final colorPalette = [
+        Colors.deepPurpleAccent.withOpacity(0.4),
+        Colors.orangeAccent.withOpacity(0.4),
+        Colors.cyanAccent.withOpacity(0.4),
+        Colors.pinkAccent.withOpacity(0.4),
+        Colors.lightGreenAccent.withOpacity(0.4),
+        Colors.blueAccent.withOpacity(0.4),
+      ];
+
+      int colorIndex = 0;
+
+      _territoryPolygons.clear();
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final userId = data['userId'] ?? '';
+        final points = (data['points'] as List)
+            .map((p) => LatLng(p['lat'], p['lng']))
+            .toList();
+
+        final color = userId == user.uid
+            ? const Color(0xFF00C853).withOpacity(0.4) // 💚 Seu território
+            : colorPalette[colorIndex++ % colorPalette.length];
+
+        _territoryPolygons.add(
+          Polygon(
+            polygonId: PolygonId("territorio_${doc.id}"),
+            points: points,
+            fillColor: color,
+            strokeColor: color.withOpacity(0.7),
+            strokeWidth: 2,
+          ),
+        );
+      }
+
+      setState(() {});
+    } catch (e) {
+      debugPrint("Erro ao carregar territórios: $e");
     }
   }
 
@@ -533,7 +575,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
 
       if (!isWearOS) {
-        _startPulseEffect();
+        // _startPulseEffect();
       }
     });
   }
@@ -541,7 +583,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   DateTime? _lastPointTime;
 
   void _updatePolyline() {
-    if (isWearOS) return; // economiza no Wear
+    if (isWearOS) return;
     if (_positions.length < 2) return;
 
     final i = _positions.length - 2;
@@ -566,8 +608,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     final speed = (distance / elapsed).clamp(0.2, 6.0); // m/s
 
     final color = Color.lerp(
-      const Color(0xFF3FA9F5), // Azul
-      const Color(0xFFFF3D00), // Vermelho
+      const Color(0xFF3FA9F5),
+      const Color(0xFFFF3D00),
       (speed / 6).clamp(0, 1),
     )!;
 
@@ -585,8 +627,61 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
     );
 
+
+    // 🟩 NOVO: cria área conquistada
+    if (_positions.length >= 3) {
+      _areaCapturedFormatted = _calculateAreaFormatted(_positions);
+      _polygons.clear();
+      _polygons.add(
+        Polygon(
+          polygonId: const PolygonId('territorio'),
+          points: List.from(_positions),
+          strokeColor: color,
+          strokeWidth: 2,
+          fillColor: color.withOpacity(0.3),
+        ),
+      );
+    }
+
     setState(() {});
   }
+
+  // 🟩 NOVO: cálculo de área (m² ou km², com formatação automática)
+  String _calculateAreaFormatted(List<LatLng> points) {
+    if (points.length < 3) return "0 m²";
+
+    const double earthRadius = 6378137.0;
+    final refLat = points.first.latitude * math.pi / 180;
+    final refLng = points.first.longitude * math.pi / 180;
+
+    final projected = points.map((p) {
+      final latRad = p.latitude * math.pi / 180;
+      final lngRad = p.longitude * math.pi / 180;
+      final x = (lngRad - refLng) * earthRadius * math.cos(refLat);
+      final y = (latRad - refLat) * earthRadius;
+      return Offset(x, y);
+    }).toList();
+
+    // Shoelace formula
+    double area = 0;
+    for (int i = 0; i < projected.length; i++) {
+      final j = (i + 1) % projected.length;
+      area += projected[i].dx * projected[j].dy - projected[j].dx * projected[i].dy;
+    }
+
+    area = area.abs() / 2.0;
+
+    // 🔹 Formata automaticamente
+    if (area >= 1_000_000) {
+      return "${(area / 1_000_000).toStringAsFixed(2)} km²";
+    } else {
+      return "${area.toStringAsFixed(0)} m²";
+    }
+  }
+
+
+
+
 
   Marker? _pulseMarker;
   double _pulseT = 0.0;
@@ -643,7 +738,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   void _stopRun() async {
     _timer?.cancel();
     _stopwatch.stop();
-    _stopPulseEffect();
+    // _stopPulseEffect();
     setState(() => _isRunning = false);
     await _playStop(); // som apenas no Wear
   }
@@ -756,8 +851,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Color.fromARGB(100, 0, 200, 83),
-                      Color.fromARGB(40, 255, 109, 0),
+                      Color.fromARGB(100, 0, 143, 200),
+                      Color.fromARGB(40, 14, 60, 112),
                       Colors.transparent,
                     ],
                     begin: Alignment.bottomCenter,
@@ -819,11 +914,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                       boxShadow: [
                         BoxShadow(
                           color: (_isRunning
-                              ? Colors.redAccent
-                              : const Color(0xFF00C853))
-                              .withOpacity(0.6),
-                          blurRadius: 20,
-                          spreadRadius: 4,
+                              ? const Color(0xFFFF3B30)
+                              : const Color(0xFF007AFF))
+                              .withOpacity(0.55),
+                          blurRadius: 25,
+                          spreadRadius: 6,
                         ),
                       ],
                     ),
@@ -882,7 +977,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           padding: const EdgeInsets.only(top: 10),
           child: ShaderMask(
             shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
@@ -919,16 +1014,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             onMapCreated: (GoogleMapController controller) async {
               _googleMapController = controller;
 
-              // 🌗 Alterna automaticamente entre dia e noite
-              final hour = DateTime.now().hour;
-              final isNight = hour >= 18 || hour < 6;
-
-              final stylePath = isNight
-                  ? 'assets/map_style.json'
-                  : 'assets/map_style_day.json';
-
               try {
-                _mapStyle = await rootBundle.loadString(stylePath);
+                // 🗺️ Aplica sempre o estilo escuro personalizado
+                _mapStyle = await rootBundle.loadString('assets/map_style.json');
                 await _googleMapController?.setMapStyle(_mapStyle);
               } catch (e) {
                 debugPrint("Erro ao aplicar estilo do mapa: $e");
@@ -939,7 +1027,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             },
 
 
+
+            // 🟩 NOVO: adiciona polygons
+
             polylines: _polylines,
+            polygons: {..._polygons, ..._territoryPolygons}, // 🟩 Mostra dominados + atuais
             markers: _markers,
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
@@ -951,14 +1043,60 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             gestureRecognizers: {},
           ),
 
+          // 🟩 NOVO: exibe painel com área conquistada
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 200,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: AnimatedOpacity(
+                opacity: _areaCaptured > 0 ? 1 : 0,
+                duration: const Duration(milliseconds: 300),
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.greenAccent.withOpacity(0.5), width: 1),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        _areaCapturedFormatted,
+                        style: GoogleFonts.orbitron(
+                          textStyle: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _isRunning
+                            ? "Captura em Progresso"
+                            : "Area Capturada",
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           IgnorePointer(
             ignoring: true,
             child: Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Color.fromARGB(90, 0, 200, 83),
-                    Color.fromARGB(40, 255, 109, 0),
+                    Color.fromARGB(80, 0, 122, 255),   // azul iOS translúcido
+                    Color.fromARGB(40, 10, 60, 120),   // azul mais escuro sutil
                     Colors.transparent,
                   ],
                   begin: Alignment.bottomCenter,
@@ -967,6 +1105,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+
 
           IgnorePointer(
             ignoring: true,
@@ -1007,41 +1146,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
-// 🌞🌙 Botão de alternância de modo do mapa
-          Positioned(
-            bottom: 20,
-            left: 20,
-            child: GestureDetector(
-              onTap: _toggleMapStyle,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: _isNightMode
-                        ? [const Color(0xFF00C853), const Color(0xFFFF6D00)] // noite
-                        : [const Color(0xFFFFD740), const Color(0xFFFF6D00)], // dia
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.4),
-                      blurRadius: 8,
-                      offset: const Offset(2, 3),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _isNightMode ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-            ),
-          ),
-
 // 🧭 Botão de recentralizar
           Positioned(
             bottom: 20,
@@ -1053,15 +1157,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+                    colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.4),
-                      blurRadius: 8,
-                      offset: const Offset(2, 3),
+                      color: const Color(0xFF4A90E2).withOpacity(0.6),
+                      blurRadius: 25,
+                      spreadRadius: 4,
                     ),
                   ],
                 ),
@@ -1101,16 +1205,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF00C853)
-                                  .withOpacity(0.6 * pulse),
-                              blurRadius: 25 + 20 * pulse,
-                              spreadRadius: 6 + 2 * pulse,
+                              color: const Color(0xFF4A90E2).withOpacity(0.6),
+                              blurRadius: 25,
+                              spreadRadius: 4,
                             ),
                             BoxShadow(
-                              color: const Color(0xFFFF6D00)
-                                  .withOpacity(0.5 * pulse),
-                              blurRadius: 30 + 10 * pulse,
-                              spreadRadius: 3,
+                              color: const Color(0xFF4A90E2).withOpacity(0.6),
+                              blurRadius: 25,
+                              spreadRadius: 4,
                             ),
                           ],
                         ),
@@ -1121,28 +1223,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           decoration: BoxDecoration(
                             gradient: _isRunning
                                 ? const LinearGradient(
-                              colors: [Colors.redAccent, Color(0xFFFF6D00)],
+                              colors: [Color(0xFFFF3B30), Color(0xFFE53935)], // 🔴 Vermelho Apple para Stop
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             )
                                 : const LinearGradient(
-                              colors: [
-                                Color(0xFF00C853),
-                                Color(0xFFFF6D00)
-                              ],
+                              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)], // 💙 Azul iOS para Play
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
+
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: (_isRunning
-                                    ? Colors.redAccent
-                                    : const Color(0xFF00C853))
-                                    .withOpacity(0.6),
-                                blurRadius: 20,
-                                spreadRadius: 5,
-                              )
+                                color: const Color(0xFF4A90E2).withOpacity(0.6),
+                                blurRadius: 25,
+                                spreadRadius: 4,
+                              ),
                             ],
                           ),
                           child: Icon(
@@ -1176,7 +1273,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1278,12 +1375,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         _caloriesBurned = 0;
         _averagePace = 0;
         _positions.clear();
+
+        // 🟩 Mantém polígonos e adiciona os territórios conquistados
         if (!isWearOS) {
           _polylines.clear();
           _markers.clear();
+          // não limpar _polygons aqui!
         }
       });
+
       await _setInitialLocation();
+    }
+    // 🟩 Salva também o território conquistado
+    if (_positions.length >= 3 && _areaCaptured > 0) {
+      final territoryData = {
+        'userId': user.uid,
+        'points': _positions
+            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+            .toList(),
+        'area': _areaCaptured,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      await FirebaseFirestore.instance.collection('territorios').add(territoryData);
+      await _loadTerritories();
     }
   }
 
@@ -1293,146 +1407,192 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     String? photoUrl,
     required Map<String, dynamic> runData,
   }) async {
-    if (isWearOS) return; // sem marcador no relógio
+    if (isWearOS) return;
 
     try {
-      const double width = 180;
-      const double height = 90;
-
+      const double size = 60;
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
       final paint = Paint()..isAntiAlias = true;
 
-      // Fundo do card com leve gradiente diagonal
-      final gradient = ui.Gradient.linear(
-        const Offset(0, 0),
-        Offset(width, height),
+      // 🔹 Bolinha com gradiente azul
+      final gradient = ui.Gradient.radial(
+        Offset(size / 2, size / 2),
+        size / 2,
         [
-          const Color(0xFF00C853).withOpacity(0.9),
-          const Color(0xFFFF6D00).withOpacity(0.9),
+          const Color(0xFF4A90E2),
+          const Color(0xFF007AFF),
         ],
       );
       paint.shader = gradient;
-      final rrect = RRect.fromLTRBR(0, 0, width, height, const Radius.circular(18));
-      canvas.drawRRect(rrect, paint);
+      canvas.drawCircle(Offset(size / 2, size / 2), size / 2, paint);
 
-      // Camada de sombra interna estilo Pokémon Go
-      paint.shader = null;
-      paint.color = Colors.black.withOpacity(0.25);
-      canvas.drawRRect(
-        RRect.fromLTRBR(2, 2, width - 2, height - 2, const Radius.circular(16)),
-        paint,
-      );
+      // 🔹 Borda branca translúcida
+      paint
+        ..shader = null
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Colors.white.withOpacity(0.8);
+      canvas.drawCircle(Offset(size / 2, size / 2), size / 2 - 1.5, paint);
 
-      // Foto circular do jogador
-      const double avatarSize = 70;
-      final avatarOffset = const Offset(15, 10);
-      final avatarRect = Rect.fromCircle(center: avatarOffset.translate(avatarSize / 2, avatarSize / 2), radius: avatarSize / 2);
-
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        try {
-          final bytes =
-          (await NetworkAssetBundle(Uri.parse(photoUrl)).load(photoUrl))
-              .buffer
-              .asUint8List();
-          final codec = await ui.instantiateImageCodec(bytes,
-              targetWidth: avatarSize.toInt(), targetHeight: avatarSize.toInt());
-          final frame = await codec.getNextFrame();
-          final image = frame.image;
-
-          paint.isAntiAlias = true;
-          final clipPath = Path()..addOval(avatarRect);
-          canvas.save();
-          canvas.clipPath(clipPath);
-          paintImage(canvas: canvas, rect: avatarRect, image: image, fit: BoxFit.cover);
-          canvas.restore();
-
-          // borda branca fina ao redor do avatar
-          paint
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2
-            ..color = Colors.white.withOpacity(0.9);
-          canvas.drawCircle(
-              avatarOffset.translate(avatarSize / 2, avatarSize / 2),
-              avatarSize / 2,
-              paint);
-        } catch (_) {
-          _drawDefaultAvatar(canvas, avatarOffset, avatarSize);
-        }
-      } else {
-        _drawDefaultAvatar(canvas, avatarOffset, avatarSize);
-      }
-
-      // Nome do jogador
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: userName,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-            shadows: [
-              Shadow(color: Colors.black54, blurRadius: 4),
-            ],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        maxLines: 1,
-        ellipsis: '…',
-      );
-      textPainter.layout(maxWidth: width - avatarSize - 40);
-      textPainter.paint(canvas, Offset(avatarSize + 30, height / 2 - 10));
-
-      // Subtexto com data ou distância (extra Pokémon Go vibe)
-      final distanceKm = (runData['distance'] / 1000).toStringAsFixed(2);
-      final subText = TextPainter(
-        text: TextSpan(
-          text: '$distanceKm km',
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      subText.layout(maxWidth: width - avatarSize - 40);
-      subText.paint(canvas, Offset(avatarSize + 30, height / 2 + 12));
-
-      // Finaliza imagem
-      final img = await recorder.endRecording().toImage(width.toInt(), height.toInt());
-      final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+      final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
+      final bytes =
+      (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
 
       final marker = Marker(
-        markerId: MarkerId("run_marker_${position.latitude}_${position.longitude}"),
+        markerId: MarkerId("runner_${position.latitude}_${position.longitude}"),
         position: position,
         icon: BitmapDescriptor.fromBytes(bytes),
-        anchor: const Offset(0.5, 1.1),
+        anchor: const Offset(0.5, 0.5),
         zIndex: 9999,
-        onTap: () => _showRunDetailsPopup(runData),
+        onTap: () {}, // 👈 toque simples não faz nada
+        onDragStart: (_) {}, // garante compatibilidade
+        onDragEnd: (_) {},
+        consumeTapEvents: false,
       );
 
       setState(() => _markers.add(marker));
+
+      // Armazena dados do marcador para gesto
+      _markerGestures[position] = (userName, photoUrl, runData);
     } catch (e) {
-      debugPrint("❌ Erro ao criar marcador estilizado: $e");
+      debugPrint("❌ Erro ao criar marcador com gesto: $e");
     }
   }
 
-  void _drawDefaultAvatar(Canvas canvas, Offset offset, double size) {
-    final paint = Paint()
-      ..color = const Color(0xFF00C853)
-      ..isAntiAlias = true;
-    canvas.drawCircle(offset.translate(size / 2, size / 2), size / 2, paint);
-    final iconPainter = TextPainter(
-      text: const TextSpan(
-        text: "🏃‍♀️",
-        style: TextStyle(fontSize: 32),
+// 🔹 Armazena dados dos marcadores
+  final Map<LatLng, (String, String?, Map<String, dynamic>)> _markerGestures = {};
+
+  /// Chamado a partir do mapa, interceptando gestos sobre marcadores
+  Timer? _markerHoldTimer;
+  OverlayEntry? _activeMarkerOverlay;
+
+  /// Detecta long press e arrasto no mapa
+  void _handleMapGesture(LatLng markerPos, String userName, String? photoUrl, Map<String, dynamic> runData) {
+    _activeMarkerOverlay?.remove();
+
+    _activeMarkerOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        left: MediaQuery.of(context).size.width / 2 - 100,
+        bottom: 150,
+        child: GestureDetector(
+          onHorizontalDragUpdate: (details) async {
+            if (details.primaryDelta != null && details.primaryDelta! > 25) {
+              _activeMarkerOverlay?.remove();
+              _activeMarkerOverlay = null;
+              HapticFeedback.mediumImpact();
+              await Future.delayed(const Duration(milliseconds: 120));
+              _showRunDetailsPopup(runData);
+            }
+          },
+          onTapUp: (_) => _activeMarkerOverlay?.remove(),
+          child: AnimatedOpacity(
+            opacity: 1,
+            duration: const Duration(milliseconds: 150),
+            child: Container(
+              width: 200,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF007AFF).withOpacity(0.4),
+                    blurRadius: 20,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                        ? NetworkImage(photoUrl)
+                        : null,
+                    backgroundColor: const Color(0xFF4A90E2),
+                    child: (photoUrl == null || photoUrl.isEmpty)
+                        ? const Icon(Icons.person, color: Colors.white)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          userName,
+                          style: GoogleFonts.orbitron(
+                            textStyle: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          "${(runData['distance'] / 1000).toStringAsFixed(2)} km",
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
-      textDirection: TextDirection.ltr,
     );
-    iconPainter.layout();
-    iconPainter.paint(canvas, offset.translate(size / 2 - 16, size / 2 - 16));
+
+    Overlay.of(context).insert(_activeMarkerOverlay!);
+    HapticFeedback.lightImpact();
   }
+
+  /// Associa o gesto “press and hold” a cada marcador
+  void _enableMarkerGestures() {
+    for (final markerPos in _markerGestures.keys) {
+      final (name, photo, data) = _markerGestures[markerPos]!;
+
+      // Simula gesto de pressionar sobre o marcador
+      _markers.add(
+        Marker(
+          markerId: MarkerId("runner_${markerPos.latitude}_${markerPos.longitude}"),
+          position: markerPos,
+          icon: _markers
+              .firstWhere((m) => m.position == markerPos)
+              .icon, // usa mesmo ícone existente
+          onTap: () {
+            // Nada em tap curto
+          },
+          onDragStart: (_) {},
+          consumeTapEvents: false,
+          onDragEnd: (_) {},
+          infoWindow: InfoWindow(
+            title: name,
+            onTap: () {}, // evita abrir info padrão
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Encontra o marcador mais próximo da posição do toque
+  LatLng? _findNearestMarker(Offset position) {
+    if (_googleMapController == null || _markerGestures.isEmpty) return null;
+    for (final marker in _markerGestures.keys) {
+      // Poderia usar hitbox mais refinada com coordenadas de tela
+      // mas aqui simplificamos.
+      return marker;
+    }
+    return null;
+  }
+
+
 
 
   void _showRunDetailsPopup(Map<String, dynamic> runData) {
@@ -1454,7 +1614,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
+              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
