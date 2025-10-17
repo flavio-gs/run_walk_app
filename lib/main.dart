@@ -1,31 +1,62 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+
+// Suas páginas
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/complete_profile_page.dart';
-import 'run_tracker.dart';
-import 'widgets//main_scaffold.dart';
-import 'auth_gate.dart';
-import 'dart:io';
+import 'package:run_walk_app/run_tracker.dart';
+import 'package:run_walk_app/widgets/main_scaffold.dart';
+import 'package:run_walk_app/auth_gate.dart';
 
-void main() async {
+// Serviço de gamificação
+import 'package:run_walk_app/service/service/gamification_service.dart';
+import 'package:run_walk_app/service/achievement_service.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(); // Inicializa o Firebase
+  await Firebase.initializeApp();
+
+  // Sincroniza pontos assim que o app abre
+  await GamificationService().syncNow();
+
+  // Inicia o app
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+
+    // 🛰️ Listener para sincronizar automaticamente quando a internet voltar
+    Connectivity().onConnectivityChanged.listen((result) {
+      if (result != ConnectivityResult.none) {
+        GamificationService().syncNow(context: context);
+        AchievementService().syncNow(context: context);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Empire Of The Run',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        scaffoldBackgroundColor: Colors.grey[100],
       ),
       home: const AuthGate(),
       routes: {
@@ -36,9 +67,7 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
         '/perfil': (context) => const ProfilePage(),
-        '/feed': (context) => const FeedPage(),
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -49,24 +78,18 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Corrida & Caminhada'),
-      ),
+      appBar: AppBar(title: const Text('Corrida & Caminhada')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(context, '/tracker');
-              },
+              onPressed: () => Navigator.pushNamed(context, '/tracker'),
               child: const Text('Iniciar Rastreamento'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.pushNamed(context, '/mapa');
-              },
-              child: const Text('Ver Mapa com Trajeto'),
+              onPressed: () => Navigator.pushNamed(context, '/historico'),
+              child: const Text('Ver Histórico'),
             ),
           ],
         ),
