@@ -8,9 +8,10 @@ import 'package:run_walk_app/complete_profile_page.dart';
 import 'run_tracker.dart';
 import 'widgets//main_scaffold.dart';
 import 'auth_gate.dart';
-
+import 'dart:io';
 
 void main() async {
+
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(); // Inicializa o Firebase
   runApp(const MyApp());

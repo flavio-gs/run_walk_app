@@ -154,6 +154,7 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+  bool _mapReady = false;
   bool _followUser = true; // 🔓 controla se o mapa deve seguir automaticamente
   bool _isProgrammaticCameraMove = false; // 👈 controla se o movimento é automático
   bool _userIsMovingMap = false;
@@ -341,18 +342,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       await _updateMarker();
 
-      if (!isWearOS && _followUser) {
+      if (!isWearOS && _followUser && _mapReady) {
         _isProgrammaticCameraMove = true;
         await _googleMapController?.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(target: _currentPosition, zoom: 17),
           ),
         );
-        // 🔹 Depois de 300ms, volta a permitir eventos de câmera
         Future.delayed(const Duration(milliseconds: 300), () {
           _isProgrammaticCameraMove = false;
         });
       }
+
     } catch (e) {
       setState(() => _loadingLocation = false);
     }
@@ -1034,18 +1035,27 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
             onMapCreated: (GoogleMapController controller) async {
               _googleMapController = controller;
+              _mapReady = true; // 👈 marca o mapa como pronto
 
               try {
-                // 🗺️ Aplica sempre o estilo escuro personalizado
                 _mapStyle = await rootBundle.loadString('assets/map_style.json');
                 await _googleMapController?.setMapStyle(_mapStyle);
               } catch (e) {
                 debugPrint("Erro ao aplicar estilo do mapa: $e");
               }
 
-              // 🔹 Atualiza o marcador atual
-              _updateMarker();
+              // 🔹 Espera o mapa estar pronto e a localização carregada antes de centralizar
+              if (!_loadingLocation && _currentPosition != const LatLng(-23.5505, -46.6333)) {
+                await Future.delayed(const Duration(milliseconds: 300));
+                _googleMapController?.animateCamera(
+                  CameraUpdate.newLatLngZoom(_currentPosition, 17),
+                );
+              }
+
+              await _updateMarker();
             },
+
+
             onCameraMoveStarted: () {
               // Ignora movimentos de câmera causados por código
               if (_isProgrammaticCameraMove) return;
