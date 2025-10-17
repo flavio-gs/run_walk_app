@@ -7,6 +7,9 @@ import 'package:run_walk_app/create_post_page.dart';
 import 'package:run_walk_app/notifications_page.dart';
 import 'package:run_walk_app/search_users_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
@@ -155,107 +158,121 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           final users = snapshot.data!.docs;
           final currentUser = FirebaseAuth.instance.currentUser;
 
-          // Adiciona o seu story como o primeiro
           return ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount: users.length + 1, // +1 para o story do próprio usuário
+            itemCount: users.length + 1,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             itemBuilder: (context, index) {
-              // 👉 Primeiro círculo: “Seu story”
+              // Primeiro item: story do próprio usuário
               if (index == 0) {
                 final photoUrl = currentUser?.photoURL;
-                final name = currentUser?.displayName ?? "Você";
 
                 return GestureDetector(
-                  onTap: () {
-                    _showAddStoryOptions(context);
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Column(
-                      children: [
-                        Stack(
-                          children: [
-                            // Gradiente de borda igual aos outros
-                            Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF00C853), Color(0xFFFF9100)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                  onTap: () => _showAddStoryOptions(context),
+                  child: Column(
+                    children: [
+                      Stack(
+                        children: [
+                          Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF00C853), Color(0xFFFF9100)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              shape: BoxShape.circle,
+                            ),
+                            padding: const EdgeInsets.all(3),
+                            child: CircleAvatar(
+                              radius: 30,
+                              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                                  ? NetworkImage(photoUrl)
+                                  : const AssetImage('assets/icon/logo_principal.png')
+                              as ImageProvider,
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blueAccent,
+                                border: Border.all(color: Colors.white, width: 2),
                                 shape: BoxShape.circle,
                               ),
-                              padding: const EdgeInsets.all(3),
-                              child: CircleAvatar(
-                                radius: 30,
-                                backgroundImage:
-                                (photoUrl != null && photoUrl.isNotEmpty)
-                                    ? NetworkImage(photoUrl)
-                                    : const AssetImage(
-                                    'assets/icon/logo_principal.png')
-                                as ImageProvider,
-                              ),
+                              child: const Icon(Icons.add,
+                                  color: Colors.white, size: 18),
                             ),
-                            // Ícone de +
-                            Positioned(
-                              bottom: 0,
-                              right: 0,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.blueAccent,
-                                  border: Border.all(
-                                      color: Colors.white, width: 2),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.add,
-                                    color: Colors.white, size: 18),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 5),
-                        const Text('Seu story',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.black54)),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      const Text('Seu story',
+                          style:
+                          TextStyle(fontSize: 12, color: Colors.black54)),
+                    ],
                   ),
                 );
               }
 
-              // 👉 Stories dos outros usuários
-              final userData = users[index - 1].data() as Map<String, dynamic>;
-              final photoUrl = userData['photoURL'];
+              // Outros usuários
+              final userDoc = users[index - 1];
+              final userData = userDoc.data() as Map<String, dynamic>;
+              final userId = userDoc.id;
               final name = userData['displayName'] ?? 'Usuário';
+              final photoUrl = userData['photoURL'];
 
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                child: Column(
-                  children: [
-                    Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                            colors: [Color(0xFFFF9100), Color(0xFF00C853)]),
-                        shape: BoxShape.circle,
-                      ),
-                      padding: const EdgeInsets.all(3),
-                      child: CircleAvatar(
-                        radius: 30,
-                        backgroundImage:
-                        (photoUrl != null && photoUrl.isNotEmpty)
-                            ? NetworkImage(photoUrl)
-                            : const AssetImage(
-                            'assets/icon/logo_principal.png')
-                        as ImageProvider,
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(userId)
+                    .collection('stories')
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (context, storySnap) {
+                  if (!storySnap.hasData || storySnap.data!.docs.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+
+                  // Filtra apenas stories ativos (menos de 24h)
+                  final stories = storySnap.data!.docs.where((doc) {
+                    final expiresAt = DateTime.tryParse(doc['expiresAt'] ?? '');
+                    return expiresAt != null && expiresAt.isAfter(DateTime.now());
+                  }).toList();
+
+                  if (stories.isEmpty) return const SizedBox.shrink();
+
+                  final latestStory = stories.first.data() as Map<String, dynamic>;
+
+                  return GestureDetector(
+                    onTap: () => _openStoryViewer(stories, name, photoUrl),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Column(
+                        children: [
+                          Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFFFF9100), Color(0xFF00C853)],
+                              ),
+                              shape: BoxShape.circle,
+                            ),
+                            padding: const EdgeInsets.all(3),
+                            child: CircleAvatar(
+                              radius: 30,
+                              backgroundImage:
+                              NetworkImage(latestStory['imageUrl']),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(name.split(' ').first,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.black54)),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    Text(name.split(' ').first,
-                        style: const TextStyle(
-                            fontSize: 12, color: Colors.black54)),
-                  ],
-                ),
+                  );
+                },
               );
             },
           );
@@ -263,6 +280,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       ),
     );
   }
+
 
   // 🔹 MODAL PARA ADICIONAR STORY 🔹
   void _showAddStoryOptions(BuildContext context) {
@@ -297,43 +315,131 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 20),
               ListTile(
-                leading: const Icon(Icons.camera_alt_rounded,
-                    color: Colors.deepOrange),
+                leading: const Icon(Icons.camera_alt_rounded, color: Colors.deepOrange),
                 title: const Text('Tirar foto'),
                 subtitle: const Text('Abra a câmera para tirar uma foto'),
                 onTap: () {
                   Navigator.pop(context);
-                  // 🔸 Aqui você pode chamar o método para abrir a câmera
-                  debugPrint('Abrir câmera');
+                  _addStory(ImageSource.camera);
                 },
               ),
               ListTile(
-                leading:
-                const Icon(Icons.photo_library_rounded, color: Colors.green),
+                leading: const Icon(Icons.photo_library_rounded, color: Colors.green),
                 title: const Text('Escolher da galeria'),
                 subtitle: const Text('Selecione uma imagem existente'),
                 onTap: () {
                   Navigator.pop(context);
-                  // 🔸 Aqui você pode chamar o método para abrir a galeria
-                  debugPrint('Abrir galeria');
+                  _addStory(ImageSource.gallery);
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.text_fields_rounded,
-                    color: Colors.indigoAccent),
-                title: const Text('Adicionar texto ou status'),
-                subtitle: const Text('Crie um story apenas com texto'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // 🔸 Aqui você pode abrir uma tela de texto (futuramente)
-                  debugPrint('Adicionar texto/story rápido');
-                },
-              ),
+
               const SizedBox(height: 15),
             ],
           ),
         );
       },
+    );
+  }
+
+  Future<void> _addStory(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(source: source, imageQuality: 85);
+
+      if (pickedFile == null) return; // usuário cancelou
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final file = File(pickedFile.path);
+
+      // Upload para o Firebase Storage
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('stories')
+          .child(user.uid)
+          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      await storageRef.putFile(file);
+      final downloadUrl = await storageRef.getDownloadURL();
+
+      // Salva no Firestore
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stories')
+          .add({
+        'imageUrl': downloadUrl,
+        'timestamp': FieldValue.serverTimestamp(),
+        'expiresAt': DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Story adicionado com sucesso!')),
+        );
+      }
+    } catch (e) {
+      debugPrint("Erro ao enviar story: $e");
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro: $e')));
+    }
+  }
+
+  void _openStoryViewer(List<QueryDocumentSnapshot> stories, String name, String? photoUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          body: PageView.builder(
+            itemCount: stories.length,
+            itemBuilder: (context, index) {
+              final data = stories[index].data() as Map<String, dynamic>;
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: Image.network(
+                      data['imageUrl'],
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                                ? NetworkImage(photoUrl)
+                                : null,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            name,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 40,
+                    right: 15,
+                    child: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -398,6 +504,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 }
+
+
+
 
 // 🔹 CLASSE SEPARADA PARA O CARD COM ANIMAÇÃO 🔹
 class _AnimatedPostCard extends StatefulWidget {
