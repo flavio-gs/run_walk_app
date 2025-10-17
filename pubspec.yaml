@@ -78,5 +78,6 @@ flutter:
     - assets/click.mp3
     - assets/sounds/start.mp3
     - assets/sounds/stop.mp3
+    - assets/icon/logo_principal.png
 
  

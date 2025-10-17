@@ -223,8 +223,8 @@ class _LoginPageState extends State<LoginPage> {
         ),
         padding: const EdgeInsets.all(15),
         cursorColor: Colors.orangeAccent,
-        placeholderStyle: const TextStyle(color: Colors.white54),
-        style: const TextStyle(color: Colors.white, fontSize: 15),
+        placeholderStyle: const TextStyle(color: Colors.black),
+        style: const TextStyle(color: Colors.black, fontSize: 15),
       ),
     );
   }

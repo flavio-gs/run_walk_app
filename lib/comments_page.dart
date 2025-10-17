@@ -7,7 +7,11 @@ class CommentsPage extends StatefulWidget {
   final String postId;
   final String postAuthorId;
 
-  const CommentsPage({super.key, required this.postId, required this.postAuthorId});
+  const CommentsPage({
+    super.key,
+    required this.postId,
+    required this.postAuthorId,
+  });
 
   @override
   State<CommentsPage> createState() => _CommentsPageState();
@@ -21,31 +25,30 @@ class _CommentsPageState extends State<CommentsPage> {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
 
-    final postRef = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    final postRef =
+    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
-    // Adiciona o comentário na sub-coleção do post
     await postRef.collection('comments').add({
       'text': text,
       'authorId': _currentUser.uid,
-      'authorName': _currentUser.displayName ?? 'Usuário Anônimo',
-      'authorPhotoUrl': _currentUser.photoURL ?? '',
       'timestamp': FieldValue.serverTimestamp(),
     });
 
     _commentController.clear();
 
-    // Gera a notificação para o autor do post (se não for o próprio usuário)
+    // Notificação para o autor do post (se não for o próprio)
     if (_currentUser.uid != widget.postAuthorId) {
       final notificationRef = FirebaseFirestore.instance
           .collection('users')
           .doc(widget.postAuthorId)
           .collection('notifications');
-      
+
       await notificationRef.add({
         'type': 'comment',
         'commenterId': _currentUser.uid,
         'postId': widget.postId,
-        'message': '${_currentUser.displayName ?? 'Alguém'} comentou na sua publicação.',
+        'message':
+        '${_currentUser.displayName ?? 'Alguém'} comentou na sua publicação.',
         'timestamp': FieldValue.serverTimestamp(),
       });
     }
@@ -55,6 +58,7 @@ class _CommentsPageState extends State<CommentsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Comentários')),
+      backgroundColor: Colors.white,
       body: Column(
         children: [
           Expanded(
@@ -66,9 +70,14 @@ class _CommentsPageState extends State<CommentsPage> {
                   .orderBy('timestamp', descending: false)
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
                 if (snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text('Nenhum comentário ainda.', style: TextStyle(color: Colors.white70)));
+                  return const Center(
+                    child: Text('Nenhum comentário ainda.',
+                        style: TextStyle(color: Colors.black)),
+                  );
                 }
 
                 return ListView.builder(
@@ -77,20 +86,64 @@ class _CommentsPageState extends State<CommentsPage> {
                   itemBuilder: (context, index) {
                     final comment = snapshot.data!.docs[index];
                     final data = comment.data() as Map<String, dynamic>;
-                    final time = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+                    final time = (data['timestamp'] as Timestamp?)?.toDate() ??
+                        DateTime.now();
+                    final authorId = data['authorId'];
 
-                    return ListTile(
-                      leading: CircleAvatar(backgroundImage: NetworkImage(data['authorPhotoUrl'])),
-                      title: Text(data['authorName'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(data['text'], style: const TextStyle(color: Colors.white70)),
-                          const SizedBox(height: 4),
-                          Text(timeago.format(time, locale: 'pt_BR'), style: const TextStyle(fontSize: 10, color: Colors.white54)),
-                        ],
-                      ),
+                    return StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(authorId)
+                          .snapshots(),
+                      builder: (context, userSnapshot) {
+                        if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
+                          return ListTile(
+                            leading: const CircleAvatar(
+                              backgroundImage: AssetImage('assets/icon/logo_principal.png'),
+                              radius: 20,
+                            ),
+                            title: const Text('Usuário desconhecido',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, color: Colors.black)),
+                            subtitle: Text(data['text'] ?? '',
+                                style: const TextStyle(color: Colors.black)),
+                          );
+                        }
+
+                        final userData = userSnapshot.data!.data() as Map<String, dynamic>;
+                        final photoUrl = userData['photoURL'];
+                        final authorName = userData['displayName'] ?? 'Usuário Anônimo';
+
+                        return ListTile(
+                          leading: CircleAvatar(
+                            radius: 20,
+                            backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                                ? NetworkImage(photoUrl)
+                                : const AssetImage('assets/icon/logo_principal.png')
+                            as ImageProvider,
+                          ),
+                          title: Text(
+                            authorName,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, color: Colors.black),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(data['text'] ?? '',
+                                  style: const TextStyle(color: Colors.black)),
+                              const SizedBox(height: 4),
+                              Text(
+                                timeago.format(time, locale: 'pt_BR'),
+                                style:
+                                const TextStyle(fontSize: 10, color: Colors.black54),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     );
+
                   },
                 );
               },
@@ -116,7 +169,10 @@ class _CommentsPageState extends State<CommentsPage> {
                 hintStyle: const TextStyle(color: Colors.white54),
                 filled: true,
                 fillColor: Colors.grey[850],
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ),

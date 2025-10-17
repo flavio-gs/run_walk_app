@@ -201,15 +201,87 @@ class _FeedPageState extends State<FeedPage> {
   // --- WIDGETS AUXILIARES RESTAURADOS ---
   Widget _buildPostHeader(Map<String, dynamic> data) {
     final postTime = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
-    return Row(children: [
-      CircleAvatar(backgroundImage: NetworkImage(data['authorPhotoUrl'] ?? 'https://via.placeholder.com/150'), radius: 20),
-      const SizedBox(width: 10),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(data['authorName'] ?? 'Usuário Anônimo', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        Text(timeago.format(postTime, locale: 'pt_BR'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
-      ]),
-    ]);
+    final authorId = data['authorId'] as String?;
+
+    if (authorId == null) {
+      return Row(
+        children: [
+          const CircleAvatar(
+            backgroundImage: AssetImage('assets/icon/logo_principal.png'),
+            radius: 20,
+          ),
+          const SizedBox(width: 10),
+          const Text('Usuário desconhecido',
+              style: TextStyle(color: Colors.white)),
+        ],
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Row(
+            children: [
+              const CircleAvatar(
+                backgroundImage: AssetImage('assets/icon/logo_principal.png'),
+                radius: 20,
+              ),
+              const SizedBox(width: 10),
+              const Text('Carregando...',
+                  style: TextStyle(color: Colors.white70, fontSize: 14)),
+            ],
+          );
+        }
+
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return Row(
+            children: [
+              const CircleAvatar(
+                backgroundImage: AssetImage('assets/icon/logo_principal.png'),
+                radius: 20,
+              ),
+              const SizedBox(width: 10),
+              Text(data['authorName'] ?? 'Usuário',
+                  style: const TextStyle(color: Colors.white)),
+            ],
+          );
+        }
+
+        final userData = snapshot.data!.data() as Map<String, dynamic>;
+        final authorName =
+            userData['displayName'] ?? data['authorName'] ?? 'Usuário';
+        final photoUrl = userData['photoURL'];
+
+        return Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                  ? NetworkImage(photoUrl)
+                  : const AssetImage('assets/icon/logo_principal.png')
+              as ImageProvider,
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(authorName,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.white)),
+                Text(
+                  timeago.format(postTime, locale: 'pt_BR'),
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
   }
+
+
 
   Widget _actionButton(IconData icon, String label, VoidCallback onPressed, {Color? color}) {
     return TextButton.icon(
