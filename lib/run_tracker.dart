@@ -11,6 +11,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'dart:math' as math;
 import 'dart:ui';
+import 'package:run_walk_app/service/service/gamification_service.dart';
+import 'package:run_walk_app/service/achievement_service.dart';
 
 import 'widgets/main_scaffold.dart';
 
@@ -208,6 +210,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   final List<LatLng> _positions = [];
   double _totalDistance = 0;
   double _caloriesBurned = 0;
+  int weeklyRunsCount = 0;
+  int streakDays = 0;
   double _averagePace = 0; // min/km
 
   StreamSubscription<Position>? _positionStream;
@@ -305,6 +309,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
     await _setInitialLocation();
+    await _finalizarCorrida();
   }
 
   Future<void> _updateMarker() async {
@@ -1439,11 +1444,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-              builder: (context) => const MainScaffold(initialIndex: 3)),
-        );
       }
     } catch (e) {
       if (context.mounted && !wearMode) {
@@ -1484,6 +1484,73 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       await FirebaseFirestore.instance.collection('territorios').add(territoryData);
       await _loadTerritories();
     }
+  }
+
+  Future<void> _updateUserRunStats() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final startOfDay = DateTime(now.year, now.month, now.day);
+
+    final runsQuery = await FirebaseFirestore.instance
+        .collection('corridas')
+        .where('userId', isEqualTo: user.uid)
+        .get();
+
+    final runs = runsQuery.docs.map((doc) {
+      final data = doc.data();
+      final date = (data['data'] as Timestamp).toDate();
+      return date;
+    }).toList();
+
+    // Contagem da semana atual
+    weeklyRunsCount = runs.where((d) => d.isAfter(startOfWeek)).length;
+
+    // Calcula sequência de dias consecutivos (streak)
+    runs.sort((a, b) => b.compareTo(a));
+    streakDays = 1;
+
+    for (int i = 1; i < runs.length; i++) {
+      final diff = runs[i - 1].difference(runs[i]).inDays;
+      if (diff == 1) {
+        streakDays++;
+      } else if (diff > 1) {
+        break;
+      }
+    }
+  }
+
+
+  Future<void> _finalizarCorrida() async {
+    final distance = _totalDistance; // km
+    final user = FirebaseAuth.instance.currentUser;
+
+    // Pontos: 1 a cada 100m + 5 de bônus
+    int earnedPoints = (distance * 10).floor() + 5;
+
+    // Salvar no Firestore (corrida)
+    await FirebaseFirestore.instance.collection('corridas').add({
+      'userId': user!.uid,
+      'distancia': distance,
+      'data': DateTime.now(),
+    });
+
+    // Adiciona pontos (online/offline)
+    await GamificationService().addPoints(earnedPoints, context: context);
+
+    await _updateUserRunStats();
+    // Checa conquistas após a corrida
+    await AchievementService().checkAchievements(
+      runData: {
+        'distance': _totalDistance,
+        'pace': _averagePace,
+        'weeklyRuns': weeklyRunsCount,
+        'streak': streakDays,
+      },
+      context: context,
+    );
   }
 
   Future<void> _addRunMarker({
