@@ -1672,12 +1672,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           if (!context.mounted) return;
           Navigator.pop(context);
 
-          final (name, photo, data) = _markerGestures[position]!;
-          final userId = data['userId'];
+          final userId = runData['userId'] ?? '';
+          if (userId.isEmpty) {
+            debugPrint("⚠️ userId vazio — card não pode abrir");
+            return;
+          }
 
-          // 🧩 Mostra o card com XP e conquistas
-          _showPlayerCard(context, userId, runData: data);
+          // ✅ Reabre o card no contexto atualizado
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              _showPlayerCard(context, userId, runData: runData);
+            }
+          });
         },
+
+
 
         onDragStart: (_) {
           _longPressTimer?.cancel();
@@ -2519,8 +2528,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _showPlayerCard(BuildContext context, String userId, {required Map<String, dynamic> runData}) async {
+    debugPrint("📊 Abrindo card para $userId com dados: ${runData.keys}");
     final stats = await _getPlayerStats(userId);
-    if (stats.isEmpty) return;
+    if (stats.isEmpty) {
+      debugPrint("⚠️ Nenhum dado retornado — card abortado");
+      return;
+    }
+    if (stats.isEmpty) {
+      debugPrint("⚠️ Stats vazias, mas exibindo card básico mesmo assim.");
+    }
 
     // --- prepara métricas da corrida selecionada ---
     final distanceKm = ((runData['distance'] ?? 0) / 1000).toStringAsFixed(2);
@@ -2600,17 +2616,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       context: context,
       barrierColor: Colors.black54,
       barrierDismissible: true,
+      barrierLabel: 'Fechar card do jogador',
       transitionDuration: const Duration(milliseconds: 250),
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
+            final screenHeight = MediaQuery.of(context).size.height;
+            final screenWidth = MediaQuery.of(context).size.width;
+
             return Center(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(25),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   child: Container(
-                    width: MediaQuery.of(context).size.width * 0.88,
+                    width: screenWidth * 0.9,
+                    constraints: BoxConstraints(
+                      maxHeight: screenHeight * 0.8, // ⛔ impede que ultrapasse a tela
+                    ),
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.5),
@@ -2624,143 +2647,166 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         ),
                       ],
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // topo: avatar, nome, xp/nível
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 35,
-                              backgroundImage: stats['photoURL'] != null
-                                  ? NetworkImage(stats['photoURL'])
-                                  : null,
-                              backgroundColor: Colors.white10,
-                              child: stats['photoURL'] == null
-                                  ? const Icon(Icons.person, color: Colors.white70)
-                                  : null,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    stats['displayName'],
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.star, color: Colors.amber, size: 20),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        "${stats['xp']} XP • Nível ${stats['level']}",
-                                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 🔹 Avatar + nome + XP/Nível
+                          Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 35,
+                                backgroundImage: stats['photoURL'] != null
+                                    ? NetworkImage(stats['photoURL'])
+                                    : null,
+                                backgroundColor: Colors.white10,
+                                child: stats['photoURL'] == null
+                                    ? const Icon(Icons.person, color: Colors.white70)
+                                    : null,
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      stats['displayName'],
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        const Icon(Icons.star,
+                                            color: Colors.amber, size: 20),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          "${stats['xp']} XP • Nível ${stats['level']}",
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                          style: const TextStyle(
+                                              color: Colors.white70, fontSize: 14),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
 
-                        const SizedBox(height: 14),
+                          const SizedBox(height: 16),
 
-                        // seguidores / seguindo + botão seguir
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.people, color: Colors.white70, size: 18),
-                                const SizedBox(width: 6),
-                                Text(
+                          // 👥 Seguidores / seguindo + botão seguir
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Flexible(
+                                child: Text(
                                   "$followersCount seguidores • $followingCount seguindo",
-                                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                  style: const TextStyle(
+                                      color: Colors.white70, fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ],
-                            ),
-                            if (userId != currentUser.uid)
-                              ElevatedButton.icon(
-                                icon: Icon(isFollowing ? Icons.check : Icons.person_add_alt_1, size: 18),
-                                label: Text(isFollowing ? "Seguindo" : "Seguir"),
-                                style: ElevatedButton.styleFrom(
-                                  elevation: 0,
-                                  backgroundColor: (isFollowing
-                                      ? Colors.green
-                                      : const Color(0xFF4A90E2))
-                                      .withOpacity(0.85),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                ),
-                                onPressed: () => toggleFollow(setStateDialog),
                               ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // conquistas recentes (emojis)
-                        if ((stats['achievements'] as List).isNotEmpty)
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            spacing: 10,
-                            children: (stats['achievements'] as List)
-                                .map<Widget>((icon) => AnimatedScale(
-                              scale: 1.08,
-                              duration: const Duration(milliseconds: 400),
-                              child: Text(icon, style: const TextStyle(fontSize: 28)),
-                            ))
-                                .toList(),
-                          )
-                        else
-                          const Text(
-                            "Nenhuma insígnia conquistada ainda",
-                            style: TextStyle(color: Colors.white54, fontSize: 14),
+                              if (userId != currentUser.uid)
+                                ElevatedButton.icon(
+                                  icon: Icon(
+                                      isFollowing
+                                          ? Icons.check
+                                          : Icons.person_add_alt_1,
+                                      size: 18),
+                                  label: Text(isFollowing ? "Seguindo" : "Seguir"),
+                                  style: ElevatedButton.styleFrom(
+                                    elevation: 0,
+                                    backgroundColor: (isFollowing
+                                        ? Colors.green
+                                        : const Color(0xFF4A90E2))
+                                        .withOpacity(0.85),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14, vertical: 8),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  onPressed: () => toggleFollow(setStateDialog),
+                                ),
+                            ],
                           ),
 
-                        const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                        // métricas da corrida selecionada
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildGlassMetric(Icons.route, "$distanceKm km"),
-                            _buildGlassMetric(Icons.timer, _fmtDuration(durationSec)),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
-                            _buildGlassMetric(Icons.local_fire_department, "$calories kcal"),
-                            _buildGlassMetric(Icons.speed, "${_fmtPace(pace)} min/km"),
-                          ],
-                        ),
+                          // 🏅 Conquistas recentes
+                          if ((stats['achievements'] as List).isNotEmpty)
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 10,
+                              runSpacing: 8,
+                              children: (stats['achievements'] as List)
+                                  .map<Widget>((icon) => AnimatedScale(
+                                scale: 1.08,
+                                duration:
+                                const Duration(milliseconds: 400),
+                                child: Text(icon,
+                                    style: const TextStyle(fontSize: 28)),
+                              ))
+                                  .toList(),
+                            )
+                          else
+                            const Text(
+                              "Nenhuma insígnia conquistada ainda",
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 14),
+                            ),
 
-                        const SizedBox(height: 12),
-                        Text(
-                          "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
-                          style: const TextStyle(color: Colors.white70, fontSize: 13),
-                        ),
+                          const SizedBox(height: 20),
 
-                        const SizedBox(height: 18),
-
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text(
-                            "Fechar",
-                            style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+                          // 📊 Métricas da corrida
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildGlassMetric(Icons.route, "$distanceKm km"),
+                              _buildGlassMetric(Icons.timer, _fmtDuration(durationSec)),
+                            ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildGlassMetric(Icons.local_fire_department,
+                                  "$calories kcal"),
+                              _buildGlassMetric(Icons.speed,
+                                  "${_fmtPace(pace)} min/km"),
+                            ],
+                          ),
+
+                          const SizedBox(height: 10),
+                          Text(
+                            "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text(
+                              "Fechar",
+                              style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -2773,12 +2819,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         return FadeTransition(
           opacity: anim1,
           child: ScaleTransition(
-            scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+            scale: CurvedAnimation(
+              parent: anim1,
+              curve: Curves.easeOutBack,
+            ),
             child: child,
           ),
         );
       },
     );
+
   }
 
 
