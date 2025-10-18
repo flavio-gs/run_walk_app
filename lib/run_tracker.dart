@@ -63,6 +63,9 @@ class FuturisticChrono extends StatefulWidget {
 
 class _FuturisticChronoState extends State<FuturisticChrono>
     with SingleTickerProviderStateMixin {
+
+
+
   late final AnimationController _glowCtrl;
 
   @override
@@ -204,6 +207,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Timer? _timer;
   int _seconds = 0;
   bool _isRunning = false;
+  bool _runEnded = false;
   DateTime? _startTime;
   final Stopwatch _stopwatch = Stopwatch();
 
@@ -213,6 +217,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   int weeklyRunsCount = 0;
   int streakDays = 0;
   double _averagePace = 0; // min/km
+  int _elapsedSeconds = 0;
 
   StreamSubscription<Position>? _positionStream;
   LatLng _currentPosition =
@@ -511,6 +516,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   void _startRun() async {
+
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
@@ -665,7 +671,27 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       );
     }
 
-    setState(() {});
+    _elapsedSeconds = 0;
+
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _elapsedSeconds++;
+      });
+    });
+
+    setState(() {
+      _isRunning = true;
+      _runEnded = false;
+      _elapsedSeconds = 0;
+      _totalDistance = 0;
+    });
+
+    // inicia o cronômetro
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() => _elapsedSeconds++);
+    });
   }
 
   // 🟩 NOVO: cálculo de área (m² ou km², com formatação automática)
@@ -1524,34 +1550,75 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   Future<void> _finalizarCorrida() async {
-    final distance = _totalDistance; // km
+    // ⛔ só pode finalizar se realmente estava em uma corrida ativa
+    if (!_isRunning) {
+      debugPrint("Ignorado: tentativa de finalizar sem corrida ativa");
+      return;
+    }
+    _timer?.cancel(); // para o cronômetro
+
     final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final distance = _totalDistance; // km
+
+    // Evita salvar corridas muito curtas
+    if (distance < 0.1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Distância muito curta para registrar corrida."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    // Tempo total em segundos
+    final duration = _elapsedSeconds;
 
     // Pontos: 1 a cada 100m + 5 de bônus
     int earnedPoints = (distance * 10).floor() + 5;
 
-    // Salvar no Firestore (corrida)
+    // Salvar corrida
     await FirebaseFirestore.instance.collection('corridas').add({
-      'userId': user!.uid,
-      'distancia': distance,
+      'userId': user.uid,
+      'distance': distance,
+      'duration': duration,
+      'pace': _averagePace,
+      'calories': _caloriesBurned,
       'data': DateTime.now(),
     });
 
-    // Adiciona pontos (online/offline)
+    // Adiciona pontos
     await GamificationService().addPoints(earnedPoints, context: context);
 
+    // Atualiza estatísticas e conquistas
     await _updateUserRunStats();
-    // Checa conquistas após a corrida
     await AchievementService().checkAchievements(
       runData: {
-        'distance': _totalDistance,
+        'distance': distance,
         'pace': _averagePace,
         'weeklyRuns': weeklyRunsCount,
         'streak': streakDays,
       },
       context: context,
     );
+
+    // Feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("🏁 Corrida salva! +$earnedPoints XP."),
+        backgroundColor: Colors.green[700],
+      ),
+    );
+
+    setState(() {
+      _isRunning = false;
+      _runEnded = true;
+    });
   }
+
+
 
   Future<void> _addRunMarker({
     required LatLng position,
@@ -1599,16 +1666,17 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         zIndex: 9999,
         onTap: () async {
           HapticFeedback.lightImpact();
-          _showLoadingOverlay(context); // mostra loading imediatamente
+          _showLoadingOverlay(context);
 
-          // Simula tempo de carregamento Firestore (~1s)
-          await Future.delayed(const Duration(milliseconds: 800));
+          await Future.delayed(const Duration(milliseconds: 700));
+          if (!context.mounted) return;
+          Navigator.pop(context);
 
-          if (context.mounted) {
-            Navigator.pop(context); // fecha o loading
-            final (name, photo, data) = _markerGestures[position]!;
-            _showPlayerInfo(name, photo, userId: data['userId']);
-          }
+          final (name, photo, data) = _markerGestures[position]!;
+          final userId = data['userId'];
+
+          // 🧩 Mostra o card com XP e conquistas
+          _showPlayerCard(context, userId, runData: data);
         },
 
         onDragStart: (_) {
@@ -2419,6 +2487,303 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ],
     );
   }
+  Future<Map<String, dynamic>> _getPlayerStats(String userId) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      final userData = userDoc.data() ?? {};
+
+      // Pega até 3 conquistas recentes
+      final achievementsQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('achievements')
+          .orderBy('timestamp', descending: true)
+          .limit(3)
+          .get();
+
+      final achievements = achievementsQuery.docs
+          .map((a) => a.data()['icon'] ?? '🏅')
+          .toList();
+
+      return {
+        'displayName': userData['displayName'] ?? 'Jogador',
+        'photoURL': userData['photoURL'],
+        'xp': userData['xp'] ?? 0,
+        'level': userData['level'] ?? 1,
+        'achievements': achievements,
+      };
+    } catch (e) {
+      debugPrint("Erro ao carregar estatísticas do jogador: $e");
+      return {};
+    }
+  }
+
+  void _showPlayerCard(BuildContext context, String userId, {required Map<String, dynamic> runData}) async {
+    final stats = await _getPlayerStats(userId);
+    if (stats.isEmpty) return;
+
+    // --- prepara métricas da corrida selecionada ---
+    final distanceKm = ((runData['distance'] ?? 0) / 1000).toStringAsFixed(2);
+    final durationSec = (runData['duration'] ?? 0) as int;
+    final pace = (runData['pace'] ?? 0.0) as double;
+    final calories = (runData['calories'] ?? 0).round();
+    final when = DateTime.tryParse(runData['endTime'] ?? '') ?? DateTime.now();
+    String _fmt2(int n) => n.toString().padLeft(2, '0');
+    String _fmtDuration(int s) => "${_fmt2(s ~/ 3600)}:${_fmt2((s % 3600) ~/ 60)}:${_fmt2(s % 60)}";
+    String _fmtPace(double p) {
+      if (p.isNaN || p.isInfinite || p <= 0) return "00:00";
+      final m = p.floor();
+      final s = ((p - m) * 60).round();
+      return "${_fmt2(m)}:${_fmt2(s)}";
+    }
+
+    // --- follow state (para botão seguir + contadores) ---
+    final currentUser = FirebaseAuth.instance.currentUser!;
+    final followsRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .collection('following');
+
+    bool isFollowing = false;
+    int followersCount = 0;
+    int followingCount = 0;
+
+    // pré-carrega status/contadores
+    try {
+      final doc = await followsRef.doc(userId).get();
+      isFollowing = doc.exists;
+
+      final followersSnap = await FirebaseFirestore.instance
+          .collection('users').doc(userId).collection('followers').get();
+      followersCount = followersSnap.size;
+
+      final followingSnap = await FirebaseFirestore.instance
+          .collection('users').doc(userId).collection('following').get();
+      followingCount = followingSnap.size;
+    } catch (_) {}
+
+    Future<void> toggleFollow(StateSetter setStateDialog) async {
+      if (userId == currentUser.uid) return; // não segue a si mesmo
+      final targetRef = FirebaseFirestore.instance.collection('users').doc(userId);
+
+      if (isFollowing) {
+        await followsRef.doc(userId).delete();
+        await targetRef.collection('followers').doc(currentUser.uid).delete();
+        setStateDialog(() {
+          isFollowing = false;
+          followersCount = followersCount > 0 ? followersCount - 1 : 0;
+        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Deixou de seguir o jogador')),
+          );
+        }
+      } else {
+        await followsRef.doc(userId).set({'followedAt': Timestamp.now()});
+        await targetRef.collection('followers').doc(currentUser.uid).set({
+          'followedAt': Timestamp.now(),
+        });
+        setStateDialog(() {
+          isFollowing = true;
+          followersCount += 1;
+        });
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Agora você segue este jogador')),
+          );
+        }
+      }
+    }
+
+    // --- dialog central com efeito glass ---
+    await showGeneralDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      barrierDismissible: true,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(25),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    width: MediaQuery.of(context).size.width * 0.88,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      border: Border.all(color: Colors.white24),
+                      borderRadius: BorderRadius.circular(25),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.blueAccent.withOpacity(0.3),
+                          blurRadius: 20,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // topo: avatar, nome, xp/nível
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 35,
+                              backgroundImage: stats['photoURL'] != null
+                                  ? NetworkImage(stats['photoURL'])
+                                  : null,
+                              backgroundColor: Colors.white10,
+                              child: stats['photoURL'] == null
+                                  ? const Icon(Icons.person, color: Colors.white70)
+                                  : null,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    stats['displayName'],
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.star, color: Colors.amber, size: 20),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        "${stats['xp']} XP • Nível ${stats['level']}",
+                                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // seguidores / seguindo + botão seguir
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.people, color: Colors.white70, size: 18),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "$followersCount seguidores • $followingCount seguindo",
+                                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                            if (userId != currentUser.uid)
+                              ElevatedButton.icon(
+                                icon: Icon(isFollowing ? Icons.check : Icons.person_add_alt_1, size: 18),
+                                label: Text(isFollowing ? "Seguindo" : "Seguir"),
+                                style: ElevatedButton.styleFrom(
+                                  elevation: 0,
+                                  backgroundColor: (isFollowing
+                                      ? Colors.green
+                                      : const Color(0xFF4A90E2))
+                                      .withOpacity(0.85),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () => toggleFollow(setStateDialog),
+                              ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // conquistas recentes (emojis)
+                        if ((stats['achievements'] as List).isNotEmpty)
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 10,
+                            children: (stats['achievements'] as List)
+                                .map<Widget>((icon) => AnimatedScale(
+                              scale: 1.08,
+                              duration: const Duration(milliseconds: 400),
+                              child: Text(icon, style: const TextStyle(fontSize: 28)),
+                            ))
+                                .toList(),
+                          )
+                        else
+                          const Text(
+                            "Nenhuma insígnia conquistada ainda",
+                            style: TextStyle(color: Colors.white54, fontSize: 14),
+                          ),
+
+                        const SizedBox(height: 16),
+
+                        // métricas da corrida selecionada
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildGlassMetric(Icons.route, "$distanceKm km"),
+                            _buildGlassMetric(Icons.timer, _fmtDuration(durationSec)),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildGlassMetric(Icons.local_fire_department, "$calories kcal"),
+                            _buildGlassMetric(Icons.speed, "${_fmtPace(pace)} min/km"),
+                          ],
+                        ),
+
+                        const SizedBox(height: 12),
+                        Text(
+                          "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
+                          style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+
+                        const SizedBox(height: 18),
+
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text(
+                            "Fechar",
+                            style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+
+
+
 }
 
 Future<BitmapDescriptor> _createUserCircleIcon({
