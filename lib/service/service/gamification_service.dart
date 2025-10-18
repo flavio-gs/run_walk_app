@@ -56,30 +56,47 @@ class GamificationService {
     final userRef = _firestore.collection('users').doc(user.uid);
 
     try {
-      await _firestore.runTransaction((transaction) async {
-        final snapshot = await transaction.get(userRef);
-        final currentPoints = (snapshot.data()?['totalPoints'] ?? 0) as int;
-        final currentXp     = (snapshot.data()?['xp'] ?? 0) as int;
-
-        final newPoints = currentPoints + pendingPoints;
-        final newXp = currentXp + pendingPoints;
-
-        final levelInfo = _levelFromXp(newXp);
-        transaction.set(userRef, {
-          'totalPoints': newPoints,
-          'xp': newXp,
-          'level': levelInfo['level'],
-          'levelProgress': levelInfo['progress'],
-          'updatedAt': FieldValue.serverTimestamp(),
+      // 1) Garante que o doc existe
+      final snap = await userRef.get();
+      if (!snap.exists) {
+        await userRef.set({
+          'totalPoints': 0,
+          'xp': 0,
+          'level': 1,
+          'levelProgress': 0.0,
+          'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-      });
+      }
 
+      // 2) Incrementa totalPoints e xp de forma atômica
+      await userRef.set({
+        'totalPoints': FieldValue.increment(pendingPoints),
+        'xp': FieldValue.increment(pendingPoints),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 3) Recalcula nível localmente e persiste
+      final updated = await userRef.get();
+      final int xp = (updated.data()?['xp'] ?? 0) as int;
+      final levelInfo = _levelFromXp(xp);
+
+      await userRef.set({
+        'level': levelInfo['level'],
+        'levelProgress': levelInfo['progress'],
+        'nextXp': levelInfo['nextXp'],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 4) Zera pendência local só após sucesso
       await prefs.setInt('pending_points', 0);
+
       _showSnack(context, "✅ Pontos/XP sincronizados (+$pendingPoints)!");
     } catch (e) {
       debugPrint("Erro ao sincronizar pontos/xp: $e");
+      // Não zera o pending_points aqui — tenta de novo depois.
     }
   }
+
 
   /// Retorna total (online + offline)
   Future<int> getTotalPoints() async {
