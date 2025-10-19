@@ -71,6 +71,7 @@ class _FuturisticChronoState extends State<FuturisticChrono>
   @override
   void initState() {
     super.initState();
+
     _glowCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -78,6 +79,8 @@ class _FuturisticChronoState extends State<FuturisticChrono>
       upperBound: 0.9,
     )..repeat(reverse: true);
   }
+
+
 
   @override
   void dispose() {
@@ -164,6 +167,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   bool _isProgrammaticCameraMove = false; // 👈 controla se o movimento é automático
   bool _userIsMovingMap = false;
 
+  Map<String, dynamic>? _activeChallenge;
+  String? _activeChallengeId;
+
   OverlayEntry? _radialMenuOverlay;
   Timer? _longPressTimer;
   bool _isHoldingMarker = false;
@@ -176,6 +182,50 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   // 🟩 NOVO: Área conquistada
   final Set<Polygon> _polygons = {};
   double _areaCaptured = 0;
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _challengeStream;
+  Map<String, dynamic>? _activeChallengeData;
+
+  Future<void> _listenToActiveChallenge() async {
+    try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+
+      final query = await FirebaseFirestore.instance
+          .collection('posts')
+          .where('type', isEqualTo: 'challenge')
+          .get();
+
+      DocumentSnapshot<Map<String, dynamic>>? foundDoc;
+
+      for (var doc in query.docs) {
+        final data = doc.data();
+        final participants = (data['participants'] ?? []) as List<dynamic>;
+        final quitters = (data['quitters'] ?? []) as List<dynamic>? ?? [];
+
+        // 🔹 O jogador participa e não desistiu
+        if (participants.contains(userId) && !quitters.contains(userId)) {
+          foundDoc = doc;
+          break;
+        }
+      }
+
+      if (foundDoc != null) {
+        setState(() {
+          _activeChallengeId = foundDoc!.id;
+          _challengeStream = FirebaseFirestore.instance
+              .collection('posts')
+              .doc(foundDoc.id)
+              .snapshots();
+        });
+      }
+    } catch (e) {
+      debugPrint("❌ Erro ao escutar desafio ativo: $e");
+    }
+  }
+
+
+
+
 
   Future<void> _recenterMap() async {
     if (_googleMapController == null) return;
@@ -260,6 +310,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void initState() {
+
     super.initState();
 
     // Carrega estilo do mapa (mobile)
@@ -295,6 +346,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     if (!isWearOS) {
       _loadSavedRuns();
     }
+    _listenToActiveChallenge();
   }
 
   Future<void> _initLocationFlow() async {
@@ -895,6 +947,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Stack(
+
           alignment: Alignment.center,
           children: [
             // Fundo animado sutil
@@ -915,6 +968,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
 
+
             // Conteúdo principal
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -931,6 +985,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   ),
                 ),
 
+
                 // 📊 Métricas
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -943,7 +998,34 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 ),
                 SizedBox(height: 14 * scale),
 
+                if (_challengeStream != null)
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: _challengeStream,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+
+                      final data = snapshot.data!.data();
+                      if (data == null) return const SizedBox();
+
+                      final participants = (data['participants'] ?? []) as List;
+                      final userId = FirebaseAuth.instance.currentUser!.uid;
+                      final isAuthor = data['authorId'] == userId;
+
+                      // Se não for participante nem autor, oculta
+                      if (!participants.contains(userId) && !isAuthor) return const SizedBox();
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 25, top: 15),
+                        child: _buildActiveChallengePanel(data, snapshot.data!.id),
+                      );
+                    },
+                  ),
+
+
+
+
                 // ▶️ Botão principal
+
                 GestureDetector(
                   onTap: _isRunning
                       ? () async {
@@ -1002,6 +1084,145 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
     );
   }
+
+  Widget _buildActiveChallengePanel(Map<String, dynamic> challenge, String challengeId) {
+    final title = challenge['title'] ?? 'Desafio sem nome';
+    final distance = (challenge['distance'] ?? 0).toDouble();
+    final deadline = (challenge['deadline'] as Timestamp?)?.toDate();
+    final now = DateTime.now();
+
+    final timeLeft = deadline != null ? deadline.difference(now) : Duration.zero;
+    final daysLeft = timeLeft.inDays >= 0 ? timeLeft.inDays : 0;
+
+    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final userProgress =
+    (challenge['progress']?[userId]?['distance'] ?? 0).toDouble();
+
+    final progress = distance > 0 ? (userProgress / distance).clamp(0.0, 1.0) : 0.0;
+    final progressPercent = (progress * 100).toStringAsFixed(0);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 16, top: 12),
+        padding: const EdgeInsets.all(14),
+        width: 250,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white24, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blueAccent.withOpacity(0.3),
+              blurRadius: 10,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("🏁 $title",
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text("Meta: ${distance.toStringAsFixed(1)} km",
+                style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            if (daysLeft > 0)
+              Text("Prazo: $daysLeft dias restantes",
+                  style: const TextStyle(color: Colors.white70, fontSize: 13))
+            else
+              const Text("⏰ Desafio encerrando hoje!",
+                  style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+
+            const SizedBox(height: 10),
+
+            // 🔵 Barra de progresso azul/vermelha
+            Stack(
+              children: [
+                Container(
+                  height: 8,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.redAccent.withOpacity(0.3),
+                  ),
+                ),
+                Container(
+                  height: 8,
+                  width: (250 * progress).toDouble(),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text("$progressPercent% concluído",
+                style: const TextStyle(color: Colors.white70, fontSize: 12)),
+
+            const SizedBox(height: 10),
+            _buildCancelButton(challengeId),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCancelButton(String challengeId) {
+    return TextButton.icon(
+      onPressed: () => _confirmCancelChallenge(challengeId),
+      icon: const Icon(Icons.cancel, color: Colors.redAccent),
+      label: const Text(
+        "Cancelar inscrição",
+        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  void _confirmCancelChallenge(String challengeId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.black87,
+        title: const Text("Tem certeza?",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          "😢 Se você desistir, seu nome vai brilhar no mural dos desistentes!\nTem certeza mesmo?",
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Voltar", style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Desistir 😭",
+                style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      await FirebaseFirestore.instance.collection('posts').doc(challengeId).update({
+        'quitters': FieldValue.arrayUnion([userId]),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Você desistiu do desafio 😅"),
+          backgroundColor: Colors.redAccent,
+        ));
+      }
+    }
+  }
+
+
 
 
   Widget _buildMetricWear(IconData icon, String value, String label) {
@@ -1208,7 +1429,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
                         _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
                       ],
+
                     ),
+                    if (_challengeStream != null)
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: _challengeStream,
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+                          final data = snapshot.data!.data();
+                          if (data == null) return const SizedBox();
+                          return _buildActiveChallengePanel(data, snapshot.data!.id);
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -1470,6 +1702,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Corrida salva com sucesso!')),
         );
+        await _applyRunDistanceToActiveChallenges(distanceMeters: _totalDistance);
       }
     } catch (e) {
       if (context.mounted && !wearMode) {
@@ -2830,6 +3063,48 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
 
   }
+
+  Future<void> _applyRunDistanceToActiveChallenges({required double distanceMeters}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final now = DateTime.now();
+
+    // Desafios ativos em que o usuário está inscrito
+    final qs = await FirebaseFirestore.instance
+        .collection('challenges')
+        .where('participantsIds', arrayContains: user.uid)
+        .where('deadline', isGreaterThan: Timestamp.fromDate(now))
+        .get();
+
+    for (final doc in qs.docs) {
+      final challenge = doc.data();
+      final targetKm = (challenge['targetKm'] ?? 0).toDouble();
+      if (targetKm <= 0) continue;
+
+      final partRef = doc.reference.collection('participants').doc(user.uid);
+      final partSnap = await partRef.get();
+
+      if (!partSnap.exists) continue;
+      final status = partSnap['status'] ?? 'active';
+      if (status != 'active') continue;
+
+      final current = (partSnap['progressMeters'] ?? 0.0).toDouble();
+      double next = current + distanceMeters;
+      final targetMeters = targetKm * 1000.0;
+
+      // atingiu meta?
+      final completed = next >= targetMeters;
+
+      await partRef.update({
+        'progressMeters': next,
+        'status': completed ? 'completed' : 'active',
+        if (completed) 'finishedAt': FieldValue.serverTimestamp(),
+        'lastUpdate': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
 
 
 
