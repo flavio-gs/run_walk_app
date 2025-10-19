@@ -314,53 +314,157 @@ class _ActivityPageState extends State<ActivityPage> {
 
 
   // Mostra ranking e progresso
-  void _showRanking(BuildContext context, String challengeId, Map data) {
+  void _showRanking(BuildContext context, String challengeId, Map data) async {
     final participants = (data['participants'] ?? []).cast<String>();
     final progress = (data['progress'] ?? {}) as Map<String, dynamic>;
 
+    // 🔹 Busca os nomes e fotos de todos os participantes de uma vez
+    final query = await FirebaseFirestore.instance
+        .collection('users')
+        .where(FieldPath.documentId, whereIn: participants)
+        .get();
+
+    final userDocs = query.docs;
+
+    // 🔹 Monta mapa de nomes e fotos
+    final Map<String, Map<String, dynamic>> userInfo = {
+      for (var doc in userDocs)
+        doc.id: {
+          'name': doc.data()['displayName'] ??
+              doc.data()['name'] ??
+              doc.data()['username'] ??
+              doc.data()['fullName'] ??
+              doc.data()['nome'] ??
+              'Sem nome',
+          'photo': doc.data()['photoURL'] ?? '',
+        }
+    };
+
+    // 🔹 Ordena participantes por distância percorrida
+    final sorted = participants.map((uid) {
+      final info = progress[uid] ?? {'distance': 0};
+      return {
+        'uid': uid,
+        'name': userInfo[uid]?['name'] ?? 'Jogador desconhecido',
+        'photo': userInfo[uid]?['photo'] ?? '',
+        'distance': (info['distance'] ?? 0).toDouble(),
+      };
+    }).toList()
+      ..sort((a, b) =>
+          (b['distance'] as double).compareTo(a['distance'] as double));
+
+    // 🔹 Mostra o ranking
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.black.withOpacity(0.8),
+      backgroundColor: Colors.black.withOpacity(0.85),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
-        final sorted = participants.map((uid) {
-          final info = progress[uid] ?? {'distance': 0};
-          return {
-            'uid': uid,
-            'distance': (info['distance'] ?? 0).toDouble(),
-          };
-        }).toList()
-          ..sort((a, b) => (b['distance'] as double).compareTo(a['distance'] as double));
-
         return Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 36),
-              const SizedBox(height: 10),
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Colors.amber, Colors.orangeAccent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(bounds),
+                blendMode: BlendMode.srcIn,
+                child: const Icon(Icons.emoji_events_rounded, size: 50),
+              ),
+              const SizedBox(height: 12),
               Text(
                 "Ranking do Desafio",
-                style: GoogleFonts.russoOne(color: Colors.white, fontSize: 20),
+                style: GoogleFonts.russoOne(color: Colors.white, fontSize: 22),
               ),
               const SizedBox(height: 20),
-              ...sorted.map((p) {
-                final isMe = p['uid'] == user.uid;
-                return ListTile(
-                  leading: Icon(
-                    isMe ? Icons.person_pin_circle : Icons.person_outline,
-                    color: isMe ? Colors.greenAccent : Colors.white70,
+
+              // 🔹 Lista de jogadores
+              ...sorted.asMap().entries.map((entry) {
+                final index = entry.key;
+                final player = entry.value;
+                final isMe = player['uid'] == user.uid;
+                final distance =
+                (player['distance'] as double).toStringAsFixed(2);
+                final photoUrl = player['photo'] ?? '';
+
+                // 🥇 Medalhas
+                IconData? medalIcon;
+                Color medalColor = Colors.transparent;
+                if (index == 0) {
+                  medalIcon = Icons.emoji_events;
+                  medalColor = Colors.amber;
+                } else if (index == 1) {
+                  medalIcon = Icons.emoji_events;
+                  medalColor = Colors.grey[300]!;
+                } else if (index == 2) {
+                  medalIcon = Icons.emoji_events;
+                  medalColor = Colors.brown[400]!;
+                }
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isMe
+                        ? Colors.greenAccent.withOpacity(0.12)
+                        : Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isMe
+                          ? Colors.greenAccent.withOpacity(0.3)
+                          : Colors.white.withOpacity(0.1),
+                    ),
                   ),
-                  title: Text(
-                    isMe ? "Você" : p['uid'],
-                    style: TextStyle(
-                        color: isMe ? Colors.greenAccent : Colors.white70),
-                  ),
-                  trailing: Text(
-                    "${(p['distance'] as double).toStringAsFixed(2)} km",
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  child: Row(
+                    children: [
+                      if (medalIcon != null)
+                        Icon(medalIcon, color: medalColor, size: 24)
+                      else
+                        Text(
+                          "${index + 1}",
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      const SizedBox(width: 10),
+
+                      // 🧍 Avatar
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: Colors.grey[800],
+                        backgroundImage:
+                        photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                        child: photoUrl.isEmpty
+                            ? const Icon(Icons.person,
+                            color: Colors.white54, size: 18)
+                            : null,
+                      ),
+
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          isMe ? "Você" : player['name'],
+                          style: TextStyle(
+                            color:
+                            isMe ? Colors.greenAccent : Colors.white70,
+                            fontWeight:
+                            isMe ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        "$distance km",
+                        style:
+                        const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ],
                   ),
                 );
               }),
@@ -371,6 +475,7 @@ class _ActivityPageState extends State<ActivityPage> {
       },
     );
   }
+
 
   // Confirmação engraçada para desistir
   void _confirmCancel(String challengeId, String title) {
