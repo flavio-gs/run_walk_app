@@ -33,6 +33,149 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     _setupFeedStream();
   }
 
+  void _showCreateOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const Text(
+                'Crie algo incrível!',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 20),
+              _buildCreateOption(
+                icon: Icons.edit,
+                color: Colors.deepPurpleAccent,
+                title: 'Faça uma Publicação',
+                subtitle: 'Compartilhe sua corrida, foto ou reflexão do dia',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CreatePostPage()),
+                  );
+                },
+              ),
+              _buildCreateOption(
+                icon: Icons.flag_rounded,
+                color: Colors.orangeAccent,
+                title: 'Comece um Desafio',
+                subtitle: 'Crie um desafio público e motive seus amigos!',
+                onTap: () {
+                  Navigator.pop(context);
+                  _openChallengeCreator();
+                },
+              ),
+              _buildCreateOption(
+                icon: Icons.directions_run_rounded,
+                color: Colors.greenAccent.shade700,
+                title: 'Registrar Corrida',
+                subtitle: 'Inicie agora um treino e registre seu percurso',
+                onTap: () {
+                  Navigator.pop(context);
+                  _startRunSession();
+                },
+              ),
+              _buildCreateOption(
+                icon: Icons.emoji_events_rounded,
+                color: Colors.amberAccent.shade700,
+                title: 'Publicar Conquista',
+                subtitle: 'Mostre uma nova medalha ou tempo recorde!',
+                onTap: () {
+                  Navigator.pop(context);
+                  _publishAchievement();
+                },
+              ),
+              _buildCreateOption(
+                icon: Icons.explore_rounded,
+                color: Colors.lightBlueAccent.shade700,
+                title: 'Explorar Rotas',
+                subtitle: 'Descubra percursos e pontos de corrida próximos',
+                onTap: () {
+                  Navigator.pop(context);
+                  _exploreRoutes();
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openChallengeCreator() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🔰 Criador de Desafios em desenvolvimento!')),
+    );
+  }
+
+  void _startRunSession() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🏃 Corrida iniciada!')),
+    );
+  }
+
+  void _publishAchievement() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🏆 Publique sua conquista em breve!')),
+    );
+  }
+
+  void _exploreRoutes() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🗺️ Exploração de rotas chegando!')),
+    );
+  }
+
+
+  Widget _buildCreateOption({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 24,
+        backgroundColor: color.withOpacity(0.15),
+        child: Icon(icon, color: color, size: 26),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 13, color: Colors.black54),
+      ),
+      onTap: onTap,
+    );
+  }
+
+
   Widget _buildFeedToggleButton(String label, String mode) {
     final bool isSelected = _selectedFeed == mode;
     return GestureDetector(
@@ -171,11 +314,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           ),
           IconButton(
             icon: const Icon(Icons.add_box_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const CreatePostPage()),
-            ),
+            onPressed: () => _showCreateOptions(context),
           ),
+
           IconButton(
             icon: const Icon(Icons.favorite_border),
             onPressed: () => Navigator.push(
