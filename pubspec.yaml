@@ -35,7 +35,7 @@ dependencies:
   confetti: ^0.7.0
 
   # Google Maps
-  google_maps_flutter: ^2.5.0
+  google_maps_flutter: ^2.7.0
 
   # Auth Google
   google_sign_in: ^6.2.1

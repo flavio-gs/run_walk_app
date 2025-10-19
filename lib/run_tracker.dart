@@ -162,6 +162,8 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+  bool _isChallengePanelVisible = true;
+
   bool _mapReady = false;
   bool _followUser = true; // 🔓 controla se o mapa deve seguir automaticamente
   bool _isProgrammaticCameraMove = false; // 👈 controla se o movimento é automático
@@ -1103,10 +1105,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
         margin: const EdgeInsets.only(left: 16, top: 12),
         padding: const EdgeInsets.all(14),
-        width: 250,
+        width: 150,
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.1),
           borderRadius: BorderRadius.circular(18),
@@ -1122,54 +1125,90 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("🏁 $title",
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 6),
-            Text("Meta: ${distance.toStringAsFixed(1)} km",
-                style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            if (daysLeft > 0)
-              Text("Prazo: $daysLeft dias restantes",
-                  style: const TextStyle(color: Colors.white70, fontSize: 13))
-            else
-              const Text("⏰ Desafio encerrando hoje!",
-                  style: TextStyle(color: Colors.redAccent, fontSize: 13)),
-
-            const SizedBox(height: 10),
-
-            // 🔵 Barra de progresso azul/vermelha
-            Stack(
+            // 🔽 Cabeçalho com botão de recolher
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  height: 8,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: Colors.redAccent.withOpacity(0.3),
+                Text(
+                  "🏁 $title",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
                   ),
                 ),
-                Container(
-                  height: 8,
-                  width: (250 * progress).toDouble(),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
-                    ),
+                IconButton(
+                  icon: Icon(
+                    _isChallengePanelVisible
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: Colors.white70,
                   ),
+                  onPressed: () {
+                    setState(() => _isChallengePanelVisible = !_isChallengePanelVisible);
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text("$progressPercent% concluído",
-                style: const TextStyle(color: Colors.white70, fontSize: 12)),
 
-            const SizedBox(height: 10),
-            _buildCancelButton(challengeId),
+            // 🔹 Conteúdo recolhível
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 250),
+              crossFadeState: _isChallengePanelVisible
+                  ? CrossFadeState.showFirst
+                  : CrossFadeState.showSecond,
+              firstChild: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 6),
+                  Text("Meta: ${distance.toStringAsFixed(1)} km",
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                  if (daysLeft > 0)
+                    Text("Prazo: $daysLeft dias restantes",
+                        style: const TextStyle(color: Colors.white70, fontSize: 13))
+                  else
+                    const Text("⏰ Desafio encerrando hoje!",
+                        style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+
+                  const SizedBox(height: 10),
+
+                  Stack(
+                    children: [
+                      Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.redAccent.withOpacity(0.3),
+                        ),
+                      ),
+                      Container(
+                        height: 8,
+                        width: (250 * progress).toDouble(),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text("$progressPercent% concluído",
+                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+
+                  const SizedBox(height: 10),
+                  _buildCancelButton(challengeId),
+                ],
+              ),
+              secondChild: const SizedBox.shrink(),
+            ),
           ],
         ),
       ),
     );
   }
+
 
   Widget _buildCancelButton(String challengeId) {
     return TextButton.icon(
@@ -1397,12 +1436,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ),
 
 
-          IgnorePointer(
-            ignoring: true,
-            child: Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
+          // 1) Fundo com gradiente que NÃO recebe toques
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              ignoring: true,
               child: Container(
                 padding: EdgeInsets.only(
                   top: MediaQuery.of(context).padding.top + 40,
@@ -1418,34 +1458,49 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                     end: Alignment.bottomCenter,
                   ),
                 ),
-                child: Column(
-                  children: [
-                    FuturisticChrono(seconds: _seconds, fontSize: 70),
-                    const SizedBox(height: 15),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                        _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
-                        _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
-                      ],
-
-                    ),
-                    if (_challengeStream != null)
-                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        stream: _challengeStream,
-                        builder: (context, snapshot) {
-                          if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
-                          final data = snapshot.data!.data();
-                          if (data == null) return const SizedBox();
-                          return _buildActiveChallengePanel(data, snapshot.data!.id);
-                        },
-                      ),
-                  ],
-                ),
+                // ⚠️ sem Column aqui — só o fundo visual
+                child: const SizedBox.shrink(),
               ),
             ),
           ),
+
+// 2) Conteúdo INTERATIVO por cima do gradiente
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Padding(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 40,
+                bottom: 10,
+              ),
+              child: Column(
+                children: [
+                  FuturisticChrono(seconds: _seconds, fontSize: 70),
+                  const SizedBox(height: 15),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                      _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
+                      _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                    ],
+                  ),
+                  if (_challengeStream != null)
+                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                      stream: _challengeStream,
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+                        final data = snapshot.data!.data();
+                        if (data == null) return const SizedBox();
+                        return _buildActiveChallengePanel(data, snapshot.data!.id);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+
 
 // 🧭 Botão de recentralizar
           Positioned(
