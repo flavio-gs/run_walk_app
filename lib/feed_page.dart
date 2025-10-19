@@ -10,6 +10,7 @@ import 'package:run_walk_app/comments_page.dart';
 import 'package:run_walk_app/create_post_page.dart';
 import 'package:run_walk_app/notifications_page.dart';
 import 'package:run_walk_app/search_users_page.dart';
+import 'package:run_walk_app/create_challenge_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 class FeedPage extends StatefulWidget {
@@ -84,8 +85,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 subtitle: 'Crie um desafio público e motive seus amigos!',
                 onTap: () {
                   Navigator.pop(context);
-                  _openChallengeCreator();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CreateChallengePage()),
+                  );
                 },
+
               ),
               _buildCreateOption(
                 icon: Icons.directions_run_rounded,
@@ -673,7 +678,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   // ITEM DO FEED
   Widget _buildPostItem(DocumentSnapshot post) {
+
     final data = post.data() as Map<String, dynamic>;
+    final type = data['type'] ?? 'post';
+
     final authorId = data['authorId'] as String;
     final postId = post.id;
     final postTime =
@@ -689,6 +697,15 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         final authorName =
             userData?['displayName'] ?? data['authorName'] ?? 'Usuário';
         final photoUrl = userData?['photoURL'];
+
+        if (type == 'challenge') {
+          return ChallengePostCard(
+            postId: post.id,
+            data: data,
+            currentUserId: _currentUserId,
+          );
+        }
+
 
         return _AnimatedPostCard(
           postId: postId,
@@ -1264,3 +1281,578 @@ class _ReactionBubbleState extends State<_ReactionBubble>
     );
   }
 }
+
+class ChallengePostCard extends StatefulWidget {
+  final String postId;
+  final Map<String, dynamic> data;
+  final String currentUserId;
+
+  const ChallengePostCard({
+    super.key,
+    required this.postId,
+    required this.data,
+    required this.currentUserId,
+  });
+
+  @override
+  State<ChallengePostCard> createState() => _ChallengePostCardState();
+}
+
+class _ChallengePostCardState extends State<ChallengePostCard> {
+  bool _loading = false;
+  Map<String, dynamic>? _authorData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthorData();
+  }
+
+  Future<void> _loadAuthorData() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.data['authorId'])
+          .get();
+      if (doc.exists) setState(() => _authorData = doc.data());
+    } catch (e) {
+      debugPrint("Erro ao carregar autor do desafio: $e");
+    }
+  }
+
+  Future<void> _acceptChallenge() async {
+    setState(() => _loading = true);
+    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+
+    await ref.update({
+      'participants': FieldValue.arrayUnion([widget.currentUserId]),
+      'progress.${widget.currentUserId}': {
+        'distance': 0.0,
+        'status': 'in_progress',
+      },
+    });
+
+    setState(() => _loading = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🔥 Você entrou no desafio! Boa sorte!')),
+    );
+  }
+
+  Future<void> _confirmCancelChallenge() async {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curvedValue =
+            Curves.easeOutBack.transform(animation.value) - 1.0; // anima o shake
+
+        return Transform.translate(
+          offset: Offset(curvedValue * 20, 0), // movimento horizontal sutil
+          child: Opacity(
+            opacity: animation.value,
+            child: AlertDialog(
+              shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                  SizedBox(width: 8),
+                  Text(
+                    'Tem certeza?',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              content: const Text(
+                'Se você desistir agora, seu nome vai brilhar no mural dos desistentes 😏\n\n'
+                    'Pense bem... os outros jogadores vão ver 👀',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, height: 1.4),
+              ),
+              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actions: [
+                TextButton.icon(
+                  icon: const Icon(Icons.sports_motorsports_rounded,
+                      color: Colors.green),
+                  label: const Text(
+                    'Continuar no desafio',
+                    style: TextStyle(color: Colors.green),
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.exit_to_app_rounded, color: Colors.white),
+                  label: const Text('Desistir'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _cancelChallenge();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
+
+  Future<void> _cancelChallenge() async {
+    setState(() => _loading = true);
+    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+
+    await ref.update({
+      'participants': FieldValue.arrayRemove([widget.currentUserId]),
+      'quitters': FieldValue.arrayUnion([widget.currentUserId]),
+      'progress.${widget.currentUserId}.status': 'cancelled',
+    });
+
+    setState(() => _loading = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('❌ Você cancelou sua inscrição neste desafio.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.data;
+    final participants = List<String>.from(d['participants'] ?? []);
+    final quitters = List<String>.from(d['quitters'] ?? []);
+    final progress = Map<String, dynamic>.from(d['progress'] ?? {});
+    final joined = participants.contains(widget.currentUserId);
+    final totalKm = (d['distance'] ?? 0.0).toDouble();
+
+    final authorName = _authorData?['displayName'] ?? d['authorName'] ?? 'Jogador';
+    final authorPhoto = _authorData?['photoURL'];
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 🔹 Cabeçalho: Criado por
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundImage: authorPhoto != null && authorPhoto.isNotEmpty
+                      ? NetworkImage(authorPhoto)
+                      : const AssetImage('assets/icon/logo_principal.png')
+                  as ImageProvider,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Criado por $authorName',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      Text(
+                        timeago.format(
+                            (d['timestamp'] as Timestamp?)?.toDate() ??
+                                DateTime.now(),
+                            locale: 'pt_BR'),
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const Divider(height: 24, thickness: 1, color: Colors.black12),
+
+            // 🔹 Info do desafio
+            Text('🏁 ${d['title'] ?? 'Desafio de Corrida'}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 8),
+            Text('Distância: ${d['distance']} km',
+                style: const TextStyle(color: Colors.black87)),
+            Text(
+              'Prazo: ${d['deadline'].toDate().day}/${d['deadline'].toDate().month}/${d['deadline'].toDate().year}',
+              style: const TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+
+            // 🔹 Botão de ação
+            // 🔹 Botão de ação
+            if (joined)
+              ElevatedButton.icon(
+                onPressed: _loading ? null : _confirmCancelChallenge,
+                icon: const Icon(Icons.cancel, color: Colors.white),
+                label: _loading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Cancelar inscrição'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  minimumSize: const Size(double.infinity, 45),
+                ),
+              )
+            else if (quitters.contains(widget.currentUserId))
+              ElevatedButton.icon(
+                onPressed: null,
+                icon: const Icon(Icons.block),
+                label: const Text('Você desistiu deste desafio 😬'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey,
+                  minimumSize: const Size(double.infinity, 45),
+                ),
+              )
+            else
+              ElevatedButton.icon(
+                onPressed: _loading ? null : _acceptChallenge,
+                icon: const Icon(Icons.flag),
+                label: _loading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('Aceito o Desafio'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  minimumSize: const Size(double.infinity, 45),
+                ),
+              ),
+
+
+            const SizedBox(height: 20),
+
+            // 🔹 Lista de inscritos
+            const Text('Jogadores inscritos:',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            if (participants.isEmpty)
+              const Text('Ainda ninguém se inscreveu 😅')
+            else
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: participants.map((uid) {
+                  return _buildPlayerAvatar(uid, progress, totalKm);
+                }).toList(),
+              ),
+
+            const SizedBox(height: 16),
+
+            // 🔹 Jogadores desistentes
+            if (quitters.isNotEmpty) ...[
+              const Divider(),
+              const SizedBox(height: 6),
+              const Text('Jogadores desistentes:',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: quitters.map((uid) {
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .get(),
+                    builder: (context, snapshot) {
+                      final user =
+                      snapshot.data?.data() as Map<String, dynamic>?;
+                      final name = user?['displayName'] ?? 'Jogador';
+                      final photo = user?['photoURL'];
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundImage: photo != null
+                                ? NetworkImage(photo)
+                                : const AssetImage('assets/icon/logo_principal.png')
+                            as ImageProvider,
+                            backgroundColor: Colors.red.shade100,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            name.split(' ').first,
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.redAccent),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            // 🔹 Botão de Ranking
+            if (participants.isNotEmpty)
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showRanking(context, progress, totalKm),
+                  icon: const Icon(Icons.bar_chart_rounded,
+                      color: Colors.blueAccent),
+                  label: const Text(
+                    "Ver Ranking",
+                    style: TextStyle(
+                        color: Colors.blueAccent,
+                        fontWeight: FontWeight.bold),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.blueAccent),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayerAvatar(String uid, Map<String, dynamic> progress, double totalKm) {
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+      builder: (context, snapshot) {
+        final user = snapshot.data?.data() as Map<String, dynamic>?;
+        final name = user?['displayName'] ?? 'Jogador';
+        final photo = user?['photoURL'];
+        final playerProgress = (progress[uid]?['distance'] ?? 0.0).toDouble();
+        final status = progress[uid]?['status'] ?? 'in_progress';
+
+        return GestureDetector(
+          onTap: () => _showPlayerProgress(
+            context,
+            name,
+            photo,
+            playerProgress,
+            totalKm,
+            status,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 25,
+                backgroundImage: photo != null
+                    ? NetworkImage(photo)
+                    : const AssetImage('assets/icon/logo_principal.png')
+                as ImageProvider,
+              ),
+              const SizedBox(height: 4),
+              Text(name.split(' ').first, style: const TextStyle(fontSize: 11)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showPlayerProgress(BuildContext context,
+      String name,
+      String? photoUrl,
+      double currentKm,
+      double totalKm,
+      String status,) {
+    final percent = (currentKm / totalKm).clamp(0.0, 1.0);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      // 👈 permite altura dinâmica
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              bottom: MediaQuery
+                  .of(context)
+                  .viewInsets
+                  .bottom + 20, // 👈 evita corte
+              top: 24,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 35,
+                    backgroundImage: photoUrl != null
+                        ? NetworkImage(photoUrl)
+                        : const AssetImage('assets/icon/logo_principal.png')
+                    as ImageProvider,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(name,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  LinearProgressIndicator(
+                    value: percent,
+                    backgroundColor: Colors.grey[300],
+                    color: status == 'completed' ? Colors.green : Colors.orange,
+                    minHeight: 10,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${currentKm.toStringAsFixed(2)} km / ${totalKm
+                        .toStringAsFixed(2)} km',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    status == 'completed'
+                        ? '✅ Desafio concluído!'
+                        : status == 'cancelled'
+                        ? '❌ Desafio cancelado'
+                        : '🏃 Em andamento...',
+                    style: TextStyle(
+                      color: status == 'completed'
+                          ? Colors.green
+                          : status == 'cancelled'
+                          ? Colors.red
+                          : Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
+  void _showRanking(BuildContext context,
+      Map<String, dynamic> progress,
+      double totalKm,) {
+    final ranking = progress.entries.toList()
+      ..sort((a, b) =>
+          (b.value['distance'] ?? 0).compareTo(a.value['distance'] ?? 0));
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      // 👈 permite ajustar altura total
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              bottom: MediaQuery
+                  .of(context)
+                  .viewInsets
+                  .bottom + 20, // 👈 margem segura
+              top: 20,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '🏆 Ranking do Desafio',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueAccent,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (ranking.isEmpty)
+                    const Text('Nenhum progresso registrado ainda 😅')
+                  else
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: ranking.length,
+                      itemBuilder: (context, index) {
+                        final uid = ranking[index].key;
+                        final dist =
+                        (ranking[index].value['distance'] ?? 0.0).toDouble();
+                        final status =
+                            ranking[index].value['status'] ?? 'in_progress';
+                        final medal = index == 0
+                            ? '🥇'
+                            : index == 1
+                            ? '🥈'
+                            : index == 2
+                            ? '🥉'
+                            : '🏃';
+                        final percent = (dist / totalKm).clamp(0.0, 1.0);
+
+                        return FutureBuilder<DocumentSnapshot>(
+                          future: FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(uid)
+                              .get(),
+                          builder: (context, snapshot) {
+                            final user =
+                            snapshot.data?.data() as Map<String, dynamic>?;
+                            final name = user?['displayName'] ?? 'Jogador';
+                            final photo = user?['photoURL'];
+
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundImage: photo != null
+                                    ? NetworkImage(photo)
+                                    : const AssetImage(
+                                    'assets/icon/logo_principal.png')
+                                as ImageProvider,
+                              ),
+                              title: Text(
+                                '$medal $name',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: LinearProgressIndicator(
+                                value: percent,
+                                backgroundColor: Colors.grey[300],
+                                color: status == 'completed'
+                                    ? Colors.green
+                                    : Colors.orange,
+                                minHeight: 6,
+                              ),
+                              trailing: Text(
+                                '${dist.toStringAsFixed(2)} km',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
