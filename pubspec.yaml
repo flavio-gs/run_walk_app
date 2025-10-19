@@ -48,6 +48,11 @@ dependencies:
   intl: ^0.19.0
   timeago: ^3.7.0
 
+  flutter_animate: ^4.5.0
+  reaction_button: ^0.0.7
+
+
+
   model_viewer_plus: ^1.9.1
   flutter_launcher_icons: ^0.14.4
 
