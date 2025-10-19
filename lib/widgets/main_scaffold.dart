@@ -4,11 +4,13 @@ import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/profile_page.dart';
+import 'package:run_walk_app/activity_page.dart';
+import 'package:run_walk_app/feedback_page.dart'; // 👈 nova tela de feedback
 
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
 
-  const MainScaffold({super.key, this.initialIndex = 2});
+  const MainScaffold({super.key, this.initialIndex = 3}); // 🏃 padrão: correr no centro
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
@@ -26,19 +28,23 @@ class _MainScaffoldState extends State<MainScaffold>
   }
 
   final List<Widget> _pages = const [
-    FeedPage(),
-    Center(child: Text("Comunidade", style: TextStyle(color: Colors.white))),
-    RunTrackingPage(),
-    HistoricoPage(),
-    ProfilePage(),
+    FeedPage(), // 0
+    Center(child: Text("Comunidade", style: TextStyle(color: Colors.white))), // 1
+    ActivityPage(), // 2 - Desafios
+    RunTrackingPage(), // 3 - Correr (centro)
+    HistoricoPage(), // 4 - Progresso
+    ProfilePage(), // 5 - Perfil
+    FeedbackPage(), // 6 - Feedback (nova)
   ];
 
   final List<String> _titles = const [
     "Feed",
     "Comunidade",
     "Atividade",
+    "Correr",
     "Progresso",
     "Perfil",
+    "Feedback",
   ];
 
   @override
@@ -76,7 +82,7 @@ class _MainScaffoldState extends State<MainScaffold>
     return isWearOS ? _buildWearOSView() : _buildMobileView();
   }
 
-  // 📱 -------- MOBILE VIEW (com BottomNavigationBar) --------
+  // 📱 -------- MOBILE VIEW --------
   Widget _buildMobileView() {
     return Scaffold(
       backgroundColor: Colors.black,
@@ -101,9 +107,11 @@ class _MainScaffoldState extends State<MainScaffold>
           items: [
             _navItem(Icons.dashboard, "Feed", 0),
             _navItem(Icons.people, "Comunidade", 1),
-            _activityItem(Icons.bolt, "Atividade", 2),
-            _navItem(Icons.bar_chart, "Progresso", 3),
-            _navItem(Icons.person, "Perfil", 4),
+            _navItem(Icons.bolt, "Atividade", 2),
+            _activityItem(Icons.directions_run, "Correr", 3), // 🏃 Central
+            _navItem(Icons.bar_chart, "Progresso", 4),
+            _navItem(Icons.person, "Perfil", 5),
+            _navItem(Icons.chat_bubble_outline, "Feedback", 6), // 💬 Novo
           ],
         ),
       ),
@@ -135,6 +143,7 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 
+  // 💙 botão “Correr” com pulse central
   BottomNavigationBarItem _activityItem(IconData icon, String label, int index) {
     final isSelected = _selectedIndex == index;
     return BottomNavigationBarItem(
@@ -161,12 +170,14 @@ class _MainScaffoldState extends State<MainScaffold>
                 boxShadow: isSelected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
+                    color:
+                    const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
                     blurRadius: 18 + 10 * glowOpacity,
                     spreadRadius: 2,
                   ),
                   BoxShadow(
-                    color: const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
+                    color:
+                    const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
                     blurRadius: 22 + 10 * glowOpacity,
                     spreadRadius: 3,
                   ),
@@ -175,7 +186,7 @@ class _MainScaffoldState extends State<MainScaffold>
               ),
               child: Icon(
                 icon,
-                size: isSelected ? 32 : 26,
+                size: isSelected ? 36 : 28,
                 color: Colors.white,
               ),
             ),
@@ -186,8 +197,7 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 
-
-  // ⌚ -------- WEAR OS VIEW (com PageView vertical + gutters) --------
+  // ⌚ -------- WEAR OS VIEW --------
   Widget _buildWearOSView() {
     return Scaffold(
       backgroundColor: Colors.black,
@@ -195,22 +205,16 @@ class _MainScaffoldState extends State<MainScaffold>
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // PageView vertical
             PageView.builder(
               controller: _pageController,
               onPageChanged: _onPageChanged,
               scrollDirection: Axis.vertical,
-              pageSnapping: true,
               itemCount: _pages.length,
-              itemBuilder: (context, index) {
-                return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: _pages[index],
-                );
-              },
+              itemBuilder: (context, index) => AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: _pages[index],
+              ),
             ),
-
-            // 🔹 Indicador de páginas na lateral direita
             Positioned(
               right: 6,
               child: Column(
@@ -237,67 +241,9 @@ class _MainScaffoldState extends State<MainScaffold>
                 }),
               ),
             ),
-
-            // 🔹 Título no topo
-            Positioned(
-              top: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white24, width: 0.6),
-                ),
-                child: Text(
-                  _titles[_selectedIndex],
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-              ),
-            ),
-
-            // ✅ GUTTERS: zonas de gesto para trocar de página
-            //    Arrastar nessas faixas aciona o PageView e não a ListView interna.
-            Positioned.fill(
-              child: Column(
-                children: const [
-                  // topo
-                  _WearPageGutter(height: 22),
-                  Spacer(),
-                  // rodapé
-                  _WearPageGutter(height: 22),
-                ],
-              ),
-            ),
           ],
         ),
       ),
     );
   }
-
-
-
 }
-
-class _WearPageGutter extends StatelessWidget {
-  final double height;
-  const _WearPageGutter({required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    // AbsorbPointer TRUE: bloqueia a lista por baixo
-    // HitTest translucent garante que deslize “pegue” em qualquer parte da faixa
-    return AbsorbPointer(
-      absorbing: true,
-      child: SizedBox(
-        height: height,
-        width: double.infinity,
-        child: ColoredBox(color: Colors.transparent),
-      ),
-    );
-  }
-}
-
