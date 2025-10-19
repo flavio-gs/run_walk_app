@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:io';
+import 'dart:ui' as ui;
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
-
-// Corrigido o caminho do service
 import 'package:run_walk_app/service/service/gamification_service.dart';
-
 import 'package:run_walk_app/auth_gate.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -17,7 +16,8 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage>
+    with SingleTickerProviderStateMixin {
   double totalDistance = 0;
   int totalDuration = 0;
   double totalCalories = 0;
@@ -39,7 +39,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _profileUserId = widget.userId ?? FirebaseAuth.instance.currentUser!.uid;
-    _isCurrentUserProfile = _profileUserId == FirebaseAuth.instance.currentUser!.uid;
+    _isCurrentUserProfile =
+        _profileUserId == FirebaseAuth.instance.currentUser!.uid;
     _loadUserStats();
   }
 
@@ -49,11 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
-        if (Platform.isAndroid && mounted && MediaQuery.of(context).size.shortestSide < 300) {
-          await _loadMockData();
-        } else {
-          setState(() => loading = false);
-        }
+        setState(() => loading = false);
         return;
       }
 
@@ -72,7 +69,8 @@ class _ProfilePageState extends State<ProfilePage> {
         calories += (data['calories'] as num?)?.toDouble() ?? 0.0;
       }
 
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(_profileUserId).get();
+      final userDoc =
+      await FirebaseFirestore.instance.collection('users').doc(_profileUserId).get();
 
       final data = userDoc.data() ?? {};
       final int xp = (data['xp'] ?? 0) as int;
@@ -85,8 +83,7 @@ class _ProfilePageState extends State<ProfilePage> {
           totalDuration = duration;
           totalCalories = calories;
           userData = userDoc.data() ?? {};
-          photoURL = userData?['photoURL'] ??
-              (userDoc.id == currentUser.uid ? currentUser.photoURL : null);
+          photoURL = userData?['photoURL'] ?? currentUser.photoURL;
           loading = false;
           userData = {
             ...data,
@@ -96,26 +93,10 @@ class _ProfilePageState extends State<ProfilePage> {
           };
         });
       }
-
     } catch (e) {
       debugPrint("Erro ao carregar estatísticas: $e");
       if (mounted) setState(() => loading = false);
     }
-  }
-
-
-  Future<void> _loadMockData() async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    setState(() {
-      totalDistance = 12.34;
-      totalDuration = 4200;
-      totalCalories = 870;
-      totalPoints = 320;
-      userData = {'displayName': 'Usuário Demo', 'city': 'Rio de Janeiro', 'state': 'RJ'};
-      photoURL = null;
-      loading = false;
-    });
   }
 
   String _formatDuration(int seconds) {
@@ -127,66 +108,8 @@ class _ProfilePageState extends State<ProfilePage> {
     return '${s}s';
   }
 
-  bool get isWearOS {
-    try {
-      return Platform.isAndroid && MediaQuery.of(context).size.shortestSide < 300;
-    } catch (e) {
-      return false;
-    }
-  }
-
-
   @override
   Widget build(BuildContext context) {
-    return isWearOS ? _buildWearView() : _buildMobileView();
-  }
-
-  Widget _buildLevelCard({required int level, required double progress, required int xp}) {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: Colors.amber.withOpacity(0.2),
-              child: Text("$level",
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Nível", style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: progress.clamp(0.0, 1.0),
-                      minHeight: 10,
-                      backgroundColor: Colors.grey[300],
-                      valueColor: AlwaysStoppedAnimation(Colors.amber),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text("XP: $xp", style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-
-  // ---------------------------------
-  //  VIEW MOBILE
-  // ---------------------------------
-  Widget _buildMobileView() {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       body: loading
@@ -195,66 +118,105 @@ class _ProfilePageState extends State<ProfilePage> {
         onRefresh: _loadUserStats,
         child: CustomScrollView(
           slivers: [
+            // ------------------------------
+            //  APP BAR COM EFEITO PARALLAX
+            // ------------------------------
             SliverAppBar(
               pinned: true,
               backgroundColor: primaryGreen,
-              expandedHeight: 220,
-              flexibleSpace: FlexibleSpaceBar(
-                titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
-                title: Text(
-                  userData?['displayName'] ?? 'Perfil',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                background: Stack(fit: StackFit.expand, children: [
-                  Container(
-                      decoration: BoxDecoration(
-                          gradient: LinearGradient(
+              expandedHeight: 240,
+              flexibleSpace: LayoutBuilder(
+                builder: (context, constraints) {
+                  final percent =
+                      (constraints.maxHeight - kToolbarHeight) / 200;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      AnimatedOpacity(
+                        opacity: percent.clamp(0.3, 1.0),
+                        duration: const Duration(milliseconds: 250),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
                               colors: [primaryGreen, accentOrange],
                               begin: Alignment.topLeft,
-                              end: Alignment.bottomRight))),
-                  Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: CircleAvatar(
-                        radius: 45,
-                        backgroundColor: Colors.white.withOpacity(0.25),
-                        backgroundImage: (photoURL != null &&
-                            photoURL!.isNotEmpty)
-                            ? NetworkImage(photoURL!)
-                            : null,
-                        child: (photoURL == null || photoURL!.isEmpty)
-                            ? const Icon(Icons.person,
-                            color: Colors.white, size: 50)
-                            : null,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ]),
+                      Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Hero(
+                            tag: 'profile-photo-$_profileUserId',
+                            child: CircleAvatar(
+                              radius: 45,
+                              backgroundColor:
+                              Colors.white.withOpacity(0.25),
+                              backgroundImage: (photoURL != null &&
+                                  photoURL!.isNotEmpty)
+                                  ? NetworkImage(photoURL!)
+                                  : null,
+                              child: (photoURL == null ||
+                                  photoURL!.isEmpty)
+                                  ? const Icon(Icons.person,
+                                  color: Colors.white, size: 50)
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              title: Text(
+                userData?['displayName'] ?? 'Perfil',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
+            // ------------------------------
+            //  CONTEÚDO COM ANIMAÇÕES
+            // ------------------------------
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    _buildInfoCard(),
+                    _buildInfoCard()
+                        .animate()
+                        .fadeIn(duration: 600.ms)
+                        .slideY(begin: 0.2),
                     const SizedBox(height: 20),
                     if (!_isCurrentUserProfile)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 20.0),
-                        child: _FollowButton(profileUserId: _profileUserId),
-                      ),
-                    _buildStatsGrid(),
-                    const SizedBox(height: 25),
-                    _buildUserDetails(),
+                      _FollowButton(profileUserId: _profileUserId)
+                          .animate()
+                          .fadeIn(delay: 200.ms)
+                          .scale(begin: const Offset(0.8, 0.8)),
                     const SizedBox(height: 20),
-                    _buildPointsCard(),
+                    _buildStatsGrid()
+                        .animate()
+                        .slideY(begin: 0.2)
+                        .fadeIn(duration: 500.ms),
                     const SizedBox(height: 25),
-                    _AchievementsSection(),
+                    _buildPointsCard()
+                        .animate()
+                        .fadeIn(duration: 500.ms)
+                        .scale(),
+                    const SizedBox(height: 25),
+                    _AchievementsSection()
+                        .animate()
+                        .fadeIn(duration: 700.ms)
+                        .slideY(begin: 0.1),
                     const SizedBox(height: 40),
-                    if (_isCurrentUserProfile) _buildLogoutButton(),
+                    if (_isCurrentUserProfile)
+                      _buildLogoutButton()
+                          .animate()
+                          .fadeIn()
+                          .slideY(begin: 0.2),
                   ],
                 ),
               ),
@@ -265,69 +227,40 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // ---------------------------------
-  //  NOVO: CARD DE PONTOS
-  // ---------------------------------
-  Widget _buildPointsCard() {
-    return Card(
-      color: Colors.white,
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Row(
-          children: [
-            Icon(Icons.stars, color: accentOrange, size: 40),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                "Pontuação total: $totalPoints pts",
-                style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.black54),
-              onPressed: () async {
-                setState(() => loading = true);
-                await _loadUserStats();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------
-  //  RESTANTE DO SEU CÓDIGO ORIGINAL
-  // ---------------------------------
+  // ----------------------------------------
+  //   COMPONENTES COM ANIMAÇÕES LEVES
+  // ----------------------------------------
   Widget _buildInfoCard() {
     final email = _isCurrentUserProfile
         ? FirebaseAuth.instance.currentUser?.email
         : userData?['email'];
     return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(18.0),
-        child: Column(
-          children: [
-            Text(email ?? 'E-mail não disponível',
-                style:
-                const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            Text(
-              userData?['city'] != null
-                  ? "${userData?['city']} - ${userData?['state'] ?? ''}"
-                  : "Localização não informada",
-              style: const TextStyle(color: Colors.black54),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      elevation: 4,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            color: Colors.white.withOpacity(0.5),
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Text(
+                  email ?? 'E-mail não disponível',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  userData?['city'] != null
+                      ? "${userData?['city']} - ${userData?['state'] ?? ''}"
+                      : "Localização não informada",
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -335,24 +268,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildStatsGrid() {
     final List<Map<String, dynamic>> stats = [
-      {
-        'icon': Icons.directions_run,
-        'label': 'Distância',
-        'value': "${totalDistance.toStringAsFixed(2)} km",
-        'color': primaryGreen,
-      },
-      {
-        'icon': Icons.access_time,
-        'label': 'Tempo',
-        'value': _formatDuration(totalDuration),
-        'color': accentOrange,
-      },
-      {
-        'icon': Icons.local_fire_department,
-        'label': 'Calorias',
-        'value': "${totalCalories.toStringAsFixed(0)} kcal",
-        'color': softOrange,
-      },
+      {'icon': Icons.directions_run, 'label': 'Distância', 'value': "${totalDistance.toStringAsFixed(2)} km", 'color': primaryGreen},
+      {'icon': Icons.access_time, 'label': 'Tempo', 'value': _formatDuration(totalDuration), 'color': accentOrange},
+      {'icon': Icons.local_fire_department, 'label': 'Calorias', 'value': "${totalCalories.toStringAsFixed(0)} kcal", 'color': softOrange},
     ];
 
     return GridView.builder(
@@ -364,18 +282,20 @@ class _ProfilePageState extends State<ProfilePage> {
       itemBuilder: (context, index) {
         final stat = stats[index];
         final Color color = stat['color'] as Color;
-        return Container(
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(15)),
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(15),
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(stat['icon'] as IconData, color: color, size: 30),
               const SizedBox(height: 8),
               Text(stat['value'] as String,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 15)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               const SizedBox(height: 4),
               Text(stat['label'] as String,
                   style: const TextStyle(fontSize: 12, color: Colors.black54)),
@@ -386,47 +306,37 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildUserDetails() {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _infoRow(Icons.person, 'Nome', userData?['displayName'] ?? '—'),
-            _infoRow(Icons.calendar_today, 'Nascimento',
-                userData?['birthDate'] ?? '—'),
-            _infoRow(Icons.female, 'Gênero', userData?['gender'] ?? '—'),
-            _infoRow(Icons.monitor_weight, 'Peso',
-                '${userData?['weight'] ?? 0} kg'),
-            _infoRow(Icons.height, 'Altura',
-                '${userData?['height'] ?? 0} cm'),
-            _infoRow(Icons.flag, 'Meta Semanal',
-                '${userData?['weeklyGoal'] ?? 0} km'),
-            _infoRow(Icons.home, 'CEP', userData?['cep'] ?? '—'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        children: [
-          Icon(icon, color: primaryGreen),
-          const SizedBox(width: 10),
-          Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14))),
-          Text(value,
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
-              overflow: TextOverflow.ellipsis),
-        ],
-      ),
+  Widget _buildPointsCard() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeOut,
+      builder: (context, value, child) {
+        return Transform.scale(
+          scale: 0.9 + (0.1 * value),
+          child: Card(
+            color: Colors.white,
+            elevation: 6,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Icon(Icons.stars, color: accentOrange, size: 40),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      "Pontuação total: $totalPoints pts",
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -444,118 +354,17 @@ class _ProfilePageState extends State<ProfilePage> {
         await FirebaseAuth.instance.signOut();
         if (context.mounted) {
           Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (c) => const AuthGate()),
-                  (r) => false);
+              MaterialPageRoute(builder: (c) => const AuthGate()), (r) => false);
         }
       },
     );
   }
 
-  Widget _buildWearView() {
-    return Scaffold(body: Center(child: Text("Wear OS Profile")));
-  }
-}
 
-class _AchievementsSection extends StatefulWidget {
-  @override
-  State<_AchievementsSection> createState() => _AchievementsSectionState();
-}
-
-class _AchievementsSectionState extends State<_AchievementsSection> {
-  List<Map<String, dynamic>> _achievements = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadAchievements();
-  }
-
-  Future<void> _loadAchievements() async {
-    final list = await AchievementService().getUserAchievements();
-    if (mounted) {
-      setState(() {
-        _achievements = list;
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "🏆 Minhas Conquistas",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _achievements.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.9,
-          ),
-          itemBuilder: (context, index) {
-            final a = _achievements[index];
-            final bool unlocked = a['unlocked'];
-
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              decoration: BoxDecoration(
-                color: unlocked ? Colors.white : Colors.grey[300],
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: unlocked
-                    ? [
-                  BoxShadow(
-                    color: Colors.amber.withOpacity(0.4),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-                    : [],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    a['icon'],
-                    style: TextStyle(
-                      fontSize: 36,
-                      color: unlocked ? Colors.black : Colors.black45,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    a['title'],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: unlocked ? Colors.black87 : Colors.black38,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
 }
 
 // ---------------------------------
-//  BOTÃO SEGUIR (inalterado)
+//  BOTÃO SEGUIR
 // ---------------------------------
 class _FollowButton extends StatefulWidget {
   final String profileUserId;
@@ -641,14 +450,114 @@ class _FollowButtonState extends State<_FollowButton> {
     return ElevatedButton(
       onPressed: _toggleFollow,
       style: ElevatedButton.styleFrom(
-        backgroundColor:
-        _isFollowing ? Colors.grey[700] : Theme.of(context).colorScheme.primary,
+        backgroundColor: _isFollowing ? Colors.grey[700] : Theme.of(context).colorScheme.primary,
         foregroundColor: _isFollowing ? Colors.white : Colors.black,
         minimumSize: const Size(double.infinity, 48),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      child: Text(_isFollowing ? 'Deixar de Seguir' : 'Seguir',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      child: Text(
+        _isFollowing ? 'Deixar de Seguir' : 'Seguir',
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+}
+
+// ---------------------------------
+//  SEÇÃO DE CONQUISTAS
+// ---------------------------------
+class _AchievementsSection extends StatefulWidget {
+  @override
+  State<_AchievementsSection> createState() => _AchievementsSectionState();
+}
+
+class _AchievementsSectionState extends State<_AchievementsSection> {
+  List<Map<String, dynamic>> _achievements = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAchievements();
+  }
+
+  Future<void> _loadAchievements() async {
+    final list = await AchievementService().getUserAchievements();
+    if (mounted) {
+      setState(() {
+        _achievements = list;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "🏆 Minhas Conquistas",
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _achievements.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 0.9,
+          ),
+          itemBuilder: (context, index) {
+            final a = _achievements[index];
+            final bool unlocked = a['unlocked'];
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              decoration: BoxDecoration(
+                color: unlocked ? Colors.white : Colors.grey[300],
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: unlocked
+                    ? [
+                  BoxShadow(
+                    color: Colors.amber.withOpacity(0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+                    : [],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    a['icon'],
+                    style: TextStyle(
+                      fontSize: 36,
+                      color: unlocked ? Colors.black : Colors.black45,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    a['title'],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: unlocked ? Colors.black87 : Colors.black38,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
