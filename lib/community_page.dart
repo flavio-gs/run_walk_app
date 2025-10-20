@@ -41,6 +41,7 @@ class _CommunityPageState extends State<CommunityPage>
 
   @override
   void initState() {
+
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
   }
@@ -194,40 +195,125 @@ class CommunityActions {
 }
 
 // =============================================================
-// 1) DESCOBRIR — Busca, sugestões próximas, grupos, salas temáticas
+// 1) DESCOBRIR — Busca otimizada com @ e # + UI glass
 // =============================================================
 class _DiscoverTab extends StatefulWidget {
   final FirebaseFirestore firestore;
   final FirebaseAuth auth;
   final ValueNotifier<String> searchQuery;
-  final BuildContext messengerContext; // 👈 novo
+  final BuildContext messengerContext;
 
   const _DiscoverTab({
     required this.firestore,
     required this.auth,
     required this.searchQuery,
     required this.messengerContext,
-  });
+    Key? key,
+  }) : super(key: key);
 
   @override
   State<_DiscoverTab> createState() => _DiscoverTabState();
 }
 
 class _DiscoverTabState extends State<_DiscoverTab> {
+  List<QueryDocumentSnapshot> _nearbyUsers = [];
+  bool _loadingNearby = false;
+
+  static const double _nearbyDelta = 0.2; // ~22 km
   final _categories = const [
     'Trilhas', 'Noturno', 'Iniciantes', '5K', '10K', '21K', 'Maratona', 'HIIT'
   ];
   String _selectedCat = 'Trilhas';
+
+  Future<void> _findNearbyRunners() async {
+    try {
+      setState(() => _loadingNearby = true);
+
+      // Solicita permissão de localização
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+          const SnackBar(content: Text('Permissão de localização negada')),
+        );
+        setState(() => _loadingNearby = false);
+        return;
+      }
+
+      // Pega localização atual
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+
+      final minLat = lat - _nearbyDelta;
+      final maxLat = lat + _nearbyDelta;
+      final minLng = lng - _nearbyDelta;
+      final maxLng = lng + _nearbyDelta;
+
+      // Busca runners dentro da bounding box
+      final q = await widget.firestore
+          .collection('users')
+          .where('lat', isGreaterThanOrEqualTo: minLat)
+          .where('lat', isLessThanOrEqualTo: maxLat)
+          .get();
+
+      final nearby = q.docs.where((d) {
+        final m = d.data() as Map<String, dynamic>;
+        final userLng = (m['lng'] ?? 0).toDouble();
+        return userLng >= minLng && userLng <= maxLng;
+      }).toList();
+
+      if (mounted) {
+        setState(() => _nearbyUsers = nearby);
+      }
+
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+        SnackBar(content: Text('Erro ao buscar próximos: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingNearby = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _findNearbyRunners(); // 🔹 busca autom. ao abrir a aba
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String>(
       valueListenable: widget.searchQuery,
       builder: (_, query, __) {
+        final q = query.trim().toLowerCase();
+        final isUserSearch = q.startsWith('@');
+        final isGroupSearch = q.startsWith('#');
+        final searchTerm = q.isNotEmpty ? q.substring(1) : '';
+
+        // 🔹 Se for busca de usuário e tiver 2+ letras → busca direta no Firestore
+        final userStream = (isUserSearch && searchTerm.length >= 2)
+            ? widget.firestore
+            .collection('users')
+            .where('username', isGreaterThanOrEqualTo: searchTerm)
+            .where('username', isLessThanOrEqualTo: '$searchTerm\uf8ff')
+            .limit(30)
+            .snapshots()
+            : widget.firestore
+            .collection('users')
+            .orderBy('lastActive', descending: true)
+            .limit(30)
+            .snapshots();
+
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           children: [
-            // Chips de categorias
+            // 🔹 Chips de categorias
             _HorizontalChips(
               items: _categories,
               selected: _selectedCat,
@@ -235,73 +321,54 @@ class _DiscoverTabState extends State<_DiscoverTab> {
             ),
             const SizedBox(height: 12),
 
-            // Sugestões perto de você (runners)
-            _SectionTitle('Sugestões perto de você'),
+            // 🏃 Usuários — busca ou sugestões
+            _SectionTitle(isUserSearch ? 'Resultados de usuários' : 'Sugestões perto de você'),
             const SizedBox(height: 8),
             _GlassContainer(
-              child: SizedBox(
-                height: 134,
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: widget.firestore
-                      .collection('users')
-                      .orderBy('lastActive', descending: true)
-                      .limit(12)
-                      .snapshots(),
-                  builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: CircularProgressIndicator(strokeWidth: 2),
+              child: Builder(
+                builder: (context) {
+                  if (isUserSearch && searchTerm.length >= 2) {
+                    // 🔹 Busca por username (@)
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: userStream,
+                      builder: (context, snap) {
+                        if (!snap.hasData) {
+                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                        }
+                        final docs = snap.data!.docs;
+                        return _buildUserList(docs);
+                      },
+                    );
+                  } else {
+                    // 🔹 Sugestões automáticas (usuários próximos)
+                    if (_loadingNearby) {
+                      return const SizedBox(
+                        height: 120,
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      );
+                    }
+                    if (_nearbyUsers.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: Center(
+                          child: Text(
+                            'Nenhum corredor próximo encontrado 😔',
+                            style: TextStyle(color: Colors.white70),
+                          ),
                         ),
                       );
                     }
-                    final docs = snap.data!.docs;
-                    final filtered = docs.where((d) {
-                      final m = d.data() as Map<String, dynamic>;
-                      final name = (m['displayName'] ?? '').toString().toLowerCase();
-                      return query.isEmpty || name.contains(query.toLowerCase());
-                    }).toList();
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      scrollDirection: Axis.horizontal,
-                      itemBuilder: (_, i) {
-                        final data = filtered[i].data() as Map<String, dynamic>;
-                        final targetUserId = (data['uid'] ?? data['userId'] ?? filtered[i].id) as String? ?? '';
-
-                        return _RunnerCard(
-                          name: data['displayName'] ?? 'Runner',
-                          pace: data['pace'] ?? '--',
-                          city: data['city'] ?? '',
-                          onFollow: () async {
-                            await CommunityActions.followRunner(
-                              widget.firestore,
-                              widget.auth,
-                              widget.messengerContext,
-                              targetUserId,
-                            );
-                          },
-                          onInvite: () async {
-                            await CommunityActions.inviteToRun(
-                              widget.firestore,
-                              widget.auth,
-                              widget.messengerContext,
-                              targetUserId,
-                            );
-                          },
-                        );
-
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemCount: filtered.length,
-                    );
-                  },
-                ),
+                    return _buildUserList(_nearbyUsers);
+                  }
+                },
               ),
             ),
 
+
             const SizedBox(height: 16),
-            _SectionTitle('Grupos em destaque'),
+
+            // 👥 Grupos
+            _SectionTitle(isGroupSearch ? 'Grupos encontrados' : 'Grupos em destaque'),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
               stream: widget.firestore
@@ -313,12 +380,17 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator(strokeWidth: 2));
                 }
+
                 final docs = snap.data!.docs.where((d) {
                   final m = d.data() as Map<String, dynamic>;
                   final name = (m['name'] ?? '').toString().toLowerCase();
-                  final tag = (m['tag'] ?? '').toString();
-                  final query = widget.searchQuery.value.toLowerCase();
-                  final matchesQuery = query.isEmpty || name.contains(query);
+                  final tag = (m['tag'] ?? '').toString().toLowerCase();
+
+                  final matchesQuery = q.isEmpty ||
+                      (isGroupSearch
+                          ? name.contains(searchTerm) || tag.contains(searchTerm)
+                          : name.contains(q) || tag.contains(q));
+
                   final matchesCat = _selectedCat.isEmpty || tag == _selectedCat;
                   return matchesQuery && matchesCat;
                 }).toList();
@@ -339,9 +411,11 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                         onJoin: () async {
                           final user = widget.auth.currentUser;
                           if (user == null) return;
+
                           await widget.firestore.collection('groups').doc(doc.id).update({
                             'requests': FieldValue.arrayUnion([user.uid])
                           });
+
                           ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
                             SnackBar(content: Text('Pedido enviado para "${data['name']}"')),
                           );
@@ -354,6 +428,8 @@ class _DiscoverTabState extends State<_DiscoverTab> {
             ),
 
             const SizedBox(height: 16),
+
+            // 💬 Salas temáticas
             _SectionTitle('Salas temáticas'),
             const SizedBox(height: 8),
             _GlassContainer(
@@ -368,7 +444,44 @@ class _DiscoverTabState extends State<_DiscoverTab> {
       },
     );
   }
+  Widget _buildUserList(List<QueryDocumentSnapshot> docs) {
+    return SizedBox(
+      height: 190,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(12),
+        scrollDirection: Axis.horizontal,
+        itemCount: docs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, i) {
+          final data = docs[i].data() as Map<String, dynamic>;
+          final targetUserId = (data['uid'] ?? data['userId'] ?? docs[i].id) as String? ?? '';
+
+          return _RunnerCard(
+            name: data['displayName'] ?? 'Runner',
+            pace: data['pace'] ?? '--',
+            city: data['city'] ?? '',
+            userId: targetUserId,
+            firestore: widget.firestore,
+            auth: widget.auth,
+            messengerContext: widget.messengerContext,
+            onInvite: () async {
+              await CommunityActions.inviteToRun(
+                widget.firestore,
+                widget.auth,
+                widget.messengerContext,
+                targetUserId,
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
 }
+
+
+
 
 // =============================================================
 // 2) MAPA — Rotas populares e corredores ativos
@@ -404,6 +517,7 @@ class _MapTabState extends State<_MapTab> {
     super.initState();
     _ensureLocationPermission();
     _loadRoutesAndRunners();
+    _findNearbyRunners();
   }
 
   Future<bool> _isFollowingUser(String targetUserId) async {
@@ -652,116 +766,138 @@ class _MapTabState extends State<_MapTab> {
     showModalBottomSheet(
       context: widget.rootContext,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true, // permite que o modal se ajuste à tela
       builder: (sheetContext) {
         bool isLoading = false;
-        bool isFollowingCached = false; // cache local do estado para o botão
+        bool isFollowingCached = false;
 
-        return _GlassContainer(
-          borderRadius: 22,
-          padding: const EdgeInsets.all(16),
-          child: StatefulBuilder(
-            builder: (context, setModalState) {
-              return FutureBuilder<bool>(
-                future: followFuture,
-                builder: (context, snap) {
-                  final isFollowing = snap.data ?? false;
-                  // guarda um cache para evitar flicker após o primeiro load
-                  if (snap.connectionState == ConnectionState.done) {
-                    isFollowingCached = isFollowing;
-                  }
+        return SafeArea( // 🔹 evita corte pelos botões do Android
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom +
+                  MediaQuery.of(sheetContext).padding.bottom +
+                  12, // margem extra opcional
+            ),
+            child: _GlassContainer(
+              borderRadius: 22,
+              padding: const EdgeInsets.all(16),
+              child: StatefulBuilder(
+                builder: (context, setModalState) {
+                  return FutureBuilder<bool>(
+                    future: followFuture,
+                    builder: (context, snap) {
+                      final isFollowing = snap.data ?? false;
+                      if (snap.connectionState == ConnectionState.done) {
+                        isFollowingCached = isFollowing;
+                      }
 
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        const CircleAvatar(child: Icon(Icons.person)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            runner['displayName'] ?? runner['name'] ?? 'Usuário',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: targetId.isEmpty || isLoading || snap.connectionState != ConnectionState.done
-                              ? null
-                              : () async {
-                            setModalState(() => isLoading = true);
-                            await _followRunner(targetId); // já alterna seguir/desseguir
-                            setModalState(() {
-                              isFollowingCached = !isFollowingCached;
-                              isLoading = false;
-                            });
-                          },
-                          style: _primaryBtn,
-                          icon: isLoading
-                              ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                              : Icon(
-                            isFollowingCached ? Icons.check : Icons.person_add_alt_1,
-                            color: Colors.white,
-                          ),
-                          label: Text(
-                            isFollowingCached ? 'Seguindo' : 'Seguir',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      ]),
-                      const SizedBox(height: 10),
-                      Row(children: [
-                        const Icon(Icons.speed, color: Colors.white70, size: 18),
-                        const SizedBox(width: 6),
-                        Text('Ritmo: ${runner['pace'] ?? '--'}', style: const TextStyle(color: Colors.white70)),
-                      ]),
-                      const SizedBox(height: 6),
-                      Row(children: [
-                        const Icon(Icons.place, color: Colors.white70, size: 18),
-                        const SizedBox(width: 6),
-                        Text(runner['city'] ?? 'Local não informado', style: const TextStyle(color: Colors.white70)),
-                      ]),
-                      const SizedBox(height: 14),
-                      Row(children: [
-                        OutlinedButton.icon(
-                          onPressed: targetId.isEmpty
-                              ? null
-                              : () => _inviteToRun(targetId),
-                          style: _outlineBtn,
-                          icon: const Icon(Icons.chat_bubble_outline),
-                          label: const Text('Convidar p/ correr'),
-                        ),
-                        const SizedBox(width: 10),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            if (targetId.isEmpty) return;
-                            Navigator.of(context).push(
-                              PageRouteBuilder(
-                                pageBuilder: (context, animation, secondaryAnimation) =>
-                                    ProfilePage(userId: targetId),
-                                transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                  final curved = CurvedAnimation(parent: animation, curve: Curves.easeInOut);
-                                  return FadeTransition(opacity: curved, child: child);
-                                },
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const CircleAvatar(child: Icon(Icons.person)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  runner['displayName'] ?? runner['name'] ?? 'Usuário',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                  ),
+                                ),
                               ),
-                            );
-                          },
-                          style: _outlineBtn,
-                          icon: const Icon(Icons.info_outline),
-                          label: const Text('Ver perfil'),
-                        ),
-                      ]),
-                    ],
+                              ElevatedButton.icon(
+                                onPressed: targetId.isEmpty || isLoading || snap.connectionState != ConnectionState.done
+                                    ? null
+                                    : () async {
+                                  setModalState(() => isLoading = true);
+                                  await _followRunner(targetId);
+                                  setModalState(() {
+                                    isFollowingCached = !isFollowingCached;
+                                    isLoading = false;
+                                  });
+                                },
+                                style: _primaryBtn,
+                                icon: isLoading
+                                    ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                    : Icon(
+                                  isFollowingCached
+                                      ? Icons.check
+                                      : Icons.person_add_alt_1,
+                                  color: Colors.white,
+                                ),
+                                label: Text(
+                                  isFollowingCached ? 'Seguindo' : 'Seguir',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Row(children: [
+                            const Icon(Icons.speed, color: Colors.white70, size: 18),
+                            const SizedBox(width: 6),
+                            Text('Ritmo: ${runner['pace'] ?? '--'}',
+                                style: const TextStyle(color: Colors.white70)),
+                          ]),
+                          const SizedBox(height: 6),
+                          Row(children: [
+                            const Icon(Icons.place, color: Colors.white70, size: 18),
+                            const SizedBox(width: 6),
+                            Text(runner['city'] ?? 'Local não informado',
+                                style: const TextStyle(color: Colors.white70)),
+                          ]),
+                          const SizedBox(height: 14),
+                          Row(children: [
+                            OutlinedButton.icon(
+                              onPressed: targetId.isEmpty
+                                  ? null
+                                  : () => _inviteToRun(targetId),
+                              style: _outlineBtn,
+                              icon: const Icon(Icons.chat_bubble_outline),
+                              label: const Text('Convidar p/ correr'),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                if (targetId.isEmpty) return;
+                                Navigator.of(context).push(
+                                  PageRouteBuilder(
+                                    pageBuilder: (context, animation, secondaryAnimation) =>
+                                        ProfilePage(userId: targetId),
+                                    transitionsBuilder:
+                                        (context, animation, secondaryAnimation, child) {
+                                      final curved = CurvedAnimation(
+                                          parent: animation, curve: Curves.easeInOut);
+                                      return FadeTransition(
+                                          opacity: curved, child: child);
+                                    },
+                                  ),
+                                );
+                              },
+                              style: _outlineBtn,
+                              icon: const Icon(Icons.info_outline),
+                              label: const Text('Ver perfil'),
+                            ),
+                          ]),
+                        ],
+                      );
+                    },
                   );
                 },
-              );
-            },
+              ),
+            ),
           ),
         );
       },
@@ -799,7 +935,7 @@ class _MapTabState extends State<_MapTab> {
           const SizedBox(height: 12),
           FloatingActionButton.extended(
             heroTag: 'find_nearby',
-            backgroundColor: const Color(0xFF4A90E2),
+            backgroundColor: const Color(0xFF3DA648),
             onPressed: _findNearbyRunners,
             icon: const Icon(Icons.radar),
             label: const Text('Encontrar próximos'),
@@ -1109,6 +1245,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 // =============================================================
 class _InviteFab extends StatelessWidget {
   const _InviteFab();
+
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton.extended(
@@ -1117,29 +1254,64 @@ class _InviteFab extends StatelessWidget {
         showModalBottomSheet(
           context: context,
           backgroundColor: Colors.transparent,
-          builder: (_) => _GlassContainer(
-            borderRadius: 24,
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Convidar para correr',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _InviteBtn(icon: Icons.share, label: 'Compartilhar link', onTap: () {}),
-                    _InviteBtn(icon: Icons.qr_code, label: 'Gerar QR Code', onTap: () {}),
-                    _InviteBtn(icon: Icons.group_add, label: 'Criar grupo', onTap: () {}),
-                    _InviteBtn(icon: Icons.emoji_events_outlined, label: 'Criar desafio', onTap: () {}),
-                  ],
-                )
-              ],
-            ),
-          ),
+          isScrollControlled: true, // 🔹 permite o ajuste total de altura
+          builder: (sheetContext) {
+            return SafeArea(
+              top: false, // só protege a parte inferior
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom +
+                      MediaQuery.of(sheetContext).padding.bottom +
+                      12, // 🔹 evita sobreposição com a barra de navegação
+                ),
+                child: _GlassContainer(
+                  borderRadius: 24,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Convidar para correr',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _InviteBtn(
+                            icon: Icons.share,
+                            label: 'Compartilhar link',
+                            onTap: () {},
+                          ),
+                          _InviteBtn(
+                            icon: Icons.qr_code,
+                            label: 'Gerar QR Code',
+                            onTap: () {},
+                          ),
+                          _InviteBtn(
+                            icon: Icons.group_add,
+                            label: 'Criar grupo',
+                            onTap: () {},
+                          ),
+                          _InviteBtn(
+                            icon: Icons.emoji_events_outlined,
+                            label: 'Criar desafio',
+                            onTap: () {},
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
       icon: const Icon(Icons.person_add_alt_1),
@@ -1343,18 +1515,125 @@ class _GroupCard extends StatelessWidget {
   }
 }
 
-class _RunnerCard extends StatelessWidget {
+class _RunnerCard extends StatefulWidget {
   final String name;
   final String pace;
   final String city;
-  final VoidCallback onFollow;
+  final String userId;
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+  final BuildContext messengerContext;
   final VoidCallback onInvite;
-  const _RunnerCard({required this.name, required this.pace, required this.city, required this.onFollow, required this.onInvite});
+
+  const _RunnerCard({
+    required this.name,
+    required this.pace,
+    required this.city,
+    required this.userId,
+    required this.firestore,
+    required this.auth,
+    required this.messengerContext,
+    required this.onInvite,
+    Key? key,
+  }) : super(key: key);
+
+  @override
+  State<_RunnerCard> createState() => _RunnerCardState();
+}
+
+class _RunnerCardState extends State<_RunnerCard> {
+  bool _isFollowing = false;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfFollowing();
+
+  }
+
+  Future<void> _checkIfFollowing() async {
+    final me = widget.auth.currentUser?.uid;
+    if (me == null) return;
+
+    final doc = await widget.firestore
+        .collection('follows')
+        .doc('${me}_${widget.userId}')
+        .get();
+
+    if (mounted) {
+      setState(() => _isFollowing = doc.exists);
+    }
+  }
+
+  Future<void> _toggleFollow() async {
+    final me = widget.auth.currentUser?.uid;
+    if (me == null || widget.userId.isEmpty) return;
+
+    setState(() => _loading = true);
+    try {
+      final followsRef = widget.firestore.collection('follows');
+      final followId = '${me}_${widget.userId}';
+      final doc = await followsRef.doc(followId).get();
+
+      if (doc.exists) {
+        // 👇 já segue → desfaz follow
+        await followsRef.doc(followId).delete();
+        await widget.firestore
+            .collection('users')
+            .doc(me)
+            .collection('following')
+            .doc(widget.userId)
+            .delete();
+        await widget.firestore
+            .collection('users')
+            .doc(widget.userId)
+            .collection('followers')
+            .doc(me)
+            .delete();
+
+        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+          const SnackBar(content: Text('Você deixou de seguir este corredor.')),
+        );
+        setState(() => _isFollowing = false);
+      } else {
+        // 👇 cria novo follow
+        await followsRef.doc(followId).set({
+          'followerId': me,
+          'followingId': widget.userId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        await widget.firestore
+            .collection('users')
+            .doc(me)
+            .collection('following')
+            .doc(widget.userId)
+            .set({'timestamp': FieldValue.serverTimestamp()});
+        await widget.firestore
+            .collection('users')
+            .doc(widget.userId)
+            .collection('followers')
+            .doc(me)
+            .set({'timestamp': FieldValue.serverTimestamp()});
+
+        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+          const SnackBar(content: Text('Agora você segue este corredor 🎉')),
+        );
+        setState(() => _isFollowing = true);
+      }
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+        SnackBar(content: Text('Erro ao seguir: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 220,
+      width: 270, // 🔹 largura ajustada para caber os botões
       child: _GlassContainer(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1365,30 +1644,67 @@ class _RunnerCard extends StatelessWidget {
               const CircleAvatar(child: Icon(Icons.person)),
               const SizedBox(width: 10),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  Text(city, style: const TextStyle(color: Colors.white54)),
-                ]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.name,
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.bold)),
+                    Text(widget.city,
+                        style: const TextStyle(color: Colors.white54)),
+                  ],
+                ),
               ),
             ]),
             const SizedBox(height: 8),
             Row(children: [
               const Icon(Icons.speed, color: Colors.white70, size: 18),
               const SizedBox(width: 6),
-              Text('Ritmo: $pace', style: const TextStyle(color: Colors.white70)),
+              Text('Ritmo: ${widget.pace}',
+                  style: const TextStyle(color: Colors.white70)),
             ]),
             const SizedBox(height: 10),
             Row(children: [
-              OutlinedButton.icon(onPressed: onFollow, style: _outlineBtn, icon: const Icon(Icons.person_add_alt_1), label: const Text('Seguir')),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _toggleFollow,
+                  style: _outlineBtn,
+                  icon: _loading
+                      ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                      : Icon(
+                    _isFollowing
+                        ? Icons.check
+                        : Icons.person_add_alt_1,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    _isFollowing ? 'Seguindo' : 'Seguir',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
               const SizedBox(width: 8),
-              OutlinedButton.icon(onPressed: onInvite, style: _outlineBtn, icon: const Icon(Icons.chat_bubble_outline), label: const Text('Convidar')),
-            ])
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.onInvite,
+                  style: _outlineBtn,
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Convidar'),
+                ),
+              ),
+            ]),
           ],
         ),
       ),
     );
   }
 }
+
 
 class _TopicTile extends StatelessWidget {
   final String title;
