@@ -28,6 +28,9 @@ dependencies:
   connectivity_plus: ^6.1.0
   shared_preferences: ^2.3.2
 
+  flutter_background_service: ^5.0.6
+  flutter_background_service_android: ^6.0.4
+
   # Localização e GPS
   location: ^5.0.3
   geolocator: ^10.1.0

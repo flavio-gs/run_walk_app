@@ -225,7 +225,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
 
   Future<void> _setupFeedStream() async {
-    final userRef = FirebaseFirestore.instance.collection('users').doc(_currentUserId);
+    final userRef =
+    FirebaseFirestore.instance.collection('users').doc(_currentUserId);
     final followingSnapshot = await userRef.collection('following').get();
 
     List<String> followingIds = followingSnapshot.docs.map((doc) => doc.id).toList();
@@ -233,13 +234,29 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     Query query = FirebaseFirestore.instance.collection('posts');
 
     if (_selectedFeed == 'following') {
-      // mostra apenas quem sigo (e eu mesmo)
-      followingIds.add(_currentUserId);
-      query = query.where('authorId', whereIn: followingIds);
+      // ✅ Mostra posts das pessoas que o usuário segue e também dele mesmo.
+      if (followingIds.isEmpty) {
+        // Caso não siga ninguém → mostra apenas os próprios posts
+        query = query.where('authorId', isEqualTo: _currentUserId);
+      } else {
+        followingIds.add(_currentUserId);
+        query = query.where('authorId', whereIn: followingIds);
+      }
     } else {
-      // modo global: mostra posts de quem eu NÃO sigo
-      query = query.where('authorId', whereNotIn: followingIds.length < 10 ? [...followingIds, _currentUserId] : followingIds.take(10).toList());
-      // Firestore limita whereNotIn a 10 elementos, então tratamos listas grandes
+      // ✅ Modo Global: mostra todos os posts (sem filtro) ou exclui quem sigo, se houver.
+      if (followingIds.isEmpty) {
+        // Se não segue ninguém, mostra tudo
+        query = FirebaseFirestore.instance.collection('posts');
+      } else {
+        // Firestore limita whereNotIn a 10 elementos → tratamos isso
+        final excluded = [...followingIds, _currentUserId];
+        query = query.where(
+          'authorId',
+          whereNotIn: excluded.length > 10
+              ? excluded.take(10).toList()
+              : excluded,
+        );
+      }
     }
 
     if (mounted) {
@@ -249,6 +266,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       });
     }
   }
+
+
 
 
   Future<void> _toggleLike(
@@ -340,36 +359,50 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   }
 
   Widget _buildFeedBody() {
+    return Column(
+      children: [
+        // 🔹 Stories sempre visíveis
+        //_buildStoriesSection(),
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _postsStream,
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return _emptyFeedMessage();
-        }
-        final posts = snapshot.data!.docs;
-        return ListView(
-          children: [
-            _buildStoriesSection(),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildFeedToggleButton('Seguindo', 'following'),
-                  const SizedBox(width: 12),
-                  _buildFeedToggleButton('Global', 'global'),
-                ],
-              ),
-            ),
+        // 🔹 Botões "Seguindo" e "Global" sempre visíveis
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildFeedToggleButton('Seguindo', 'following'),
+              const SizedBox(width: 12),
+              _buildFeedToggleButton('Global', 'global'),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: Colors.black26),
 
-            const Divider(height: 1, color: Colors.black26),
-            ...posts.map((post) => _buildPostItem(post)).toList(),
-          ],
-        );
-      },
+        // 🔹 Lista de posts (ou mensagem de vazio)
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _postsStream,
+            builder: (context, snapshot) {
+              if (_isLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return _emptyFeedMessage();
+              }
+
+              final posts = snapshot.data!.docs;
+              return ListView.builder(
+                itemCount: posts.length,
+                itemBuilder: (context, index) => _buildPostItem(posts[index]),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
+
 
   // STORIES
   Widget _buildStoriesSection() {
@@ -840,6 +873,243 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     }
   }
 
+  void _showPostOptions(BuildContext context) async {
+    final currentUserId = FirebaseAuth.instance.currentUser!.uid;
+    final isOwner = widget.authorId == currentUserId;
+
+    // Verifica se o usuário atual segue o autor
+    final followingRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUserId)
+        .collection('following')
+        .doc(widget.authorId);
+    final followingSnap = await followingRef.get();
+    final isFollowing = followingSnap.exists;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10, bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+
+              if (isOwner) ...[
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.blueAccent),
+                  title: const Text('Editar publicação'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openEditPostModal(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.redAccent),
+                  title: const Text('Excluir publicação'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _confirmDeletePost(context);
+                  },
+                ),
+              ] else if (!isFollowing) ...[
+                ListTile(
+                  leading: const Icon(Icons.person_add_alt_1_rounded,
+                      color: Colors.green),
+                  title: const Text('Seguir jogador'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(currentUserId)
+                        .collection('following')
+                        .doc(widget.authorId)
+                        .set({
+                      'timestamp': FieldValue.serverTimestamp(),
+                    });
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('✅ Agora você está seguindo este jogador!')),
+                    );
+                  },
+                ),
+              ] else ...[
+                ListTile(
+                  leading:
+                  const Icon(Icons.person_remove_alt_1, color: Colors.orange),
+                  title: const Text('Deixar de seguir jogador'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(currentUserId)
+                        .collection('following')
+                        .doc(widget.authorId)
+                        .delete();
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('👋 Você deixou de seguir este jogador.')),
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
+  Future<void> _confirmDeletePost(BuildContext context) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Excluir publicação'),
+        content: const Text(
+          'Tem certeza que deseja excluir esta publicação?\nEssa ação não pode ser desfeita.',
+          style: TextStyle(fontSize: 15),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              await FirebaseFirestore.instance
+                  .collection('posts')
+                  .doc(widget.postId)
+                  .delete();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('🗑️ Publicação excluída com sucesso!')),
+              );
+            },
+            icon: const Icon(Icons.delete, color: Colors.white),
+            label: const Text('Excluir'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openEditPostModal(BuildContext context) {
+    final TextEditingController captionController =
+    TextEditingController(text: widget.caption ?? '');
+    String? updatedImageUrl = widget.imageUrl;
+    bool isUpdating = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 25,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 25,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '✏️ Editar Publicação',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    TextField(
+                      controller: captionController,
+                      maxLines: null,
+                      decoration: InputDecoration(
+                        hintText: 'Escreva algo...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    ElevatedButton.icon(
+                      onPressed: isUpdating
+                          ? null
+                          : () async {
+                        setModalState(() => isUpdating = true);
+
+                        await FirebaseFirestore.instance
+                            .collection('posts')
+                            .doc(widget.postId)
+                            .update({
+                          'text': captionController.text.trim(),
+                          'imageUrl': updatedImageUrl,
+                        });
+
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content:
+                                Text('✅ Publicação atualizada com sucesso!')),
+                          );
+                        }
+                      },
+                      icon: isUpdating
+                          ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                          : const Icon(Icons.check_circle_outline,
+                          color: Colors.white),
+                      label: const Text('Salvar alterações'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        minimumSize: const Size(double.infinity, 45),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+
+
   // Mapa de emojis/labels
   static const Map<String, String> _emoji = {
     'love': '❤️',
@@ -899,7 +1169,11 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                     style:
                     const TextStyle(color: Colors.black54, fontSize: 12),
                   ),
-                  trailing: const Icon(Icons.more_vert),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.more_vert),
+                    onPressed: () => _showPostOptions(context),
+                  ),
+
                 ),
 
                 // Imagem com double tap = curtir (like) + coração

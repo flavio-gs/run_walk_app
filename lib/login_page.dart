@@ -60,24 +60,27 @@ class _LoginPageState extends State<LoginPage> {
       final user = userCredential.user;
       if (user == null) return;
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final userDoc = await userDocRef.get();
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      var userDoc = await userDocRef.get();
 
+// 🔹 Cria o doc se não existir
       if (!userDoc.exists) {
         await userDocRef.set({
+          'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
+          'username': '', // 👈 garante que o campo exista
           'createdAt': FieldValue.serverTimestamp(),
         });
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/complete_profile');
-          return;
-        }
+
+        // 🔁 Recarrega o doc atualizado
+        userDoc = await userDocRef.get();
       }
 
+// 🔎 Lê os dados e verifica perfil
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
+        data['username'],
         data['displayName'],
         data['birthDate'],
         data['gender'],
@@ -98,6 +101,7 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         navigateToRunTrackingPage();
       }
+
     } on FirebaseAuthException catch (e) {
       String errorMessage = switch (e.code) {
         'user-not-found' || 'wrong-password' => 'E-mail ou senha inválidos.',
@@ -149,24 +153,27 @@ class _LoginPageState extends State<LoginPage> {
       final user = userCred.user;
       if (user == null) return;
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final userDoc = await userDocRef.get();
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      var userDoc = await userDocRef.get();
 
+// 🔹 Cria o doc se não existir
       if (!userDoc.exists) {
         await userDocRef.set({
+          'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
+          'username': '', // 👈 garante que o campo exista
           'createdAt': FieldValue.serverTimestamp(),
         });
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/complete_profile');
-          return;
-        }
+
+        // 🔁 Recarrega o doc atualizado
+        userDoc = await userDocRef.get();
       }
 
+// 🔎 Lê os dados e verifica perfil
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
+        data['username'],
         data['displayName'],
         data['birthDate'],
         data['gender'],

@@ -5,7 +5,8 @@ import 'package:run_walk_app/run_tracker.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/activity_page.dart';
-import 'package:run_walk_app/feedback_page.dart'; // 👈 nova tela de feedback
+import 'package:run_walk_app/feedback_page.dart';
+import 'package:run_walk_app/community_page.dart'; // ✅ import da nova tela
 
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
@@ -29,7 +30,7 @@ class _MainScaffoldState extends State<MainScaffold>
 
   final List<Widget> _pages = const [
     FeedPage(), // 0
-    Center(child: Text("Comunidade", style: TextStyle(color: Colors.white))), // 1
+    CommunityPage(), // ✅ 1 — tela Comunidade
     ActivityPage(), // 2 - Desafios
     RunTrackingPage(), // 3 - Correr (centro)
     HistoricoPage(), // 4 - Progresso
@@ -106,12 +107,12 @@ class _MainScaffoldState extends State<MainScaffold>
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
           items: [
             _navItem(Icons.dashboard, "Feed", 0),
-            _navItem(Icons.people, "Comunidade", 1),
+            _navItem(Icons.people, "Comunidade", 1), // ✅ Comunidade funcional
             _navItem(Icons.bolt, "Atividade", 2),
-            _activityItem(Icons.directions_run, "Correr", 3), // 🏃 Central
+            _activityItem(Icons.directions_run, "Correr", 3),
             _navItem(Icons.bar_chart, "Progresso", 4),
             _navItem(Icons.person, "Perfil", 5),
-            _navItem(Icons.chat_bubble_outline, "Feedback", 6), // 💬 Novo
+            _navItem(Icons.chat_bubble_outline, "Feedback", 6),
           ],
         ),
       ),
@@ -170,14 +171,14 @@ class _MainScaffoldState extends State<MainScaffold>
                 boxShadow: isSelected
                     ? [
                   BoxShadow(
-                    color:
-                    const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
+                    color: const Color(0xFF4A90E2)
+                        .withOpacity(0.45 * glowOpacity),
                     blurRadius: 18 + 10 * glowOpacity,
                     spreadRadius: 2,
                   ),
                   BoxShadow(
-                    color:
-                    const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
+                    color: const Color(0xFF007AFF)
+                        .withOpacity(0.45 * glowOpacity),
                     blurRadius: 22 + 10 * glowOpacity,
                     spreadRadius: 3,
                   ),

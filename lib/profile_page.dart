@@ -44,6 +44,7 @@ class _ProfilePageState extends State<ProfilePage>
     _loadUserStats();
   }
 
+
   Future<void> _loadUserStats() async {
     try {
       totalPoints = await GamificationService().getTotalPoints();
