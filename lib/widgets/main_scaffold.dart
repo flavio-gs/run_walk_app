@@ -7,6 +7,8 @@ import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/activity_page.dart';
 import 'package:run_walk_app/feedback_page.dart';
 import 'package:run_walk_app/community_page.dart'; // ✅ import da nova tela
+import 'package:audioplayers/audioplayers.dart';
+
 
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
@@ -19,6 +21,12 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold>
     with SingleTickerProviderStateMixin {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  bool _transitioning = false;
+  int? _nextIndex;
+  late Offset _transitionCenter;
+
   late int _selectedIndex;
   late AnimationController _pulseController;
   late PageController _pageController;
@@ -69,10 +77,29 @@ class _MainScaffoldState extends State<MainScaffold>
     super.dispose();
   }
 
-  void _onItemTapped(int index) {
-    setState(() => _selectedIndex = index);
-    _pageController.jumpToPage(index);
+  void _onItemTapped(int index) async {
+    if (index == _selectedIndex || _transitioning) return;
+
+    // 💥 Somente toca o som se for o botão de correr (ícone central)
+    if (index == 3) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _audioPlayer.play(AssetSource('sounds/1.mp3'));
+      });
+    }
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final itemWidth = screenWidth / 7; // 7 itens na nav bar
+    final center = Offset(itemWidth * (index + 0.5), MediaQuery.of(context).size.height - 40);
+
+    setState(() {
+      _transitioning = true;
+      _nextIndex = index;
+      _transitionCenter = center;
+    });
   }
+
+
+
 
   void _onPageChanged(int index) {
     setState(() => _selectedIndex = index);
@@ -87,7 +114,39 @@ class _MainScaffoldState extends State<MainScaffold>
   Widget _buildMobileView() {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: _pages[_selectedIndex],
+      body: Stack(
+        children: [
+          // Página anterior (mantida até o raio cobrir)
+          Positioned.fill(child: _pages[_selectedIndex]),
+
+          // Transição circular suave
+          if (_transitioning)
+            Positioned.fill(
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 600),
+                tween: Tween(begin: 0.0, end: 1.0),
+                onEnd: () {
+                  setState(() {
+                    _transitioning = false;
+                    _selectedIndex = _nextIndex!;
+                    _nextIndex = null;
+                  });
+                },
+                builder: (context, value, child) {
+                  final radius = value * MediaQuery.of(context).size.longestSide * 1.2;
+                  return ClipPath(
+                    clipper: _CircularRevealClipper(
+                      fraction: value,
+                      center: _transitionCenter,
+                    ),
+                    child: _pages[_nextIndex!],
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -108,8 +167,8 @@ class _MainScaffoldState extends State<MainScaffold>
           items: [
             _navItem(Icons.dashboard, "Feed", 0),
             _navItem(Icons.people, "Comunidade", 1), // ✅ Comunidade funcional
-            _navItem(Icons.bolt, "Atividade", 2),
-            _activityItem(Icons.directions_run, "Correr", 3),
+            _navItem(Icons.directions_run, "Atividade", 2),
+            _activityItem(Icons.bolt, "Correr", 3),
             _navItem(Icons.bar_chart, "Progresso", 4),
             _navItem(Icons.person, "Perfil", 5),
             _navItem(Icons.chat_bubble_outline, "Feedback", 6),
@@ -248,3 +307,43 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 }
+
+// 💥 Transição de raio circular personalizada
+class CircularRevealRoute extends PageRouteBuilder {
+  final Widget page;
+  final Offset center;
+
+  CircularRevealRoute({required this.page, required this.center})
+      : super(
+    transitionDuration: const Duration(milliseconds: 700),
+    pageBuilder: (context, animation, secondaryAnimation) => page,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return ClipPath(
+        clipper: _CircularRevealClipper(
+          fraction: animation.value,
+          center: center,
+        ),
+        child: child,
+      );
+    },
+  );
+}
+
+class _CircularRevealClipper extends CustomClipper<Path> {
+  final double fraction;
+  final Offset center;
+
+  _CircularRevealClipper({required this.fraction, required this.center});
+
+  @override
+  Path getClip(Size size) {
+    final radius = fraction * (size.longestSide * 1.2);
+    return Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+  }
+
+  @override
+  bool shouldReclip(_CircularRevealClipper oldClipper) =>
+      oldClipper.fraction != fraction || oldClipper.center != center;
+}
+
+

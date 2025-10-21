@@ -7,6 +7,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/auth_gate.dart';
+import 'package:run_walk_app/pro_plans_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
@@ -43,6 +44,110 @@ class _ProfilePageState extends State<ProfilePage>
         _profileUserId == FirebaseAuth.instance.currentUser!.uid;
     _loadUserStats();
   }
+
+  Future<void> _showAddUsernameDialog(BuildContext context) async {
+    final TextEditingController controller = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'Escolher seu @',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Crie um nome de usuário único para seu perfil.\nExemplo: @naurea',
+                style: TextStyle(color: Colors.black87, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nome de usuário',
+                  prefixText: '@',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final newUsername = controller.text.trim().toLowerCase();
+                if (newUsername.isEmpty) return;
+
+                try {
+                  // verifica se já existe username igual
+                  final check = await FirebaseFirestore.instance
+                      .collection('users')
+                      .where('username', isEqualTo: newUsername)
+                      .limit(1)
+                      .get();
+
+                  if (check.docs.isNotEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Esse nome de usuário já está em uso 😕'),
+                      ),
+                    );
+                    return;
+                  }
+
+                  final uid = FirebaseAuth.instance.currentUser?.uid;
+                  if (uid != null) {
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .update({'username': newUsername});
+                  }
+
+                  if (mounted) {
+                    setState(() {
+                      userData?['username'] = newUsername;
+                    });
+                  }
+
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Nome de usuário atualizado com sucesso 🎉'),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erro ao salvar: $e')),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text('Salvar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
 
   Future<void> _loadUserStats() async {
@@ -166,18 +271,162 @@ class _ProfilePageState extends State<ProfilePage>
                                   color: Colors.white, size: 50)
                                   : null,
                             ),
+
                           ),
+
                         ),
                       ),
+                      // -------------------- BOTÃO PRO RUNNER --------------------
+                      if (!(userData?['isPro'] ?? false))
+                        Positioned(
+                          bottom: 16,
+                          right: 16,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              showModalBottomSheet(
+                                context: context,
+                                backgroundColor: Colors.transparent,
+                                isScrollControlled: true,
+                                builder: (context) {
+                                  return Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.9),
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(24),
+                                        topRight: Radius.circular(24),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 60,
+                                          height: 6,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white24,
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          '🏅 Torne-se Pro Runner',
+                                          style: TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.amber,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        const Text(
+                                          'Desbloqueie conquistas douradas, rankings exclusivos e análises avançadas!',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(color: Colors.white70, fontSize: 16),
+                                        ),
+                                        const SizedBox(height: 20),
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(12),
+                                            color: Colors.white.withOpacity(0.1),
+                                          ),
+                                          child: const Text(
+                                            '• Áreas douradas ✨\\n'
+                                                '• Rankings e títulos exclusivos\\n'
+                                                '• Radar e alertas de domínio\\n'
+                                                '• Relatórios semanais e backup em nuvem',
+                                            style: TextStyle(color: Colors.white70, height: 1.5),
+                                            textAlign: TextAlign.left,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.amber,
+                                            foregroundColor: Colors.black,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(12),
+                                            ),
+                                            padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 14),
+                                          ),
+                                          onPressed: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(builder: (_) => const ProPlansPage()),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'Assinar Pro Runner',
+                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 20),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                            ),
+                            child: const Text('🏅 Torne-se Pro Runner'),
+                          ),
+                        ),
+// -----------------------------------------------------------
+
                     ],
                   );
                 },
               ),
-              title: Text(
-                userData?['displayName'] ?? 'Perfil',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Colors.white),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    userData?['displayName'] ?? 'Perfil',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Builder(
+                    builder: (_) {
+                      final username = userData?['username']?.toString().trim();
+                      if (username == null || username.isEmpty) {
+                        return GestureDetector(
+                          onTap: () => _showAddUsernameDialog(context),
+                          child: const Text(
+                            'Adicione um @ para personalizar seu perfil! Clique aqui!!!',
+                            style: TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        );
+                      }
+                      return Text(
+                        '@$username',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
+
+
+
             ),
             // ------------------------------
             //  CONTEÚDO COM ANIMAÇÕES

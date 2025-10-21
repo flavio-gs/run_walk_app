@@ -80,3 +80,5 @@ flutter:
     - assets/sounds/start.mp3
     - assets/sounds/stop.mp3
     - assets/icon/logo_principal.png
+    - assets/sounds/raio.mp3
+    - assets/sounds/1.mp3

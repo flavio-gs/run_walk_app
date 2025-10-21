@@ -97,8 +97,8 @@ class _CommunityPageState extends State<CommunityPage>
                       tabs: const [
                         Tab(text: 'Descobrir'),
                         Tab(text: 'Mapa'),
-                        Tab(text: 'Desafios'),
-                        Tab(text: 'Chats'),
+                        /*Tab(text: 'Desafios'),
+                        Tab(text: 'Chats'),*/
                       ],
                     ),
                   ),
@@ -127,7 +127,7 @@ class _CommunityPageState extends State<CommunityPage>
               _ChatsTab(firestore: _firestore, auth: _auth),
             ],
           ),
-          floatingActionButton: const _InviteFab(),
+          /*floatingActionButton: const _InviteFab(),*/
         ),
       ),
     );
@@ -252,16 +252,25 @@ class _DiscoverTabState extends State<_DiscoverTab> {
       final minLng = lng - _nearbyDelta;
       final maxLng = lng + _nearbyDelta;
 
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
       // Busca runners dentro da bounding box
       final q = await widget.firestore
           .collection('users')
+          .where('isOnline', isEqualTo: true)
           .where('lat', isGreaterThanOrEqualTo: minLat)
           .where('lat', isLessThanOrEqualTo: maxLat)
           .get();
 
+      // 🔹 Filtra apenas usuários diferentes de você e dentro da área
       final nearby = q.docs.where((d) {
         final m = d.data() as Map<String, dynamic>;
         final userLng = (m['lng'] ?? 0).toDouble();
+        final uid = (m['uid'] ?? m['userId'])?.toString();
+
+        // ❌ Ignora o próprio usuário (se o ID ou UID for o mesmo)
+        if (d.id == currentUserId || uid == currentUserId) return false;
+
         return userLng >= minLng && userLng <= maxLng;
       }).toList();
 
@@ -277,6 +286,7 @@ class _DiscoverTabState extends State<_DiscoverTab> {
       if (mounted) setState(() => _loadingNearby = false);
     }
   }
+
 
   @override
   void initState() {
@@ -314,12 +324,12 @@ class _DiscoverTabState extends State<_DiscoverTab> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
           children: [
             // 🔹 Chips de categorias
-            _HorizontalChips(
+            /*_HorizontalChips(
               items: _categories,
               selected: _selectedCat,
               onSelected: (v) => setState(() => _selectedCat = v),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 12),*/
 
             // 🏃 Usuários — busca ou sugestões
             _SectionTitle(isUserSearch ? 'Resultados de usuários' : 'Sugestões perto de você'),
@@ -368,7 +378,7 @@ class _DiscoverTabState extends State<_DiscoverTab> {
             const SizedBox(height: 16),
 
             // 👥 Grupos
-            _SectionTitle(isGroupSearch ? 'Grupos encontrados' : 'Grupos em destaque'),
+            /*_SectionTitle(isGroupSearch ? 'Grupos encontrados' : 'Grupos em destaque'),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
               stream: widget.firestore
@@ -425,12 +435,12 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                   }).toList(),
                 );
               },
-            ),
+            ),*/
 
             const SizedBox(height: 16),
 
             // 💬 Salas temáticas
-            _SectionTitle('Salas temáticas'),
+            /*_SectionTitle('Salas temáticas'),
             const SizedBox(height: 8),
             _GlassContainer(
               child: Column(children: const [
@@ -438,7 +448,7 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                 _TopicTile(title: 'Maratonistas RJ', members: 128),
                 _TopicTile(title: 'Iniciantes — Dúvidas', members: 312),
               ]),
-            ),
+            ),*/
           ],
         );
       },
@@ -460,6 +470,7 @@ class _DiscoverTabState extends State<_DiscoverTab> {
             name: data['displayName'] ?? 'Runner',
             pace: data['pace'] ?? '--',
             city: data['city'] ?? '',
+            username: data['username'] ?? '',
             userId: targetUserId,
             firestore: widget.firestore,
             auth: widget.auth,
@@ -537,44 +548,110 @@ class _MapTabState extends State<_MapTab> {
     }
   }
 
-  // 🔹 Carrega rotas + corredores
+  // 🔹 Carrega rotas + corredores online próximos (raio de ~5 km)
   Future<void> _loadRoutesAndRunners() async {
-    final routesSnap = await widget.firestore.collection('routes').limit(10).get();
-    final polylines = <Polyline>{};
-
-    for (final r in routesSnap.docs) {
-      final data = r.data();
-      final points = (data['points'] as List?)?.whereType<GeoPoint>().map(
-            (gp) => LatLng(gp.latitude, gp.longitude),
-      ).toList();
-
-      if (points == null || points.isEmpty) continue;
-      polylines.add(Polyline(
-        polylineId: PolylineId(r.id),
-        points: points,
-        width: 4,
-        color: const Color(0xFF4A90E2),
-      ));
-    }
-
-    final runnersSnap = await widget.firestore.collection('users').limit(50).get();
-    final markers = runnersSnap.docs.map((d) {
-      final m = d.data();
-      return Marker(
-        markerId: MarkerId(d.id),
-        position: LatLng((m['lat'] ?? 0).toDouble(), (m['lng'] ?? 0).toDouble()),
-        infoWindow: InfoWindow(title: m['displayName'] ?? 'Runner', snippet: m['pace'] ?? ''),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        onTap: () => _openRunnerSheet(m),
-      );
-    }).toSet();
-
     if (!mounted) return;
-    setState(() {
-      _polylines.addAll(polylines);
-      _markers.addAll(markers);
-    });
+
+    try {
+      // --- Carrega rotas ---
+      final routesSnap = await widget.firestore.collection('routes').limit(10).get();
+      final polylines = <Polyline>{};
+
+      for (final r in routesSnap.docs) {
+        final data = r.data();
+        final points = (data['points'] as List?)?.whereType<GeoPoint>().map(
+              (gp) => LatLng(gp.latitude, gp.longitude),
+        ).toList();
+
+        if (points == null || points.isEmpty) continue;
+        polylines.add(Polyline(
+          polylineId: PolylineId(r.id),
+          points: points,
+          width: 4,
+          color: const Color(0xFF4A90E2),
+        ));
+      }
+
+      // --- Posição atual ---
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final current = LatLng(pos.latitude, pos.longitude);
+
+      // --- Caixa aproximada (~5 km = 0.045°) ---
+      const double delta = 0.045;
+      final minLat = current.latitude - delta;
+      final maxLat = current.latitude + delta;
+      final minLng = current.longitude - delta;
+      final maxLng = current.longitude + delta;
+
+      // --- Busca usuários online próximos ---
+      final runnersSnap = await widget.firestore
+          .collection('users')
+          .where('isOnline', isEqualTo: true)
+          .where('lat', isGreaterThanOrEqualTo: minLat)
+          .where('lat', isLessThanOrEqualTo: maxLat)
+          .get();
+
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+      final markers = <Marker>{};
+      for (final d in runnersSnap.docs) {
+        final m = d.data();
+        final docUid = d.id;
+        final dataUid = (m['uid'] ?? m['userId'])?.toString();
+        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+        // ❌ ignora o próprio jogador, independente de onde o UID esteja
+        if (docUid == currentUserId || dataUid == currentUserId) continue;
+
+        final lat = (m['lat'] ?? 0).toDouble();
+        final lng = (m['lng'] ?? 0).toDouble();
+
+        // 🔹 Filtra por longitude e distância real (≤ 5 km)
+        if (lng < minLng || lng > maxLng) continue;
+
+        final dist = Geolocator.distanceBetween(
+          current.latitude,
+          current.longitude,
+          lat,
+          lng,
+        );
+
+        if (dist > 5000) continue;
+
+        markers.add(Marker(
+          markerId: MarkerId('runner_${d.id}'),
+          position: LatLng(lat, lng),
+          infoWindow: InfoWindow(
+            title: m['displayName'] ?? 'Runner',
+            snippet: m['pace'] ?? '',
+          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          onTap: () => _openRunnerSheet(m),
+        ));
+      }
+
+
+      if (!mounted) return;
+      setState(() {
+        // 🔄 Atualiza apenas rotas e marcadores de corredores (limpa os antigos)
+        _polylines
+          ..clear()
+          ..addAll(polylines);
+
+        // 🔄 Mantém apenas marcadores de corredores online (sem você)
+        _markers
+          ..removeWhere((m) => m.markerId.value.startsWith('runner_'))
+          ..removeWhere((m) => m.markerId.value == 'currentLocation') // garante que o seu some
+          ..addAll(markers);
+      });
+
+      debugPrint("✅ ${markers.length} corredores online dentro de 5 km carregados");
+    } catch (e) {
+      debugPrint("❌ Erro ao carregar rotas e corredores: $e");
+    }
   }
+
+
 
   // 🔹 Centraliza mapa na posição atual
   Future<void> _centerOnUser() async {
@@ -634,24 +711,38 @@ class _MapTabState extends State<_MapTab> {
       // Busca runners dentro da bounding box
       final q = await widget.firestore
           .collection('users')
+          .where('isOnline', isEqualTo: true)
           .where('lat', isGreaterThanOrEqualTo: box.minLat)
           .where('lat', isLessThanOrEqualTo: box.maxLat)
           .get();
 
+      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
       final nearby = q.docs.where((d) {
         final m = d.data() as Map<String, dynamic>;
         final lng = (m['lng'] ?? 0).toDouble();
+        final uid = (m['uid'] ?? m['userId'])?.toString();
+
+        // ❌ Ignora o próprio usuário (caso o uid esteja no ID ou no campo interno)
+        if (d.id == currentUserId || uid == currentUserId) return false;
+
         return lng >= box.minLng && lng <= box.maxLng;
       }).toList();
 
       final newMarkers = nearby.map((d) {
         final m = d.data() as Map<String, dynamic>;
-        final p = LatLng((m['lat'] ?? 0).toDouble(), (m['lng'] ?? 0).toDouble());
+        final lat = (m['lat'] ?? 0).toDouble();
+        final lng = (m['lng'] ?? 0).toDouble();
+        final p = LatLng(lat, lng);
+
         return Marker(
           markerId: MarkerId('nearby_${d.id}'),
           position: p,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: InfoWindow(title: m['displayName'] ?? 'Runner', snippet: m['pace'] ?? ''),
+          infoWindow: InfoWindow(
+            title: m['displayName'] ?? 'Runner',
+            snippet: m['pace'] ?? '',
+          ),
           onTap: () => _openRunnerSheet(m),
         );
       }).toSet();
@@ -675,6 +766,7 @@ class _MapTabState extends State<_MapTab> {
       if (mounted) setState(() => _loadingLocation = false);
     }
   }
+
 
   // 🔹 Seguir corredor (sempre usando rootContext)
   Future<void> _followRunner(String targetUserId) async {
@@ -860,7 +952,7 @@ class _MapTabState extends State<_MapTab> {
                           ]),
                           const SizedBox(height: 14),
                           Row(children: [
-                            OutlinedButton.icon(
+                            /*OutlinedButton.icon(
                               onPressed: targetId.isEmpty
                                   ? null
                                   : () => _inviteToRun(targetId),
@@ -868,7 +960,7 @@ class _MapTabState extends State<_MapTab> {
                               icon: const Icon(Icons.chat_bubble_outline),
                               label: const Text('Convidar p/ correr'),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 10),*/
                             OutlinedButton.icon(
                               onPressed: () {
                                 if (targetId.isEmpty) return;
@@ -921,7 +1013,7 @@ class _MapTabState extends State<_MapTab> {
         mapToolbarEnabled: false,
       ),
       Positioned(
-        left: 16,
+        right: 16,
         bottom: 16,
         child: Column(children: [
           FloatingActionButton(
@@ -942,7 +1034,7 @@ class _MapTabState extends State<_MapTab> {
           ),
         ]),
       ),
-      Positioned(
+      /*Positioned(
         left: 16,
         right: 16,
         top: 12,
@@ -959,7 +1051,7 @@ class _MapTabState extends State<_MapTab> {
             ),
           ]),
         ),
-      ),
+      ),*/
     ]);
   }
 }
@@ -1243,7 +1335,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
 // =============================================================
 // FAB — Convites (link, QR, criar grupo/desafio)
 // =============================================================
-class _InviteFab extends StatelessWidget {
+/*class _InviteFab extends StatelessWidget {
   const _InviteFab();
 
   @override
@@ -1318,7 +1410,7 @@ class _InviteFab extends StatelessWidget {
       label: const Text('Convidar'),
     );
   }
-}
+}*/
 
 class _InviteBtn extends StatelessWidget {
   final IconData icon;
@@ -1400,7 +1492,7 @@ class _SearchBarState extends State<_SearchBar> {
                 onChanged: widget.onChanged,
                 style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(
-                  hintText: 'Buscar usuários, grupos ou rotas…',
+                  hintText: 'Digite @ + o usuário que deseja encontrar...',
                   hintStyle: TextStyle(color: Colors.white54),
                   border: InputBorder.none,
                 ),
@@ -1518,6 +1610,7 @@ class _GroupCard extends StatelessWidget {
 class _RunnerCard extends StatefulWidget {
   final String name;
   final String pace;
+  final String username;
   final String city;
   final String userId;
   final FirebaseFirestore firestore;
@@ -1528,6 +1621,7 @@ class _RunnerCard extends StatefulWidget {
   const _RunnerCard({
     required this.name,
     required this.pace,
+    required this.username,
     required this.city,
     required this.userId,
     required this.firestore,
@@ -1633,7 +1727,7 @@ class _RunnerCardState extends State<_RunnerCard> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 270, // 🔹 largura ajustada para caber os botões
+      width: 250, // 🔹 largura ajustada para caber os botões
       child: _GlassContainer(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -1663,6 +1757,12 @@ class _RunnerCardState extends State<_RunnerCard> {
               Text('Ritmo: ${widget.pace}',
                   style: const TextStyle(color: Colors.white70)),
             ]),
+            Row(children: [
+              const Icon(Icons.account_circle, color: Colors.white70, size: 18),
+              const SizedBox(width: 6),
+              Text('@: ${widget.username}',
+                  style: const TextStyle(color: Colors.white70)),
+            ]),
             const SizedBox(height: 10),
             Row(children: [
               Expanded(
@@ -1689,14 +1789,14 @@ class _RunnerCardState extends State<_RunnerCard> {
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(
+              /*Expanded(
                 child: OutlinedButton.icon(
                   onPressed: widget.onInvite,
                   style: _outlineBtn,
                   icon: const Icon(Icons.chat_bubble_outline),
                   label: const Text('Convidar'),
                 ),
-              ),
+              ),*/
             ]),
           ],
         ),

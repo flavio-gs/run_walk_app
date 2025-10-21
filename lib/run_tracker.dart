@@ -162,6 +162,9 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+  bool _isOnline = true;
+  StreamSubscription<Position>? _onlinePositionStream;
+  LatLng? _lastSavedPositionOnline;
   bool _isChallengePanelVisible = true;
 
   bool _mapReady = false;
@@ -349,6 +352,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       _loadSavedRuns();
     }
     _listenToActiveChallenge();
+    _setOnlineInitially();
   }
 
   Future<void> _initLocationFlow() async {
@@ -919,6 +923,93 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+  Future<void> _setOnlineInitially() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      _lastSavedPositionOnline = LatLng(pos.latitude, pos.longitude);
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'isOnline': true,
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      _startOnlineTracking();
+      debugPrint("✅ Usuário inicializado como online em ${pos.latitude}, ${pos.longitude}");
+    } catch (e) {
+      debugPrint("❌ Erro ao inicializar online: $e");
+    }
+  }
+
+  void _startOnlineTracking() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _onlinePositionStream?.cancel();
+    _onlinePositionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 100, // evita atualizações muito próximas
+      ),
+    ).listen((pos) async {
+      if (_lastSavedPositionOnline == null) {
+        _lastSavedPositionOnline = LatLng(pos.latitude, pos.longitude);
+        return;
+      }
+
+      final dist = Geolocator.distanceBetween(
+        _lastSavedPositionOnline!.latitude,
+        _lastSavedPositionOnline!.longitude,
+        pos.latitude,
+        pos.longitude,
+      );
+
+      if (dist >= 500) {
+        _lastSavedPositionOnline = LatLng(pos.latitude, pos.longitude);
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        debugPrint("📍 Localização atualizada após mover ${dist.toStringAsFixed(0)}m");
+      }
+    });
+  }
+
+  Future<void> _toggleOnlineStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() => _isOnline = !_isOnline);
+
+    if (_isOnline) {
+      await _setOnlineInitially();
+    } else {
+      _onlinePositionStream?.cancel();
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'isOnline': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint("🛑 Usuário ficou offline");
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_isOnline ? "🟢 Você está online!" : "🔴 Você ficou offline"),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
+
+
   @override
   void dispose() {
     _timer?.cancel();
@@ -926,6 +1017,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _animationController.dispose();
     _googleMapController?.dispose();
     _audio.dispose();
+    _onlinePositionStream?.cancel();
     super.dispose();
   }
 
@@ -1288,32 +1380,68 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         elevation: 0,
         title: Padding(
           padding: const EdgeInsets.only(top: 10),
-          child: ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
-            child: Text(
-              "Império da Corrida",
-                style: GoogleFonts.russoOne(
-                  textStyle: const TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: 1.8,
-                    shadows: [
-                      Shadow(
-                        blurRadius: 12,
-                        color: Colors.black45,
-                        offset: Offset(2, 2),
-                      ),
-                    ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // ⚡ Ícone de raio dourado com brilho
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFFFFD740), Color(0xFFFFAB00)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ).createShader(bounds),
+                child: const Icon(
+                  Icons.bolt_rounded,
+                  size: 30,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      blurRadius: 18,
+                      color: Colors.amberAccent,
+                      offset: Offset(0, 0),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // 🏃‍♂️ Texto Runner com efeito neon
+              ShaderMask(
+                shaderCallback: (bounds) => const LinearGradient(
+                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
+                child: Text(
+                  "Runner",
+                  style: GoogleFonts.russoOne(
+                    textStyle: const TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 1.8,
+                      shadows: [
+                        Shadow(
+                          blurRadius: 14,
+                          color: Colors.black45,
+                          offset: Offset(2, 2),
+                        ),
+                        Shadow(
+                          blurRadius: 20,
+                          color: Color(0xFF4A90E2),
+                          offset: Offset(0, 0),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-            ),
+              ),
+            ],
           ),
         ),
+
         centerTitle: true,
       ),
       body: Stack(
@@ -1533,6 +1661,53 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+
+          // 🌐 Botão Online/Offline
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 280,
+            right: 20,
+            child: GestureDetector(
+              onTap: _toggleOnlineStatus,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: _isOnline
+                      ? Colors.green.withOpacity(0.85)
+                      : Colors.redAccent.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _isOnline
+                          ? Colors.greenAccent.withOpacity(0.4)
+                          : Colors.redAccent.withOpacity(0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isOnline ? "Online" : "Offline",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
           // 🧭 Botão de seguir ou liberar mapa
           Positioned(
             bottom: 90,
@@ -1579,6 +1754,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+
 
           Positioned(
             bottom: 20,
