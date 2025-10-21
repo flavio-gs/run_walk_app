@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:async';
+import 'dart:ui' as ui;
+import 'dart:typed_data';
+import 'dart:io';
 import 'model/run_model.dart';
 import 'package:flutter/services.dart';
-import 'dart:ui';
-
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/rendering.dart';
 
 
 class DetalheCorridaPage extends StatefulWidget {
@@ -19,9 +22,10 @@ class DetalheCorridaPage extends StatefulWidget {
 
 class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
   final Completer<GoogleMapController> _controller = Completer();
-
   final Set<Polyline> _polylines = {};
   final Set<Polygon> _polygons = {};
+
+  final GlobalKey _repaintKey = GlobalKey();
 
   @override
   void initState() {
@@ -68,6 +72,34 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     ));
   }
 
+  // 📸 Função para capturar o widget e compartilhar
+  Future<void> _compartilharCorrida() async {
+    try {
+      // Captura o widget
+      RenderRepaintBoundary boundary =
+      _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage(pixelRatio: 3.0);
+      ByteData? byteData =
+      await image.toByteData(format: ui.ImageByteFormat.png);
+      Uint8List pngBytes = byteData!.buffer.asUint8List();
+
+      // Salva a imagem temporariamente
+      final directory = await Directory.systemTemp.createTemp();
+      final file = File("${directory.path}/corrida_${DateTime.now().millisecondsSinceEpoch}.png");
+      await file.writeAsBytes(pngBytes);
+
+      // Compartilha
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text:
+        "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp",
+        subject: "Minha corrida no Runner",
+      );
+    } catch (e) {
+      debugPrint("Erro ao capturar ou compartilhar: $e");
+    }
+  }
+
   String _formatDuration(int seconds) {
     final d = Duration(seconds: seconds);
     String two(int n) => n.toString().padLeft(2, '0');
@@ -81,29 +113,16 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
-      // 🌈 APPBAR MINIMALISTA + EFEITO GLASS PREMIUM
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80), // altura ligeiramente maior
+        preferredSize: const Size.fromHeight(80),
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10), // mais espaçamento interno
+            padding:
+            const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // 🔮 Fundo translúcido com efeito "glass"
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                    child: Container(
-                      height: 55, // altura do painel de vidro
-                      color: Colors.black.withOpacity(0.28),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                    ),
-                  ),
-                ),
-
-                // 🔙 Botão flutuante de voltar
+                // 🔙 Voltar
                 Align(
                   alignment: Alignment.centerLeft,
                   child: GestureDetector(
@@ -118,20 +137,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.black.withOpacity(0.35),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF00C853).withOpacity(0.35),
-                            blurRadius: 10,
-                            spreadRadius: -2,
-                            offset: const Offset(0, 3),
-                          ),
-                          BoxShadow(
-                            color: const Color(0xFFFF6D00).withOpacity(0.35),
-                            blurRadius: 10,
-                            spreadRadius: -2,
-                            offset: const Offset(0, -2),
-                          ),
-                        ],
                       ),
                       child: const Icon(
                         Icons.arrow_back_ios_new,
@@ -141,8 +146,28 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                     ),
                   ),
                 ),
-
-                // 🏁 Título centralizado com respiro e brilho leve
+                // 📤 Compartilhar
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: GestureDetector(
+                    onTap: _compartilharCorrida,
+                    child: Container(
+                      height: 44,
+                      width: 44,
+                      margin: const EdgeInsets.only(right: 4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withOpacity(0.35),
+                      ),
+                      child: const Icon(
+                        Icons.ios_share,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+                // 🏁 Título
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
@@ -152,14 +177,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                         color: Colors.white,
                         fontSize: 19,
                         fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                        shadows: [
-                          Shadow(
-                            blurRadius: 5,
-                            color: Colors.black54,
-                            offset: Offset(1, 1),
-                          ),
-                        ],
                       ),
                     ),
                   ),
@@ -170,103 +187,72 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
         ),
       ),
 
-
-
-
-
-      body: Stack(
-        children: [
-          // 🗺️ Mapa
-          GoogleMap(
-            mapType: MapType.normal,
-            myLocationEnabled: false,
-            zoomControlsEnabled: false,
-            polylines: _polylines,
-            polygons: _polygons,
-            initialCameraPosition: CameraPosition(
-              target: _polylines.isNotEmpty
-                  ? _polylines.first.points.first
-                  : const LatLng(0, 0),
-              zoom: 16,
+      // 🌈 Corpo que será capturado
+      body: RepaintBoundary(
+        key: _repaintKey,
+        child: Stack(
+          children: [
+            GoogleMap(
+              mapType: MapType.normal,
+              myLocationEnabled: false,
+              zoomControlsEnabled: false,
+              polylines: _polylines,
+              polygons: _polygons,
+              initialCameraPosition: CameraPosition(
+                target: _polylines.isNotEmpty
+                    ? _polylines.first.points.first
+                    : const LatLng(0, 0),
+                zoom: 16,
+              ),
+              onMapCreated: (controller) => _controller.complete(controller),
             ),
-            onMapCreated: (controller) => _controller.complete(controller),
-          ),
 
-          // 🔮 Gradiente sutil de fundo para contraste
-          IgnorePointer(
-            ignoring: true,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color.fromARGB(80, 0, 200, 83),
-                    Color.fromARGB(40, 255, 109, 0),
-                    Colors.transparent,
+            // Painel inferior
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Container(
+                margin: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.8),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "Corrida em ${_formatarData(corrida.date)}",
+                      style: GoogleFonts.inter(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _infoItem("Distância",
+                            "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
+                        _infoItem(
+                            "Tempo", _formatDuration(corrida.duration)),
+                        _infoItem("Ritmo",
+                            _calcularRitmo(corrida.distance, corrida.duration)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "🏁 Feito com Runner App",
+                      style: GoogleFonts.orbitron(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
                   ],
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
                 ),
               ),
             ),
-          ),
-
-          // Painel inferior
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              margin: const EdgeInsets.all(18),
-              padding: const EdgeInsets.all(22),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                    color: const Color(0xFF00C853).withOpacity(0.4), width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF00C853).withOpacity(0.2),
-                    blurRadius: 16,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "Corrida em ${_formatarData(corrida.date)}",
-                    style: GoogleFonts.inter(
-                      color: Colors.white70,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _infoItem("Distância",
-                          "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
-                      _infoItem("Tempo", _formatDuration(corrida.duration)),
-                      _infoItem("Ritmo",
-                          _calcularRitmo(corrida.distance, corrida.duration)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    height: 4,
-                    width: 110,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -300,10 +286,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
             fontWeight: FontWeight.bold,
             fontSize: 18,
             letterSpacing: 1.1,
-            shadows: [
-              const Shadow(
-                  blurRadius: 8, color: Color(0xFF00C853), offset: Offset(0, 0))
-            ],
           ),
         ),
         const SizedBox(height: 3),
