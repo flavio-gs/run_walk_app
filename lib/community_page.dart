@@ -97,8 +97,8 @@ class _CommunityPageState extends State<CommunityPage>
                       tabs: const [
                         Tab(text: 'Descobrir'),
                         Tab(text: 'Mapa'),
-                        /*Tab(text: 'Desafios'),
-                        Tab(text: 'Chats'),*/
+                        Tab(text: 'Ranking'),
+                        /*Tab(text: 'Chats'),*/
                       ],
                     ),
                   ),
@@ -123,7 +123,10 @@ class _CommunityPageState extends State<CommunityPage>
                 searchQuery: _searchQuery,
                 rootContext: rootContext, // 👈 usado para SnackBars
               ),
-              _ChallengesTab(firestore: _firestore),
+              _ChallengesTab(
+                firestore: _firestore,
+                auth: _auth,
+              ),
               _ChatsTab(firestore: _firestore, auth: _auth),
             ],
           ),
@@ -1057,117 +1060,272 @@ class _MapTabState extends State<_MapTab> {
 }
 
 // =============================================================
-// 3) DESAFIOS — Equipes, leaderboard, recompensas e conquistas
+// 🏆 ABA DE DESAFIOS — RANKINGS (Global / Semanal / Amigos)
 // =============================================================
-class _ChallengesTab extends StatelessWidget {
+class _ChallengesTab extends StatefulWidget {
   final FirebaseFirestore firestore;
-  const _ChallengesTab({required this.firestore});
+  final FirebaseAuth auth;
+  const _ChallengesTab({required this.firestore, required this.auth});
+
+  @override
+  State<_ChallengesTab> createState() => _ChallengesTabState();
+}
+
+class _ChallengesTabState extends State<_ChallengesTab> {
+  String _rankingType = 'global'; // global | weekly | friends
+  String _metric = 'km'; // km | xp
+  bool _loading = false;
+  List<QueryDocumentSnapshot> _docs = [];
+  int? _userPosition;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRanking();
+  }
+
+  Future<void> _loadRanking() async {
+    setState(() {
+      _loading = true;
+      _userPosition = null;
+    });
+
+    try {
+      Query query;
+
+      // 📆 Ranking semanal → filtra pela semana atual
+      if (_rankingType == 'weekly') {
+        final now = DateTime.now();
+        final weekStart =
+        DateTime(now.year, now.month, now.day - (now.weekday - 1));
+        query = widget.firestore
+            .collection('leaderboard_weekly')
+            .where('weekStart', isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart));
+      }
+
+      // 👥 Ranking de amigos → só quem o usuário segue + ele mesmo
+      else if (_rankingType == 'friends') {
+        final me = widget.auth.currentUser?.uid;
+        final followsSnap = await widget.firestore
+            .collection('users')
+            .doc(me)
+            .collection('following')
+            .get();
+
+        final friendIds = followsSnap.docs.map((d) => d.id).toList();
+        friendIds.add(me ?? '');
+
+        query = widget.firestore
+            .collection('leaderboard_global')
+            .where('userId', whereIn: friendIds.isEmpty ? ['dummy'] : friendIds);
+      }
+
+      // 🌍 Ranking global (padrão)
+      else {
+        query = widget.firestore.collection('leaderboard_global');
+      }
+
+      query = query.orderBy(_metric, descending: true).limit(50);
+
+      final snap = await query.get();
+      final docs = snap.docs;
+      final me = widget.auth.currentUser?.uid;
+
+      // 🏁 Calcula posição atual
+      final index = docs.indexWhere((d) => (d.data() as Map)['userId'] == me);
+      final pos = index != -1 ? index + 1 : null;
+
+      if (mounted) {
+        setState(() {
+          _docs = docs;
+          _userPosition = pos;
+        });
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar ranking: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _changeRanking(String type) {
+    setState(() => _rankingType = type);
+    _loadRanking();
+  }
+
+  void _changeMetric(String metric) {
+    setState(() => _metric = metric);
+    _loadRanking();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
       children: [
-        _SectionTitle('Desafio da Semana'),
-        const SizedBox(height: 8),
-        StreamBuilder<DocumentSnapshot>(
-          stream: firestore.collection('challenges').doc('weekly').snapshots(),
-          builder: (context, snap) {
-            final data = (snap.data?.data() as Map<String, dynamic>?) ?? {};
-            final blue = (data['blueProgress'] ?? 0.0).toDouble();
-            final red = (data['redProgress'] ?? 0.0).toDouble();
-            return _TeamBattleCard(
-              title: data['title'] ?? 'Equipe Azul vs Equipe Vermelha',
-              goal: data['goal'] ?? 'Quem soma mais km até domingo',
-              blueProgress: blue.clamp(0, 1),
-              redProgress: red.clamp(0, 1),
-              onJoinBlue: () {},
-              onCreateChallenge: () {},
-            );
-          },
-        ),
-        const SizedBox(height: 16),
-        _SectionTitle('Leaderboard (Individual)'),
-        const SizedBox(height: 8),
+        const _SectionTitle('🏆 Rankings'),
+        const SizedBox(height: 10),
+
+        // 🎛️ Alternadores principais
         _GlassContainer(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: firestore
-                .collection('leaderboard')
-                .orderBy('km', descending: true)
-                .limit(10)
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.all(12.0),
-                  child: LinearProgressIndicator(minHeight: 2),
-                );
-              }
-              final docs = snap.data!.docs;
-              return Column(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Column(
+            children: [
+              // 🌍 GLOBAL / 🗓️ SEMANAL / 👥 AMIGOS
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  for (int i = 0; i < docs.length; i++)
+                  _ToggleChip(
+                    label: '🌍 Global',
+                    active: _rankingType == 'global',
+                    onTap: () => _changeRanking('global'),
+                  ),
+                  _ToggleChip(
+                    label: '🗓️ Semanal',
+                    active: _rankingType == 'weekly',
+                    onTap: () => _changeRanking('weekly'),
+                  ),
+                  _ToggleChip(
+                    label: '👥 Amigos',
+                    active: _rankingType == 'friends',
+                    onTap: () => _changeRanking('friends'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // ⚡ XP / 🏃 KM
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _ToggleChip(
+                    label: '⚡ XP',
+                    active: _metric == 'xp',
+                    onTap: () => _changeMetric('xp'),
+                  ),
+                  const SizedBox(width: 8),
+                  _ToggleChip(
+                    label: '🏃 KM',
+                    active: _metric == 'km',
+                    onTap: () => _changeMetric('km'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _docs.isEmpty
+            ? const _EmptyState(text: 'Nenhum dado encontrado neste ranking.')
+            : Column(
+          children: [
+            _GlassContainer(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                children: [
+                  for (int i = 0; i < _docs.length; i++)
                     _LeaderTile(
                       position: i + 1,
-                      name: (docs[i].data() as Map<String, dynamic>)['displayName'] ?? 'Runner',
-                      value: '${((docs[i].data() as Map<String, dynamic>)['km'] ?? 0).toString()} km',
+                      name: (_docs[i].data() as Map<String, dynamic>)['displayName'] ??
+                          'Runner',
+                      value: _metric == 'xp'
+                          ? '${(_docs[i].data() as Map<String, dynamic>)['xp'] ?? 0} XP'
+                          : '${((_docs[i].data() as Map<String, dynamic>)['km'] ?? 0).toStringAsFixed(2)} km',
                     ),
                 ],
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 16),
-        _SectionTitle('Recompensas'),
-        const SizedBox(height: 8),
-        _GlassContainer(
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              physics: const NeverScrollableScrollPhysics(),
-              children: const [
-                _RewardBadge(icon: Icons.emoji_events, label: 'Troféu Semana'),
-                _RewardBadge(icon: Icons.monetization_on, label: '100 moedas'),
-                _RewardBadge(icon: Icons.directions_run, label: 'Avatar 3D'),
-              ],
+              ),
             ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _SectionTitle('Conquistas recentes'),
-        const SizedBox(height: 8),
-        _GlassContainer(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: firestore
-                .collection('achievements')
-                .orderBy('timestamp', descending: true)
-                .limit(10)
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const SizedBox(
-                  height: 56,
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              final docs = snap.data!.docs;
-              return Column(
-                children: docs.map((d) {
-                  final m = d.data() as Map<String, dynamic>;
-                  return _AchievementTile(user: m['user'] ?? 'Runner', text: m['text'] ?? '—');
-                }).toList(),
-              );
-            },
-          ),
+            const SizedBox(height: 14),
+
+            // 🏁 Posição atual
+            if (_userPosition != null)
+              _GlassContainer(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '🏁 Você está em ',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    Text(
+                      '$_userPositionº lugar',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      _rankingType == 'weekly'
+                          ? ' nesta semana!'
+                          : _rankingType == 'friends'
+                          ? ' entre seus amigos!'
+                          : ' no global!',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ],
     );
   }
 }
+
+class _ToggleChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _ToggleChip({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          gradient: active
+              ? const LinearGradient(
+            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+              : null,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active ? Colors.transparent : Colors.white24,
+            width: 1.2,
+          ),
+          color: active ? null : Colors.black.withOpacity(0.2),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: active ? FontWeight.bold : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+
+
 
 // =============================================================
 // 4) CHATS — Salas e mensagens em tempo real

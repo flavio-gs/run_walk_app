@@ -6,14 +6,20 @@ import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/activity_page.dart';
 import 'package:run_walk_app/feedback_page.dart';
-import 'package:run_walk_app/community_page.dart'; // ✅ import da nova tela
+import 'package:run_walk_app/community_page.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+// ✅ Controlador global para esconder/mostrar o Scaffold
+class ScaffoldVisibilityController {
+  static final ValueNotifier<bool> isVisible = ValueNotifier(true);
+  static void hide() => isVisible.value = false;
+  static void show() => isVisible.value = true;
+}
 
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
 
-  const MainScaffold({super.key, this.initialIndex = 3}); // 🏃 padrão: correr no centro
+  const MainScaffold({super.key, this.initialIndex = 3});
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
@@ -37,13 +43,13 @@ class _MainScaffoldState extends State<MainScaffold>
   }
 
   final List<Widget> _pages = const [
-    FeedPage(), // 0
-    CommunityPage(), // ✅ 1 — tela Comunidade
-    ActivityPage(), // 2 - Desafios
-    RunTrackingPage(), // 3 - Correr (centro)
-    HistoricoPage(), // 4 - Progresso
-    ProfilePage(), // 5 - Perfil
-    FeedbackPage(), // 6 - Feedback (nova)
+    FeedPage(),
+    CommunityPage(),
+    ActivityPage(),
+    RunTrackingPage(),
+    HistoricoPage(),
+    ProfilePage(),
+    FeedbackPage(),
   ];
 
   final List<String> _titles = const [
@@ -80,7 +86,6 @@ class _MainScaffoldState extends State<MainScaffold>
   void _onItemTapped(int index) async {
     if (index == _selectedIndex || _transitioning) return;
 
-    // 💥 Somente toca o som se for o botão de correr (ícone central)
     if (index == 3) {
       Future.delayed(const Duration(milliseconds: 300), () {
         _audioPlayer.play(AssetSource('sounds/1.mp3'));
@@ -88,7 +93,7 @@ class _MainScaffoldState extends State<MainScaffold>
     }
 
     final screenWidth = MediaQuery.of(context).size.width;
-    final itemWidth = screenWidth / 7; // 7 itens na nav bar
+    final itemWidth = screenWidth / 7;
     final center = Offset(itemWidth * (index + 0.5), MediaQuery.of(context).size.height - 40);
 
     setState(() {
@@ -97,9 +102,6 @@ class _MainScaffoldState extends State<MainScaffold>
       _transitionCenter = center;
     });
   }
-
-
-
 
   void _onPageChanged(int index) {
     setState(() => _selectedIndex = index);
@@ -116,10 +118,8 @@ class _MainScaffoldState extends State<MainScaffold>
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Página anterior (mantida até o raio cobrir)
           Positioned.fill(child: _pages[_selectedIndex]),
 
-          // Transição circular suave
           if (_transitioning)
             Positioned.fill(
               child: TweenAnimationBuilder<double>(
@@ -147,36 +147,49 @@ class _MainScaffoldState extends State<MainScaffold>
         ],
       ),
 
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.black.withOpacity(0.85),
-          selectedItemColor: Colors.white,
-          unselectedItemColor: Colors.white70,
-          currentIndex: _selectedIndex,
-          onTap: _onItemTapped,
-          showUnselectedLabels: true,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-          items: [
-            _navItem(Icons.dashboard, "Feed", 0),
-            _navItem(Icons.people, "Comunidade", 1), // ✅ Comunidade funcional
-            _navItem(Icons.directions_run, "Atividade", 2),
-            _activityItem(Icons.bolt, "Correr", 3),
-            _navItem(Icons.bar_chart, "Progresso", 4),
-            _navItem(Icons.person, "Perfil", 5),
-            _navItem(Icons.chat_bubble_outline, "Feedback", 6),
-          ],
-        ),
+      // 👇 agora o controle afeta só a NAV BAR
+      bottomNavigationBar: ValueListenableBuilder<bool>(
+        valueListenable: ScaffoldVisibilityController.isVisible,
+        builder: (context, visible, _) {
+          if (!visible) return const SizedBox.shrink();
+
+          return AnimatedOpacity(
+            opacity: visible ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 400),
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: BottomNavigationBar(
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: Colors.black.withOpacity(0.85),
+                selectedItemColor: Colors.white,
+                unselectedItemColor: Colors.white70,
+                currentIndex: _selectedIndex,
+                onTap: _onItemTapped,
+                showUnselectedLabels: true,
+                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                items: [
+                  _navItem(Icons.dashboard, "Feed", 0),
+                  _navItem(Icons.people, "Comunidade", 1),
+                  _navItem(Icons.directions_run, "Atividade", 2),
+                  _activityItem(Icons.bolt, "Correr", 3),
+                  _navItem(Icons.bar_chart, "Progresso", 4),
+                  _navItem(Icons.person, "Perfil", 5),
+                  _navItem(Icons.chat_bubble_outline, "Feedback", 6),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
+
 
   BottomNavigationBarItem _navItem(IconData icon, String label, int index) {
     final isSelected = _selectedIndex == index;
@@ -194,16 +207,12 @@ class _MainScaffoldState extends State<MainScaffold>
           )
               : null,
         ),
-        child: Icon(
-          icon,
-          color: isSelected ? Colors.white : Colors.white70,
-        ),
+        child: Icon(icon, color: isSelected ? Colors.white : Colors.white70),
       ),
       label: label,
     );
   }
 
-  // 💙 botão “Correr” com pulse central
   BottomNavigationBarItem _activityItem(IconData icon, String label, int index) {
     final isSelected = _selectedIndex == index;
     return BottomNavigationBarItem(
@@ -211,8 +220,7 @@ class _MainScaffoldState extends State<MainScaffold>
         animation: _pulseController,
         builder: (context, child) {
           final scale = isSelected ? _pulseController.value : 1.0;
-          final glowOpacity =
-          isSelected ? (sin(_pulseController.value * pi).abs()) * 0.6 : 0.0;
+          final glowOpacity = isSelected ? (sin(_pulseController.value * pi).abs()) * 0.6 : 0.0;
 
           return Transform.scale(
             scale: scale,
@@ -230,25 +238,19 @@ class _MainScaffoldState extends State<MainScaffold>
                 boxShadow: isSelected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF4A90E2)
-                        .withOpacity(0.45 * glowOpacity),
+                    color: const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
                     blurRadius: 18 + 10 * glowOpacity,
                     spreadRadius: 2,
                   ),
                   BoxShadow(
-                    color: const Color(0xFF007AFF)
-                        .withOpacity(0.45 * glowOpacity),
+                    color: const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
                     blurRadius: 22 + 10 * glowOpacity,
                     spreadRadius: 3,
                   ),
                 ]
                     : [],
               ),
-              child: Icon(
-                icon,
-                size: isSelected ? 36 : 28,
-                color: Colors.white,
-              ),
+              child: Icon(icon, size: isSelected ? 36 : 28, color: Colors.white),
             ),
           );
         },
@@ -257,7 +259,6 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 
-  // ⌚ -------- WEAR OS VIEW --------
   Widget _buildWearOSView() {
     return Scaffold(
       backgroundColor: Colors.black,
@@ -275,32 +276,6 @@ class _MainScaffoldState extends State<MainScaffold>
                 child: _pages[index],
               ),
             ),
-            Positioned(
-              right: 6,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_pages.length, (index) {
-                  final isActive = _selectedIndex == index;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(vertical: 3),
-                    width: isActive ? 10 : 6,
-                    height: isActive ? 10 : 6,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: isActive
-                          ? const LinearGradient(
-                        colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                          : null,
-                      color: isActive ? null : Colors.white24,
-                    ),
-                  );
-                }),
-              ),
-            ),
           ],
         ),
       ),
@@ -309,26 +284,6 @@ class _MainScaffoldState extends State<MainScaffold>
 }
 
 // 💥 Transição de raio circular personalizada
-class CircularRevealRoute extends PageRouteBuilder {
-  final Widget page;
-  final Offset center;
-
-  CircularRevealRoute({required this.page, required this.center})
-      : super(
-    transitionDuration: const Duration(milliseconds: 700),
-    pageBuilder: (context, animation, secondaryAnimation) => page,
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      return ClipPath(
-        clipper: _CircularRevealClipper(
-          fraction: animation.value,
-          center: center,
-        ),
-        child: child,
-      );
-    },
-  );
-}
-
 class _CircularRevealClipper extends CustomClipper<Path> {
   final double fraction;
   final Offset center;
@@ -345,5 +300,3 @@ class _CircularRevealClipper extends CustomClipper<Path> {
   bool shouldReclip(_CircularRevealClipper oldClipper) =>
       oldClipper.fraction != fraction || oldClipper.center != center;
 }
-
-

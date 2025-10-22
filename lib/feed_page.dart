@@ -738,6 +738,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             currentUserId: _currentUserId,
           );
         }
+        if (type == 'achievement') {
+          return _AchievementPostCard(data: data);
+        }
+
+
+
 
 
         return _AnimatedPostCard(
@@ -761,6 +767,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       },
     );
   }
+
+
 
   Widget _emptyFeedMessage() {
     return Center(
@@ -788,6 +796,61 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 }
+
+class _AchievementPostCard extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _AchievementPostCard({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = data['icon'] ?? '🏆';
+    final title = data['title'] ?? 'Conquista Desconhecida';
+    final userName = data['authorName'] ?? 'Jogador';
+    final userPhoto = data['authorPhoto'];
+    final timestamp =
+        (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+    return
+      Card(
+        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        color: Colors.white,
+        elevation: 3,
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.amber.shade50, Colors.white],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Text(icon, style: const TextStyle(fontSize: 36)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("$userName conquistou:", style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    Text(
+                      timeago.format(timestamp, locale: 'pt_BR'),
+                      style: const TextStyle(fontSize: 11, color: Colors.black45),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  }
+}
+
 
 // =======================
 // CARD DO POST + REAÇÕES

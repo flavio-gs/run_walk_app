@@ -71,6 +71,7 @@ class _FuturisticChronoState extends State<FuturisticChrono>
   @override
   void initState() {
     super.initState();
+    _checkAchievementsOnLoad();
 
     _glowCtrl = AnimationController(
       vsync: this,
@@ -78,6 +79,27 @@ class _FuturisticChronoState extends State<FuturisticChrono>
       lowerBound: 0.2,
       upperBound: 0.9,
     )..repeat(reverse: true);
+  }
+
+  Future<void> _checkAchievementsOnLoad() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Checa se o usuário tem corridas registradas
+    final query = await FirebaseFirestore.instance
+        .collection('corridas')
+        .where('userId', isEqualTo: user.uid)
+        .get();
+
+    if (query.docs.isNotEmpty) {
+      // Garante que a “Primeira Corrida” seja desbloqueada mesmo se o app foi fechado antes
+      await AchievementService().checkAchievements(
+        runData: {
+          'distance': query.docs.last['distance'],
+          'pace': query.docs.last['pace'],
+        },
+      );
+    }
   }
 
 
@@ -162,6 +184,8 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+  double _slideDragValue = 0.0;
+
   bool _isOnline = true;
   StreamSubscription<Position>? _onlinePositionStream;
   LatLng? _lastSavedPositionOnline;
@@ -190,6 +214,56 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _challengeStream;
   Map<String, dynamic>? _activeChallengeData;
+
+  Future<bool> _userHasActiveChallenge() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    try {
+      final now = DateTime.now();
+      final qs = await FirebaseFirestore.instance
+          .collection('challenges')
+          .where('participantsIds', arrayContains: user.uid)
+          .where('deadline', isGreaterThan: Timestamp.fromDate(now))
+          .limit(1)
+          .get();
+
+      if (qs.docs.isEmpty) return false;
+
+      // (Opcional) checar status do participante
+      final doc = qs.docs.first;
+      final partRef = doc.reference.collection('participants').doc(user.uid);
+      final partSnap = await partRef.get();
+      if (!partSnap.exists) return true;
+
+      final status = (partSnap.data()?['status'] ?? 'active') as String;
+      return status == 'active';
+    } catch (e) {
+      debugPrint('Erro ao verificar desafio ativo: $e');
+      return false;
+    }
+  }
+
+
+  Future<void> _setOfflineOnExit() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update({
+        'isOnline': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint("📴 Usuário marcado como offline ao encerrar o app");
+    } catch (e) {
+      debugPrint("Erro ao marcar offline ao sair: $e");
+    }
+  }
+
 
   Future<void> _listenToActiveChallenge() async {
     try {
@@ -273,6 +347,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   int streakDays = 0;
   double _averagePace = 0; // min/km
   int _elapsedSeconds = 0;
+
+  // 🎮 Controle de XP em tempo real
+  int _sessionXP = 0;            // XP acumulado durante esta corrida
+  int _nextXPThreshold = 100;    // Meta para vibração (ex: a cada 100 XP)
+  double _distanceSinceLastXP = 0; // distância acumulada até o próximo ponto
 
   StreamSubscription<Position>? _positionStream;
   LatLng _currentPosition =
@@ -372,7 +451,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
     await _setInitialLocation();
-    await _finalizarCorrida();
   }
 
   Future<void> _updateMarker() async {
@@ -574,6 +652,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   void _startRun() async {
+    ScaffoldVisibilityController.hide();
 
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -608,13 +687,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
-        _seconds++;
+        _seconds = _stopwatch.elapsed.inSeconds;
         _calculatePaceAndCalories();
       });
     });
 
-    // Stream para corrida (mantido; no Wear não desenhamos polylines/mapa)
-    _positionStream?.cancel();
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
@@ -623,46 +700,47 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     ).listen((position) {
       final latLngPos = LatLng(position.latitude, position.longitude);
 
-      if (_positions.isNotEmpty) {
-        final distance = Geolocator.distanceBetween(
-          _positions.last.latitude,
-          _positions.last.longitude,
-          latLngPos.latitude,
-          latLngPos.longitude,
-        );
+      setState(() {
+        if (_positions.isNotEmpty) {
+          final d = Geolocator.distanceBetween(
+            _positions.last.latitude, _positions.last.longitude,
+            latLngPos.latitude, latLngPos.longitude,
+          );
 
-        if (distance > 0.5) {
-          _totalDistance += distance;
-          _positions.add(latLngPos);
+          if (d > 0.5) {
+            _totalDistance += d;         // ⬅️ soma em METROS
+            _positions.add(latLngPos);
+            // 🎯 Sistema de XP em tempo real
+            _distanceSinceLastXP += d;
+            if (_distanceSinceLastXP >= 100) { // a cada 100 metros = +1 XP
+              _distanceSinceLastXP -= 100;
+              _sessionXP += 1;
+              _showXPGainEffect("+1 XP");
 
-          if (!isWearOS) {
-            _updatePolyline();
+              // Vibra e mostra se atingiu múltiplos de 100 XP
+              if (_sessionXP >= _nextXPThreshold) {
+                _nextXPThreshold += 100;
+                HapticFeedback.mediumImpact();
+                _showXPLevelUp();
+              }
+            }
+            if (!isWearOS) _updatePolyline();
           }
-          _calculatePaceAndCalories();
+        } else {
+          _positions.add(latLngPos);
         }
-      } else {
-        _positions.add(latLngPos);
-      }
 
-      _previousPosition = _currentPosition;
-      _animatedPosition = latLngPos;
+        _previousPosition = _currentPosition;
+        _animatedPosition = latLngPos;
+      });
+
       _animationController.forward(from: 0.0);
 
       if (!isWearOS && _followUser) {
-        _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(latLngPos),
-        );
+        _googleMapController?.animateCamera(CameraUpdate.newLatLng(latLngPos));
       }
 
-      if (!isWearOS && _followUser) {
-        _isProgrammaticCameraMove = true;
-        _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(latLngPos),
-        );
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _isProgrammaticCameraMove = false;
-        });
-      }
+      // não marcar _isProgrammaticCameraMove duas vezes aqui; uma animação basta
     });
   }
 
@@ -714,42 +792,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
 
 
-    // 🟩 NOVO: cria área conquistada
+    // 🟩 Atualiza área/plot do território SEM mexer em timers/estados da corrida
     if (_positions.length >= 3) {
       _areaCapturedFormatted = _calculateAreaFormatted(_positions);
-      _polygons.clear();
-      _polygons.add(
-        Polygon(
+      _polygons
+        ..clear()
+        ..add(Polygon(
           polygonId: const PolygonId('territorio'),
           points: List.from(_positions),
           strokeColor: color,
           strokeWidth: 2,
           fillColor: color.withOpacity(0.3),
-        ),
-      );
+        ));
     }
-
-    _elapsedSeconds = 0;
-
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _elapsedSeconds++;
-      });
-    });
-
-    setState(() {
-      _isRunning = true;
-      _runEnded = false;
-      _elapsedSeconds = 0;
-      _totalDistance = 0;
-    });
-
-    // inicia o cronômetro
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() => _elapsedSeconds++);
-    });
   }
 
   // 🟩 NOVO: cálculo de área (m² ou km², com formatação automática)
@@ -777,12 +832,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     area = area.abs() / 2.0;
 
-    // 🔹 Formata automaticamente
-    if (area >= 1_000_000) {
-      return "${(area / 1_000_000).toStringAsFixed(2)} km²";
-    } else {
-      return "${area.toStringAsFixed(0)} m²";
-    }
+    _areaCaptured = area; // ⬅️ agora o painel consegue saber se mostra (opacity)
+
+    return (area >= 1_000_000)
+        ? "${(area / 1_000_000).toStringAsFixed(2)} km²"
+        : "${area.toStringAsFixed(0)} m²";
+
   }
 
 
@@ -841,18 +896,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _pulseMarker = null;
   }
 
-  void _stopRun() async {
+  Future<void> _stopRun() async {
     _timer?.cancel();
     _stopwatch.stop();
     // _stopPulseEffect();
     setState(() => _isRunning = false);
     await _playStop(); // som apenas no Wear
+    ScaffoldVisibilityController.show();
   }
 
   void _calculatePaceAndCalories() {
-    if (_seconds > 0 && _totalDistance > 0) {
-      _averagePace = (_seconds / 60) / (_totalDistance / 1000); // min/km
-      _caloriesBurned = (_totalDistance * 0.05);
+    final dMeters = _totalDistance;
+    final secs = _seconds;
+
+    if (secs > 0 && dMeters > 1) {
+      _averagePace = (secs / 60) / (dMeters / 1000.0); // min/km
+      _caloriesBurned = dMeters * 0.05; // ~50 kcal por km
     } else {
       _averagePace = 0;
       _caloriesBurned = 0;
@@ -1018,6 +1077,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _googleMapController?.dispose();
     _audio.dispose();
     _onlinePositionStream?.cancel();
+    // ✅ Marca como offline ao encerrar o app
+    _setOfflineOnExit();
     super.dispose();
   }
 
@@ -1500,51 +1561,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             gestureRecognizers: {},
           ),
 
-          // 🟩 NOVO: exibe painel com área conquistada
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 200,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: AnimatedOpacity(
-                opacity: _areaCaptured > 0 ? 1 : 0,
-                duration: const Duration(milliseconds: 300),
-                child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: Colors.greenAccent.withOpacity(0.5), width: 1),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        _areaCapturedFormatted,
-                        style: GoogleFonts.orbitron(
-                          textStyle: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        _isRunning
-                            ? "Captura em Progresso"
-                            : "Area Capturada",
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
 
           IgnorePointer(
             ignoring: true,
@@ -1662,6 +1678,38 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 280,
+            left: 0,
+            right: 220,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: Colors.blueAccent.withOpacity(0.5), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star, color: Colors.amberAccent, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      "XP: $_sessionXP",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+
           // 🌐 Botão Online/Offline
           Positioned(
             top: MediaQuery.of(context).padding.top + 280,
@@ -1757,87 +1805,190 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
           Positioned(
-            bottom: 20,
+            bottom: 25,
             left: 0,
             right: 0,
             child: Center(
-              child: GestureDetector(
-                onTap: _isRunning
-                    ? () async {
-                  _stopRun();
-                  await _saveRun();
-                }
-                    : _startRun,
-                child: AnimatedBuilder(
-                  animation: _animationController,
-                  builder: (context, child) {
-                    final pulse = (ui.lerpDouble(
-                        0,
-                        1,
-                        (0.5 - (0.5 - _animationController.value).abs()) *
-                            2)!);
-                    final scale = 1 + (pulse) * 0.1;
-                    return Transform.scale(
-                      scale: _isRunning ? 1.0 : scale,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF4A90E2).withOpacity(0.6),
-                              blurRadius: 25,
-                              spreadRadius: 4,
-                            ),
-                            BoxShadow(
-                              color: const Color(0xFF4A90E2).withOpacity(0.6),
-                              blurRadius: 25,
-                              spreadRadius: 4,
-                            ),
-                          ],
-                        ),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          height: 90,
-                          width: 90,
-                          decoration: BoxDecoration(
-                            gradient: _isRunning
-                                ? const LinearGradient(
-                              colors: [Color(0xFFFF3B30), Color(0xFFE53935)], // 🔴 Vermelho Apple para Stop
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            )
-                                : const LinearGradient(
-                              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)], // 💙 Azul iOS para Play
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF4A90E2).withOpacity(0.6),
-                                blurRadius: 25,
-                                spreadRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: Icon(
-                            _isRunning ? Icons.stop : Icons.play_arrow,
-                            color: Colors.white,
-                            size: 45,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+              child: _isRunning
+                  ? _buildSlideToStopButton() // 👈 Novo widget
+                  : _buildStartButton(),      // 👈 Mantém o botão de início normal
             ),
           ),
+
         ],
       ),
     );
   }
+
+  Widget _buildStartButton() {
+    return GestureDetector(
+      onTap: _startRun,
+      child: Container(
+        height: 90,
+        width: 90,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0xFF4A90E2),
+              blurRadius: 25,
+              spreadRadius: 4,
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.play_arrow_rounded,
+          color: Colors.white,
+          size: 45,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSlideToStopButton() {
+    final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      switchInCurve: Curves.easeOutBack,
+      switchOutCurve: Curves.easeInBack,
+      child: !_isRunning
+          ? _buildStartButton() // 🔁 volta a ser play quando corrida parar
+          : GestureDetector(
+        key: const ValueKey("sliderButton"),
+        onHorizontalDragUpdate: (details) {
+          setState(() {
+            _slideDragValue += details.primaryDelta ?? 0;
+            _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
+          });
+        },
+        onHorizontalDragEnd: (details) async {
+          if (_slideDragValue > 120) {
+            HapticFeedback.mediumImpact();
+            await _stopRun();
+            await _saveRun();
+
+            // ✨ anima de volta pro play
+            setState(() {
+              _slideDragValue = 0.0;
+              _isRunning = false;
+            });
+          } else {
+            HapticFeedback.lightImpact();
+            setState(() => _slideDragValue = 0.0);
+          }
+        },
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            // 🔹 Fundo vermelho base
+            Container(
+              height: 65,
+              width: 240,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(40),
+                color: const Color(0xFFE53935),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.redAccent.withOpacity(0.4),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+
+            // 🔹 Barra de preenchimento azul conforme deslize
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 50),
+              height: 65,
+              width: (240 * progress).clamp(0, 240),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.horizontal(
+                  left: const Radius.circular(40),
+                  right: Radius.circular(progress > 0.98 ? 40 : 10),
+                ),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                boxShadow: [
+                  if (progress > 0.05)
+                    BoxShadow(
+                      color: Colors.blueAccent.withOpacity(0.5 * progress),
+                      blurRadius: 25 * progress,
+                      spreadRadius: 4 * progress,
+                    ),
+                ],
+              ),
+            ),
+
+
+            // 🔹 Texto animado
+            SizedBox(
+              height: 65,
+              width: 240,
+              child: Center(
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 200),
+                  style: TextStyle(
+                    color: Color.lerp(
+                        Colors.white60, Colors.white, progress),
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                    fontSize: 15,
+                  ),
+                  child: Text(progress > 0.95
+                      ? "Solte para parar 🏁"
+                      : "⬅️ Deslize para parar"),
+                ),
+              ),
+            ),
+
+            // 🔸 Botão circular deslizante com animação
+            Positioned(
+              left: _slideDragValue.clamp(0, 175),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                height: 65,
+                width: 65,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: progress > 0.9
+                          ? Colors.blueAccent.withOpacity(0.5)
+                          : Colors.black.withOpacity(0.3),
+                      blurRadius: progress > 0.9 ? 18 : 6,
+                      spreadRadius: progress > 0.9 ? 6 : 2,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.stop_rounded,
+                  color: progress > 0.9
+                      ? const Color(0xFF4A90E2)
+                      : const Color(0xFFE53935),
+                  size: 32,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -1894,8 +2045,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  "Usuário não autenticado. Login necessário para salvar.")),
+              content: Text("Usuário não autenticado. Login necessário para salvar.")),
         );
       }
       setState(() => loading = false);
@@ -1912,12 +2062,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
 
+    // ✅ Define a distância antes de qualquer reset
+    final distanceMeters = _totalDistance;
+    final distanceKm = distanceMeters / 1000.0;
+
     final runData = {
       'userId': user.uid,
       'startTime': _startTime?.toIso8601String(),
       'endTime': DateTime.now().toIso8601String(),
       'duration': _stopwatch.elapsed.inSeconds,
-      'distance': _totalDistance,
+      'distance': distanceMeters,
       'calories': _caloriesBurned,
       'pace': _averagePace,
       'path': _positions
@@ -1926,14 +2080,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       'createdAt': FieldValue.serverTimestamp(),
     };
 
+    final pathSnapshot = List<LatLng>.from(_positions);
+
     try {
+      // ✅ Salva corrida
       await FirebaseFirestore.instance.collection('corridas').add(runData);
+
+// 🏆 Checa conquistas (Primeira Corrida, 5K etc.)
+      try {
+        // dá um pequeno tempo pra garantir sincronização
+        await Future.delayed(const Duration(milliseconds: 600));
+
+        await AchievementService().checkAchievements(
+          runData: runData,
+          context: context,
+        );
+      } catch (e) {
+        debugPrint('Erro ao verificar conquistas: $e');
+      }
+
+// 🏅 XP automático no salvamento
+      try {
+        int baseXP = (distanceKm * 10).floor() + 5;
+        double xpMultiplier = 1.0;
+
+        final isPro = (user.email ?? '').contains('pro');
+        if (isPro) xpMultiplier *= 2.0;
+
+        final inActiveChallenge = await _userHasActiveChallenge();
+        if (inActiveChallenge) xpMultiplier *= 1.5;
+
+        final totalXP = (baseXP * xpMultiplier).round();
+
+        await GamificationService().addPoints(totalXP, context: context);
+        _showXPAnimation("+$totalXP XP");
+        await _updateLeaderboard();
+      } catch (e) {
+        debugPrint('Erro ao conceder XP no _saveRun: $e');
+      }
+
 
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Corrida salva com sucesso!')),
+          const SnackBar(content: Text('🏁 Corrida salva com sucesso!')),
         );
-        await _applyRunDistanceToActiveChallenges(distanceMeters: _totalDistance);
+        await _applyRunDistanceToActiveChallenges(distanceMeters: distanceMeters);
       }
     } catch (e) {
       if (context.mounted && !wearMode) {
@@ -1943,7 +2134,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     } finally {
       setState(() => loading = false);
-      // Reset para próxima corrida
+
+      // 🔹 Reseta UI e variáveis
       setState(() {
         _seconds = 0;
         _totalDistance = 0;
@@ -1951,30 +2143,100 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         _averagePace = 0;
         _positions.clear();
 
-        // 🟩 Mantém polígonos e adiciona os territórios conquistados
         if (!isWearOS) {
           _polylines.clear();
           _markers.clear();
-          // não limpar _polygons aqui!
         }
       });
 
       await _setInitialLocation();
     }
-    // 🟩 Salva também o território conquistado
-    if (_positions.length >= 3 && _areaCaptured > 0) {
-      final territoryData = {
+
+    // 🗺️ Salva território conquistado
+    if (pathSnapshot.length >= 3 && _areaCaptured > 0) {
+      await FirebaseFirestore.instance.collection('territorios').add({
         'userId': user.uid,
-        'points': _positions
-            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
-            .toList(),
+        'points':
+        pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
         'area': _areaCaptured,
         'createdAt': FieldValue.serverTimestamp(),
-      };
-      await FirebaseFirestore.instance.collection('territorios').add(territoryData);
+      });
       await _loadTerritories();
     }
   }
+
+
+  Future<void> _updateLeaderboard() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // 🔹 Busca XP e nome do usuário
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final xp = (userDoc.data()?['xp'] ?? 0) as int;
+      final username = userDoc.data()?['displayName'] ?? user.email ?? 'Runner';
+
+      // 🔹 Soma todas as distâncias válidas das corridas
+      final query = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+
+      double totalKm = 0.0;
+      for (var doc in query.docs) {
+        final data = doc.data();
+        final rawDist = data['distance'];
+
+        // ✅ Garante que é número antes de somar
+        if (rawDist != null && rawDist is num) {
+          totalKm += rawDist.toDouble() / 1000.0;
+        }
+      }
+
+      // 🔹 Atualiza Leaderboard Global
+      await FirebaseFirestore.instance
+          .collection('leaderboard_global')
+          .doc(user.uid)
+          .set({
+        'userId': user.uid,
+        'displayName': username,
+        'xp': xp,
+        'km': double.parse(totalKm.toStringAsFixed(2)),
+        'lastRunAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 🔹 Atualiza Leaderboard Semanal
+      final now = DateTime.now();
+      final weekStart = now.subtract(Duration(days: now.weekday - 1));
+      final weekId =
+          "${weekStart.year}_${weekStart.month.toString().padLeft(2, '0')}_${weekStart.day.toString().padLeft(2, '0')}";
+
+      await FirebaseFirestore.instance
+          .collection('leaderboard_weekly')
+          .doc("${weekId}-${user.uid}")
+          .set({
+        'userId': user.uid,
+        'displayName': username,
+        'xp': xp,
+        'km': double.parse(totalKm.toStringAsFixed(2)),
+        'weekStart': weekStart,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      debugPrint("✅ Leaderboard atualizado: ${totalKm.toStringAsFixed(2)} km | $xp XP");
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar leaderboard: $e');
+    }
+  }
+
+
+
+
+
 
   Future<void> _updateUserRunStats() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -2014,53 +2276,70 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   Future<void> _finalizarCorrida() async {
-    // ⛔ só pode finalizar se realmente estava em uma corrida ativa
-    if (!_isRunning) {
-      debugPrint("Ignorado: tentativa de finalizar sem corrida ativa");
-      return;
-    }
-    _timer?.cancel(); // para o cronômetro
+
+    // só finalize se realmente estiver correndo
+    if (!_isRunning) return;
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final distance = _totalDistance; // km
+    _timer?.cancel();
+    _stopwatch.stop();
 
-    // Evita salvar corridas muito curtas
-    if (distance < 0.1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+    final distanceMeters = _totalDistance;          // metros
+    final distanceKm = distanceMeters / 1000.0;     // km
+    final duration = _stopwatch.elapsed.inSeconds;
+
+    // Evita corridas muito curtas
+    if (distanceMeters < 10) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text("Distância muito curta para registrar corrida."),
           backgroundColor: Colors.redAccent,
-        ),
-      );
+        ));
+      }
       return;
     }
 
-    // Tempo total em segundos
-    final duration = _elapsedSeconds;
+    // 🎯 XP base: 10 xp por km + 5 de bônus
+    final baseXP = (distanceKm * 10).floor() + 5;
 
-    // Pontos: 1 a cada 100m + 5 de bônus
-    int earnedPoints = (distance * 10).floor() + 5;
+    // 🎛️ Multiplicadores
+    double xpMultiplier = 1.0;
 
-    // Salvar corrida
-    await FirebaseFirestore.instance.collection('corridas').add({
+    // Exemplo de "Pro Runner" — adapte sua flag real
+    final isPro = (user.email ?? '').contains('pro');
+    if (isPro) xpMultiplier *= 2.0;
+
+    // Desafio ativo
+    final inActiveChallenge = await _userHasActiveChallenge();
+    if (inActiveChallenge) xpMultiplier *= 1.5;
+
+    final totalXP = (baseXP * xpMultiplier).round();
+
+    // 🎈 Feedback de XP
+    _showXPAnimation("+$totalXP XP");
+
+    // 🏅 Salva corrida
+    final runData = {
       'userId': user.uid,
-      'distance': distance,
+      'distance': distanceMeters,         // guardei em METROS p/ consistência com o resto do app
       'duration': duration,
       'pace': _averagePace,
       'calories': _caloriesBurned,
-      'data': DateTime.now(),
-    });
+      'xpEarned': totalXP,
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+    await FirebaseFirestore.instance.collection('corridas').add(runData);
 
-    // Adiciona pontos
-    await GamificationService().addPoints(earnedPoints, context: context);
+    // ➕ adiciona XP ao perfil
+    await GamificationService().addPoints(totalXP, context: context);
 
-    // Atualiza estatísticas e conquistas
+    // 🏆 Conquistas/estatísticas
     await _updateUserRunStats();
     await AchievementService().checkAchievements(
       runData: {
-        'distance': distance,
+        'distance': distanceMeters,
         'pace': _averagePace,
         'weeklyRuns': weeklyRunsCount,
         'streak': streakDays,
@@ -2068,19 +2347,164 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       context: context,
     );
 
-    // Feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("🏁 Corrida salva! +$earnedPoints XP."),
-        backgroundColor: Colors.green[700],
-      ),
-    );
+    // 🥇 Leaderboard
+    await _updateLeaderboard();
 
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("🏁 Corrida salva! +$totalXP XP."), backgroundColor: Colors.green[700]),
+      );
+    }
+
+    // reset UI
     setState(() {
       _isRunning = false;
       _runEnded = true;
+      _positions.clear();
+      _polylines.clear();
+      _markers.clear();
+      _totalDistance = 0;
+      _seconds = 0;
+      _averagePace = 0;
+      _caloriesBurned = 0;
+      _slideDragValue = 0.0;
+    });
+    ScaffoldVisibilityController.show();
+  }
+
+  void _showXPAnimation(String text) {
+    OverlayEntry? overlayEntry;
+    overlayEntry = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 20,
+          left: 0, right: 0,
+          child: Center(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 1200),
+              builder: (context, t, _) {
+                return Opacity(
+                  opacity: 1 - t,
+                  child: Transform.translate(
+                    offset: Offset(0, -40 * t),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.blueAccent.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.blueAccent.withOpacity(0.4),
+                            blurRadius: 16, spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        text,
+                        style: const TextStyle(
+                          color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    Overlay.of(context).insert(overlayEntry!);
+    Future.delayed(const Duration(milliseconds: 1250), () {
+      overlayEntry?.remove();
     });
   }
+
+  void _showXPGainEffect(String text) {
+    OverlayEntry? overlay;
+    overlay = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 40,
+          left: 0, right: 0,
+          child: Center(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 800),
+              builder: (context, t, _) {
+                return Opacity(
+                  opacity: 1 - t,
+                  child: Transform.translate(
+                    offset: Offset(0, -40 * t),
+                    child: Text(
+                      text,
+                      style: const TextStyle(
+                        color: Color(0xFF4A90E2),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(blurRadius: 10, color: Colors.blueAccent),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+    Overlay.of(context).insert(overlay!);
+    Future.delayed(const Duration(milliseconds: 850), () => overlay?.remove());
+  }
+
+  void _showXPLevelUp() {
+    OverlayEntry? overlay;
+    overlay = OverlayEntry(
+      builder: (context) {
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 900),
+                builder: (context, t, _) {
+                  final opacity = (1 - (t - 0.5).abs() * 2).clamp(0.0, 1.0);
+                  return Opacity(
+                    opacity: opacity,
+                    child: Transform.scale(
+                      scale: 1 + 0.3 * (1 - opacity),
+                      child: Text(
+                        "⭐ LEVEL UP!",
+                        style: TextStyle(
+                          fontSize: 40,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.yellowAccent.withOpacity(opacity),
+                          shadows: const [
+                            Shadow(blurRadius: 30, color: Colors.orangeAccent),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    Overlay.of(context).insert(overlay!);
+    Future.delayed(const Duration(milliseconds: 1000), () => overlay?.remove());
+  }
+
+
+
 
 
 
@@ -3338,6 +3762,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
 
+  DateTime _getCurrentWeekStart() {
+    final now = DateTime.now();
+    return now.subtract(Duration(days: now.weekday - 1)); // segunda-feira da semana atual
+  }
 
 
 }

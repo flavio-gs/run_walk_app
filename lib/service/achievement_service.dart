@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 
 import '../widgets/achievement_overlay.dart';
 
-
 class AchievementService {
   static final AchievementService _instance = AchievementService._internal();
   factory AchievementService() => _instance;
@@ -22,7 +21,7 @@ class AchievementService {
       'id': 'first_run',
       'title': 'Primeira Corrida',
       'icon': '🎯',
-      'condition': (data) => data['runCount'] == 1,
+      'condition': (data) => data['runCount'] >= 1,
     },
     {
       'id': '5k_runner',
@@ -69,6 +68,45 @@ class AchievementService {
       'icon': '🔥',
       'condition': (data) => data['streak'] >= 7,
     },
+    {
+      'id': 'first_week_run',
+      'title': 'Primeira Semana',
+      'icon': '📆',
+      'condition': (data) {
+        final now = DateTime.now();
+        final weekStart = now.subtract(Duration(days: now.weekday - 1));
+        final runs = data['runs'] as List<Map<String, dynamic>>;
+        return runs.any((r) {
+          final date = DateTime.tryParse(r['startTime'] ?? '');
+          return date != null && date.isAfter(weekStart);
+        });
+      },
+    },
+    {
+      'id': 'monthly_consistency',
+      'title': 'Constância de 4 Semanas',
+      'icon': '🔥📅',
+      'condition': (data) {
+        final runs = data['runs'] as List<Map<String, dynamic>>;
+        if (runs.isEmpty) return false;
+
+        final weeks = runs.map((r) {
+          final date = DateTime.tryParse(r['startTime'] ?? '');
+          if (date == null) return null;
+          final monday = date.subtract(Duration(days: date.weekday - 1));
+          return DateTime(monday.year, monday.month, monday.day);
+        }).whereType<DateTime>().toSet().toList()
+          ..sort((a, b) => b.compareTo(a));
+
+        if (weeks.length < 4) return false;
+
+        for (int i = 0; i < 3; i++) {
+          final diff = weeks[i].difference(weeks[i + 1]).inDays.abs();
+          if (diff > 7) return false;
+        }
+        return true;
+      },
+    },
   ];
 
   /// Checa conquistas após uma corrida
@@ -78,61 +116,100 @@ class AchievementService {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final user = _auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      debugPrint("[Achievements] ⚠️ Nenhum usuário logado, abortando verificação.");
+      return;
+    }
 
     // Recupera insígnias já desbloqueadas
-    final unlocked =
-        prefs.getStringList('unlocked_achievements_${user.uid}') ?? [];
+    final unlocked = prefs.getStringList('unlocked_achievements_${user.uid}') ?? [];
 
-    // Prepara dados úteis para checagem
+    // Busca corridas do usuário para cálculo de contadores
     final query = await _firestore
         .collection('corridas')
         .where('userId', isEqualTo: user.uid)
         .get();
 
     final runCount = query.docs.length;
-    final totalDistance = query.docs.fold<double>(
-        0, (sum, doc) => sum + (doc['distance'] ?? 0.0));
+    final totalKm = query.docs.fold<double>(
+        0, (sum, doc) => sum + ((doc['distance'] ?? 0.0) as num).toDouble() / 1000);
+
+    final runsList = query.docs.map((d) => d.data()).toList(); // 👈 Adiciona isso
+
+    final currentDistanceKm = ((runData['distance'] ?? 0.0) as num).toDouble() / 1000;
+    final pace = (runData['pace'] ?? 0.0) as double;
+
+    debugPrint("[Achievements] 🏃‍♀️ runCount=$runCount | totalKm=${totalKm.toStringAsFixed(2)} | current=${currentDistanceKm.toStringAsFixed(2)} | pace=$pace");
 
     final newAchievements = <Map<String, dynamic>>[];
 
     for (var ach in _achievements) {
-      if (unlocked.contains(ach['id'])) continue;
+      final achId = ach['id'] as String;
 
+      // Já desbloqueada → ignora
+      if (unlocked.contains(achId)) continue;
+
+      // ⚙️ Travas antifalsos positivos
+      if (currentDistanceKm < 0.1 && achId != 'first_run') {
+        debugPrint("[Achievements] ⏩ Ignorando ${ach['title']} — corrida muito curta (${currentDistanceKm.toStringAsFixed(2)} km).");
+        continue;
+      }
+
+      if (runCount == 1 && achId != 'first_run') {
+        debugPrint("[Achievements] ⏩ Primeira corrida — só 'Primeira Corrida' pode ser desbloqueada agora.");
+        continue;
+      }
+
+      // Garante condições realistas
+      if (achId == '5k_runner' && totalKm < 5.0) continue;
+      if (achId == '10k_runner' && totalKm < 10.0) continue;
+      if (achId == 'marathoner' && totalKm < 42.0) continue;
+      if (achId == 'night_owl' && currentDistanceKm < 1.0) continue;
+      if (achId == 'speed_boost' && (pace <= 0 || pace > 5)) continue;
+
+      // Monta dados
       final data = {
         'runCount': runCount,
-        'distance': runData['distance'],
-        'pace': runData['pace'],
-        'totalDistance': totalDistance,
+        'distance': currentDistanceKm,
+        'pace': pace,
+        'totalDistance': totalKm,
         'weeklyRuns': runData['weeklyRuns'] ?? 0,
         'streak': runData['streak'] ?? 0,
+        'runs': runsList,
       };
 
-      if ((ach['condition'] as Function)(data)) {
-        newAchievements.add(ach);
-        unlocked.add(ach['id']);
+      final condition = (ach['condition'] as Function)(data);
+      if (!condition) continue;
 
-        // 🎉 Pop-up de conquista
-        await showAchievementPopup(context!, title: ach['title'], icon: ach['icon']);
+      // ✅ Desbloqueia
+      newAchievements.add(ach);
+      unlocked.add(achId);
 
-        // 📰 Compartilha no feed automaticamente
-        await _postAchievementToFeed(
-          user.uid,
-          achId: ach['id'],
-          title: ach['title'],
-          icon: ach['icon'],
-        );
+      debugPrint("[Achievements] ✅ Desbloqueada: ${ach['title']} (${ach['icon']})");
 
+      // Pop-up e feed
+      if (context != null && context.mounted) {
+        await showAchievementPopup(context, title: ach['title'], icon: ach['icon']);
         _showSnack(context, "${ach['icon']} Nova conquista: ${ach['title']}!");
       }
 
+      await _postAchievementToFeed(
+        user.uid,
+        achId: achId,
+        title: ach['title'],
+        icon: ach['icon'],
+      );
     }
 
-    if (newAchievements.isEmpty) return;
+    if (newAchievements.isEmpty) {
+      debugPrint("[Achievements] Nenhuma nova conquista desbloqueada.");
+      return;
+    }
 
+    // 🔄 Salva local e sincroniza
     await prefs.setStringList('unlocked_achievements_${user.uid}', unlocked);
-
     final connectivity = await Connectivity().checkConnectivity();
+
     if (connectivity != ConnectivityResult.none) {
       await _syncAchievements(user.uid, newAchievements);
     } else {
@@ -140,8 +217,10 @@ class AchievementService {
           prefs.getStringList('pending_achievements_${user.uid}') ?? [];
       pending.addAll(newAchievements.map((a) => jsonEncode(a)));
       await prefs.setStringList('pending_achievements_${user.uid}', pending);
+      debugPrint("[Achievements] 🌐 Sem internet. Insígnias pendentes salvas localmente.");
     }
   }
+
 
   /// Sincroniza insígnias locais com o Firestore
   Future<void> syncNow({BuildContext? context}) async {
@@ -160,24 +239,31 @@ class AchievementService {
     await prefs.setStringList('pending_achievements_${user.uid}', []);
 
     _showSnack(context, "🏆 Conquistas sincronizadas com sucesso!");
+    debugPrint("[Achievements] ☁️ ${achievements.length} insígnias sincronizadas.");
   }
 
   /// Salva as conquistas no Firestore
   Future<void> _syncAchievements(
       String userId, List<Map<String, dynamic>> achievements) async {
     final batch = _firestore.batch();
-    final ref = _firestore.collection('users').doc(userId).collection('achievements');
+    final ref =
+    _firestore.collection('users').doc(userId).collection('achievements');
 
     for (var ach in achievements) {
       final doc = ref.doc(ach['id']);
-      batch.set(doc, {
-        'title': ach['title'],
-        'icon': ach['icon'],
-        'timestamp': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      batch.set(
+        doc,
+        {
+          'title': ach['title'],
+          'icon': ach['icon'],
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
     }
 
     await batch.commit();
+    debugPrint("[Achievements] ✅ Insígnias salvas no Firestore para $userId");
   }
 
   void _showSnack(BuildContext? context, String message) {
@@ -216,7 +302,9 @@ class AchievementService {
       for (var doc in snapshot.docs) {
         if (!unlocked.contains(doc.id)) unlocked.add(doc.id);
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("[Achievements] Erro ao buscar insígnias no Firestore: $e");
+    }
 
     // Retorna todas as insígnias, marcando as desbloqueadas
     return _achievements.map((a) {
@@ -230,18 +318,22 @@ class AchievementService {
     }).toList();
   }
 
-  Future<void> _postAchievementToFeed(String userId,
-      {required String achId, required String title, required String icon}) async {
+  /// Posta a conquista no feed público
+  Future<void> _postAchievementToFeed(
+      String userId, {
+        required String achId,
+        required String title,
+        required String icon,
+      }) async {
     try {
-      // pega dados do usuário (displayName, photo, etc.)
       final userDoc = await _firestore.collection('users').doc(userId).get();
       final userData = userDoc.data() ?? {};
 
       await _firestore.collection('posts').add({
         'type': 'achievement',
-        'userId': userId,
-        'userName': userData['displayName'] ?? 'Corredor',
-        'userPhoto': userData['photoURL'],
+        'authorId': userId,
+        'authorName': userData['displayName'] ?? 'Corredor',
+        'authorPhoto': userData['photoURL'],
         'achievementId': achId,
         'title': title,
         'icon': icon,
@@ -249,10 +341,10 @@ class AchievementService {
         'likes': 0,
         'commentsCount': 0,
       });
+
+      debugPrint("[Achievements] 📢 Postada no feed: $title ($icon)");
     } catch (e) {
-      debugPrint("Falha ao postar conquista no feed: $e");
+      debugPrint("[Achievements] Falha ao postar conquista no feed: $e");
     }
   }
-
-
 }

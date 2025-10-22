@@ -185,7 +185,7 @@ class _ProfilePageState extends State<ProfilePage>
 
       if (mounted) {
         setState(() {
-          totalDistance = distance;
+          totalDistance = distance / 1000;
           totalDuration = duration;
           totalCalories = calories;
           userData = userDoc.data() ?? {};
