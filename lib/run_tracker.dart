@@ -394,6 +394,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void initState() {
+    _initLocationFlow();
 
     super.initState();
 
@@ -422,9 +423,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         });
       }
     });
-
-    // Localização sempre (Wear e Mobile)
-    _initLocationFlow();
 
     // Carregamento do histórico — desativado no Wear para poupar recursos
     if (!isWearOS) {
@@ -457,8 +455,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     if (isWearOS) return; // sem marcador/Mapa no Wear
     final customIcon = await _createUserCircleIcon(
       size: 60,
-      borderColor: const Color(0xFFFF6D00).withOpacity(0.9),
-      fillColor: const Color(0xFF00C853),
+      fillColor: const Color(0xFFFF7600),
     );
 
     setState(() {
@@ -855,8 +852,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     final pulseIcon = await _createUserCircleIcon(
       size: 60,
-      borderColor: const Color(0xFFFF6D00).withOpacity(0.8),
-      fillColor: const Color(0xFF00C853).withOpacity(0.8),
+      fillColor: const Color(0xFFFF7600),
     );
 
     _pulseT = 0.0;
@@ -1435,302 +1431,148 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   // Mobile: UI completa com Google Map e tudo
   Widget _buildMobileBody() {
     return Scaffold(
+      backgroundColor: Colors.white,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // ⚡ Ícone de raio dourado com brilho
-              ShaderMask(
-                shaderCallback: (bounds) => const LinearGradient(
-                  colors: [Color(0xFFFFD740), Color(0xFFFFAB00)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ).createShader(bounds),
-                child: const Icon(
-                  Icons.bolt_rounded,
-                  size: 30,
-                  color: Colors.white,
-                  shadows: [
-                    Shadow(
-                      blurRadius: 18,
-                      color: Colors.amberAccent,
-                      offset: Offset(0, 0),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // 🏃‍♂️ Texto Runner com efeito neon
-              ShaderMask(
-                shaderCallback: (bounds) => const LinearGradient(
-                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
-                child: Text(
-                  "Runner",
-                  style: GoogleFonts.russoOne(
-                    textStyle: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 1.8,
-                      shadows: [
-                        Shadow(
-                          blurRadius: 14,
-                          color: Colors.black45,
-                          offset: Offset(2, 2),
-                        ),
-                        Shadow(
-                          blurRadius: 20,
-                          color: Color(0xFF4A90E2),
-                          offset: Offset(0, 0),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+        title: Text(
+          "RUNNER",
+          style: GoogleFonts.poppins(
+            color: Colors.black,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+            fontSize: 22,
           ),
         ),
-
         centerTitle: true,
       ),
       body: Stack(
         children: [
+          // 🗺️ Mapa branco e cinza
           GoogleMap(
             mapType: MapType.normal,
             initialCameraPosition: CameraPosition(
               target: _currentPosition,
               zoom: 16,
             ),
-            onMapCreated: (GoogleMapController controller) async {
+            onMapCreated: (controller) async {
               _googleMapController = controller;
-              _mapReady = true; // 👈 marca o mapa como pronto
-
-              try {
-                _mapStyle = await rootBundle.loadString('assets/map_style.json');
-                await _googleMapController?.setMapStyle(_mapStyle);
-              } catch (e) {
-                debugPrint("Erro ao aplicar estilo do mapa: $e");
-              }
-
-              // 🔹 Espera o mapa estar pronto e a localização carregada antes de centralizar
-              if (!_loadingLocation && _currentPosition != const LatLng(-23.5505, -46.6333)) {
-                await Future.delayed(const Duration(milliseconds: 300));
-                _googleMapController?.animateCamera(
-                  CameraUpdate.newLatLngZoom(_currentPosition, 17),
-                );
-              }
-
+              _mapReady = true;
               await _updateMarker();
+              final style = await rootBundle.loadString('assets/map_style/white_map.json');
+              _googleMapController?.setMapStyle(style);
             },
-
-
-            onCameraMoveStarted: () {
-              // Ignora movimentos de câmera causados por código
-              if (_isProgrammaticCameraMove) return;
-
-              _userIsMovingMap = true;
-              setState(() => _followUser = false);
-            },
-
-
-
-            // 🟩 NOVO: adiciona polygons
-
             polylines: _polylines,
-            polygons: {..._polygons, ..._territoryPolygons}, // 🟩 Mostra dominados + atuais
+            polygons: {..._polygons, ..._territoryPolygons},
             markers: _markers,
             myLocationEnabled: false,
-            myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
-            scrollGesturesEnabled: true,
-            zoomGesturesEnabled: true,
-            rotateGesturesEnabled: true,
-            tiltGesturesEnabled: true,
-            gestureRecognizers: {},
+            myLocationButtonEnabled: false,
           ),
 
-
+          // 🌫️ Vinheta branca suave — estilo névoa real
           IgnorePointer(
             ignoring: true,
             child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.0,
                   colors: [
-                    Color.fromARGB(80, 0, 122, 255),   // azul iOS translúcido
-                    Color.fromARGB(40, 10, 60, 120),   // azul mais escuro sutil
-                    Colors.transparent,
+                    Colors.white.withOpacity(0.0),   // centro transparente
+                    Colors.white.withOpacity(0.8),   // camada média
+                    Colors.white.withOpacity(1.0),   // bordas levemente brancas
+                    Colors.white,                    // extremidades totalmente brancas
                   ],
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
+                  stops: const [0.4, 0.7, 0.9, 1.0],
                 ),
               ),
             ),
           ),
 
 
-          // 1) Fundo com gradiente que NÃO recebe toques
+          // 🕒 Cronômetro e métricas superiores
           Positioned(
-            top: 0,
+            top: MediaQuery.of(context).padding.top + 30,
             left: 0,
             right: 0,
-            child: IgnorePointer(
-              ignoring: true,
-              child: Container(
-                padding: EdgeInsets.only(
-                  top: MediaQuery.of(context).padding.top + 40,
-                  bottom: 10,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.black.withOpacity(0.4),
-                      Colors.transparent,
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
+            child: Column(
+              children: [
+                Text(
+                  _formatDuration(Duration(seconds: _seconds)),
+                  style: GoogleFonts.poppins(
+                    fontSize: 50,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                    letterSpacing: -0.5,
                   ),
                 ),
-                // ⚠️ sem Column aqui — só o fundo visual
-                child: const SizedBox.shrink(),
-              ),
+                const SizedBox(height: 15),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                    _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
+                    _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                  ],
+                ),
+              ],
             ),
           ),
 
-// 2) Conteúdo INTERATIVO por cima do gradiente
+          // ⚫ Botão central — preto com ícone play laranja
           Positioned(
-            top: 0,
+            bottom: 40,
             left: 0,
             right: 0,
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: MediaQuery.of(context).padding.top + 40,
-                bottom: 10,
-              ),
-              child: Column(
-                children: [
-                  FuturisticChrono(seconds: _seconds, fontSize: 70),
-                  const SizedBox(height: 15),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                      _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
-                      _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
-                    ],
-                  ),
-                  if (_challengeStream != null)
-                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      stream: _challengeStream,
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
-                        final data = snapshot.data!.data();
-                        if (data == null) return const SizedBox();
-                        return _buildActiveChallengePanel(data, snapshot.data!.id);
-                      },
-                    ),
-                ],
-              ),
+            child: Center(
+              child: _isRunning ? _buildSlideToStopButton() : _buildStartButton(),
             ),
           ),
 
-
-// 🧭 Botão de recentralizar
+          // 🔘 Botão recenter
           Positioned(
-            bottom: 20,
+            bottom: 110,
             right: 20,
             child: GestureDetector(
               onTap: _recenterMap,
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
+                  color: Colors.white,
                   shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF4A90E2).withOpacity(0.6),
-                      blurRadius: 25,
-                      spreadRadius: 4,
+                      color: Colors.black26,
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.my_location_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
+                child: const Icon(Icons.my_location_rounded, color: Colors.black, size: 26),
               ),
             ),
           ),
 
+          // 🌐 Online/Offline — minimalista
           Positioned(
-            top: MediaQuery.of(context).padding.top + 280,
-            left: 0,
-            right: 220,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: Colors.blueAccent.withOpacity(0.5), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.star, color: Colors.amberAccent, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      "XP: $_sessionXP",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-
-          // 🌐 Botão Online/Offline
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 280,
+            top: MediaQuery.of(context).padding.top + 230,
             right: 20,
             child: GestureDetector(
               onTap: _toggleOnlineStatus,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                 decoration: BoxDecoration(
-                  color: _isOnline
-                      ? Colors.green.withOpacity(0.85)
-                      : Colors.redAccent.withOpacity(0.8),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: _isOnline
-                          ? Colors.greenAccent.withOpacity(0.4)
-                          : Colors.redAccent.withOpacity(0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                      color: Colors.black26,
+                      blurRadius: 6,
+                      spreadRadius: 1,
                     ),
                   ],
                 ),
@@ -1739,15 +1581,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   children: [
                     Icon(
                       _isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                      color: Colors.white,
+                      color: Colors.black,
+                      size: 20,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       _isOnline ? "Online" : "Offline",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                      style: GoogleFonts.poppins(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
                       ),
                     ),
                   ],
@@ -1755,239 +1598,139 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
-
-          // 🧭 Botão de seguir ou liberar mapa
-          Positioned(
-            bottom: 90,
-            right: 20,
-            child: GestureDetector(
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      _followUser
-                          ? "🗺️ Mapa liberado — explore as corridas!"
-                          : "📍 Mapa travado na sua posição",
-                    ),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-                setState(() => _followUser = !_followUser);
-                HapticFeedback.lightImpact();
-              },
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: _followUser
-                        ? [const Color(0xFF00C853), const Color(0xFF4CAF50)] // Verde: seguindo
-                        : [const Color(0xFF4A90E2), const Color(0xFF007AFF)], // Azul: livre
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  _followUser ? Icons.lock : Icons.lock_open,
-                  color: Colors.white,
-                  size: 26,
-                ),
-              ),
-            ),
-          ),
-
-
-          Positioned(
-            bottom: 25,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _isRunning
-                  ? _buildSlideToStopButton() // 👈 Novo widget
-                  : _buildStartButton(),      // 👈 Mantém o botão de início normal
-            ),
-          ),
-
         ],
       ),
     );
   }
 
+  // ▶️ Botão de início da corrida
   Widget _buildStartButton() {
     return GestureDetector(
       onTap: _startRun,
       child: Container(
         height: 90,
         width: 90,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
+          color: Colors.black,
           shape: BoxShape.circle,
-          gradient: LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
           boxShadow: [
             BoxShadow(
-              color: Color(0xFF4A90E2),
-              blurRadius: 25,
-              spreadRadius: 4,
+              color: Colors.black26,
+              blurRadius: 10,
+              spreadRadius: 2,
             ),
           ],
         ),
         child: const Icon(
           Icons.play_arrow_rounded,
-          color: Colors.white,
-          size: 45,
+          color: Color(0xFFFF6D00),
+          size: 48,
         ),
       ),
     );
   }
 
+  // ⏹️ Botão de deslize para parar
   Widget _buildSlideToStopButton() {
     final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      switchInCurve: Curves.easeOutBack,
-      switchOutCurve: Curves.easeInBack,
-      child: !_isRunning
-          ? _buildStartButton() // 🔁 volta a ser play quando corrida parar
-          : GestureDetector(
-        key: const ValueKey("sliderButton"),
-        onHorizontalDragUpdate: (details) {
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        setState(() {
+          _slideDragValue += details.primaryDelta ?? 0;
+          _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
+        });
+      },
+      onHorizontalDragEnd: (details) async {
+        if (_slideDragValue > 120) {
+          HapticFeedback.mediumImpact();
+          await _stopRun();
+          await _saveRun();
           setState(() {
-            _slideDragValue += details.primaryDelta ?? 0;
-            _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
+            _slideDragValue = 0.0;
+            _isRunning = false;
           });
-        },
-        onHorizontalDragEnd: (details) async {
-          if (_slideDragValue > 120) {
-            HapticFeedback.mediumImpact();
-            await _stopRun();
-            await _saveRun();
+        } else {
+          HapticFeedback.lightImpact();
+          setState(() => _slideDragValue = 0.0);
+        }
+      },
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Container(
+            height: 65,
+            width: 240,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(40),
+              color: Colors.black,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+          ),
 
-            // ✨ anima de volta pro play
-            setState(() {
-              _slideDragValue = 0.0;
-              _isRunning = false;
-            });
-          } else {
-            HapticFeedback.lightImpact();
-            setState(() => _slideDragValue = 0.0);
-          }
-        },
-        child: Stack(
-          alignment: Alignment.centerLeft,
-          children: [
-            // 🔹 Fundo vermelho base
-            Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 50),
+            height: 65,
+            width: (240 * progress).clamp(0, 240),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.horizontal(
+                left: const Radius.circular(40),
+                right: Radius.circular(progress > 0.98 ? 40 : 10),
+              ),
+              color: Colors.grey[300],
+            ),
+          ),
+
+          SizedBox(
+            height: 65,
+            width: 240,
+            child: Center(
+              child: Text(
+                progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
+                style: GoogleFonts.poppins(
+                  color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+
+          Positioned(
+            left: _slideDragValue.clamp(0, 175),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 100),
               height: 65,
-              width: 240,
+              width: 65,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(40),
-                color: const Color(0xFFE53935),
+                shape: BoxShape.circle,
+                color: Colors.white,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.redAccent.withOpacity(0.4),
-                    blurRadius: 18,
+                    color: Colors.black26,
+                    blurRadius: 8,
                     spreadRadius: 2,
                   ),
                 ],
               ),
-            ),
-
-            // 🔹 Barra de preenchimento azul conforme deslize
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 50),
-              height: 65,
-              width: (240 * progress).clamp(0, 240),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.horizontal(
-                  left: const Radius.circular(40),
-                  right: Radius.circular(progress > 0.98 ? 40 : 10),
-                ),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ),
-                boxShadow: [
-                  if (progress > 0.05)
-                    BoxShadow(
-                      color: Colors.blueAccent.withOpacity(0.5 * progress),
-                      blurRadius: 25 * progress,
-                      spreadRadius: 4 * progress,
-                    ),
-                ],
+              child: const Icon(
+                Icons.stop_rounded,
+                color: Colors.black,
+                size: 30,
               ),
             ),
-
-
-            // 🔹 Texto animado
-            SizedBox(
-              height: 65,
-              width: 240,
-              child: Center(
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 200),
-                  style: TextStyle(
-                    color: Color.lerp(
-                        Colors.white60, Colors.white, progress),
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                    fontSize: 15,
-                  ),
-                  child: Text(progress > 0.95
-                      ? "Solte para parar 🏁"
-                      : "⬅️ Deslize para parar"),
-                ),
-              ),
-            ),
-
-            // 🔸 Botão circular deslizante com animação
-            Positioned(
-              left: _slideDragValue.clamp(0, 175),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 100),
-                height: 65,
-                width: 65,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: progress > 0.9
-                          ? Colors.blueAccent.withOpacity(0.5)
-                          : Colors.black.withOpacity(0.3),
-                      blurRadius: progress > 0.9 ? 18 : 6,
-                      spreadRadius: progress > 0.9 ? 6 : 2,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.stop_rounded,
-                  color: progress > 0.9
-                      ? const Color(0xFF4A90E2)
-                      : const Color(0xFFE53935),
-                  size: 32,
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-
-
-
 
 
   @override
@@ -1995,41 +1738,42 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return isWearOS ? _buildWearBody() : _buildMobileBody();
   }
 
-  // ===== Helpers de UI (mobile) =====
+  // 🔲 Cards de métricas — branco com texto preto e fonte Adidas
   Widget _buildMetricCard(IconData icon, String value, String label) {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(15),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: Colors.white,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black12,
                 blurRadius: 6,
-                spreadRadius: 2,
+                spreadRadius: 1,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: Icon(icon, color: Colors.white, size: 28),
+          child: Icon(icon, color: Colors.black, size: 26),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+          style: GoogleFonts.poppins(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
+          style: GoogleFonts.poppins(
+            color: Colors.black54,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -2527,8 +2271,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         Offset(size / 2, size / 2),
         size / 2,
         [
-          const Color(0xFF4A90E2),
-          const Color(0xFF007AFF),
+          const Color(0xFF000000),
+          const Color(0xFFE66E0F),
         ],
       );
       paint.shader = gradient;
@@ -2982,10 +2726,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
                                   ? NetworkImage(photoUrl)
                                   : null,
-                              backgroundColor: const Color(0xFF4A90E2),
+                              backgroundColor: Colors.white,
                               child: (photoUrl == null || photoUrl.isEmpty)
                                   ? const Icon(Icons.person,
-                                  color: Colors.white, size: 40)
+                                  color: Colors.black, size: 40)
                                   : null,
                             ),
                             const SizedBox(width: 16),
@@ -2996,7 +2740,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                   Text(
                                     name,
                                     style: const TextStyle(
-                                      color: Colors.white,
+                                      color: Colors.black,
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 0.6,
@@ -3008,7 +2752,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                       Text(
                                         "$followersCount seguidores",
                                         style: const TextStyle(
-                                          color: Colors.white70,
+                                          color: Colors.black12,
                                           fontSize: 13,
                                         ),
                                       ),
@@ -3016,7 +2760,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                       Text(
                                         "$followingCount seguindo",
                                         style: const TextStyle(
-                                          color: Colors.white70,
+                                          color: Colors.black12,
                                           fontSize: 13,
                                         ),
                                       ),
@@ -3147,7 +2891,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                       children: [
                         Text(
                           userName,
-                          style: GoogleFonts.orbitron(
+                          style: GoogleFonts.poppins(
                             textStyle: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -3268,7 +3012,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   // 🏁 Título
                   Text(
                     "🏁 Corrida registrada",
-                    style: GoogleFonts.orbitron(
+                    style: GoogleFonts.poppins(
                       textStyle: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -3347,20 +3091,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.blueAccent.withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black
           ),
         ],
       ),
       child: Column(
         children: [
-          Icon(icon, color: Colors.white, size: 26),
+          Icon(icon, color: Colors.deepOrangeAccent, size: 26),
           const SizedBox(height: 6),
           Text(
             value,
             style: const TextStyle(
-              color: Colors.white,
+              color: Colors.deepOrangeAccent,
               fontSize: 15,
               fontWeight: FontWeight.bold,
             ),
@@ -3514,24 +3256,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
             return Center(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(25),
+                borderRadius: BorderRadius.circular(10),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   child: Container(
                     width: screenWidth * 0.9,
                     constraints: BoxConstraints(
-                      maxHeight: screenHeight * 0.8, // ⛔ impede que ultrapasse a tela
+                      maxHeight: screenHeight * 0.6, // ⛔ impede que ultrapasse a tela
                     ),
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      border: Border.all(color: Colors.white24),
-                      borderRadius: BorderRadius.circular(25),
+                      color: Colors.white.withOpacity(0.5),
+                      border: Border.all(color: Colors.white),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.blueAccent.withOpacity(0.3),
-                          blurRadius: 20,
-                          spreadRadius: 2,
+                          color: Colors.white
                         ),
                       ],
                     ),
@@ -3539,7 +3278,30 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                       physics: const BouncingScrollPhysics(),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          // 🔹 Cabeçalho com botão Fechar no canto superior direito
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const SizedBox(width: 40), // mantém alinhamento do avatar
+                              Text(
+                                "Perfil do Jogador",
+                                style: GoogleFonts.poppins(
+                                  color: Colors.black87,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => Navigator.pop(context),
+                                icon: const Icon(Icons.close_rounded, color: Colors.black87),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 8),
+
                           // 🔹 Avatar + nome + XP/Nível
                           Row(
                             children: [
@@ -3548,9 +3310,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                 backgroundImage: stats['photoURL'] != null
                                     ? NetworkImage(stats['photoURL'])
                                     : null,
-                                backgroundColor: Colors.white10,
+                                backgroundColor: Colors.black12,
                                 child: stats['photoURL'] == null
-                                    ? const Icon(Icons.person, color: Colors.white70)
+                                    ? const Icon(Icons.person, color: Colors.black, size: 35)
                                     : null,
                               ),
                               const SizedBox(width: 16),
@@ -3562,24 +3324,25 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                       stats['displayName'],
                                       overflow: TextOverflow.ellipsis,
                                       maxLines: 1,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 19,
-                                        fontWeight: FontWeight.bold,
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.black,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                     const SizedBox(height: 6),
                                     Row(
                                       children: [
-                                        const Icon(Icons.star,
-                                            color: Colors.amber, size: 20),
+                                        const Icon(Icons.star, color: Colors.amber, size: 20),
                                         const SizedBox(width: 6),
                                         Text(
                                           "${stats['xp']} XP • Nível ${stats['level']}",
                                           overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
-                                          style: const TextStyle(
-                                              color: Colors.white70, fontSize: 14),
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.black87,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -3589,46 +3352,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                             ],
                           ),
 
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
 
                           // 👥 Seguidores / seguindo + botão seguir
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Flexible(
-                                child: Text(
-                                  "$followersCount seguidores • $followingCount seguindo",
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 13),
-                                  overflow: TextOverflow.ellipsis,
+                              Text(
+                                "$followersCount seguidores • $followingCount seguindo",
+                                style: GoogleFonts.poppins(
+                                  color: Colors.black87,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                               if (userId != currentUser.uid)
                                 ElevatedButton.icon(
                                   icon: Icon(
-                                      isFollowing
-                                          ? Icons.check
-                                          : Icons.person_add_alt_1,
-                                      size: 18),
-                                  label: Text(isFollowing ? "Seguindo" : "Seguir"),
+                                    isFollowing ? Icons.check : Icons.person_add_alt_1,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                  label: Text(
+                                    isFollowing ? "Seguindo" : "Seguir",
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   style: ElevatedButton.styleFrom(
                                     elevation: 0,
-                                    backgroundColor: (isFollowing
-                                        ? Colors.green
-                                        : const Color(0xFF4A90E2))
-                                        .withOpacity(0.85),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 8),
+                                    backgroundColor: isFollowing
+                                        ? const Color(0xFFFF6D00)
+                                        : Colors.black,
+                                    padding:
+                                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                                     shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12)),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                   onPressed: () => toggleFollow(setStateDialog),
                                 ),
                             ],
                           ),
 
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
 
                           // 🏅 Conquistas recentes
                           if ((stats['achievements'] as List).isNotEmpty)
@@ -3639,63 +3407,59 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               children: (stats['achievements'] as List)
                                   .map<Widget>((icon) => AnimatedScale(
                                 scale: 1.08,
-                                duration:
-                                const Duration(milliseconds: 400),
-                                child: Text(icon,
-                                    style: const TextStyle(fontSize: 28)),
+                                duration: const Duration(milliseconds: 400),
+                                child: Text(icon, style: const TextStyle(fontSize: 28)),
                               ))
                                   .toList(),
                             )
                           else
-                            const Text(
+                            Text(
                               "Nenhuma insígnia conquistada ainda",
-                              style: TextStyle(
-                                  color: Colors.white54, fontSize: 14),
+                              style: GoogleFonts.poppins(
+                                color: Colors.black87,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
 
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 5),
 
-                          // 📊 Métricas da corrida
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _buildGlassMetric(Icons.route, "$distanceKm km"),
-                              _buildGlassMetric(Icons.timer, _fmtDuration(durationSec)),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _buildGlassMetric(Icons.local_fire_department,
-                                  "$calories kcal"),
-                              _buildGlassMetric(Icons.speed,
-                                  "${_fmtPace(pace)} min/km"),
-                            ],
+                          // 📊 NOVA SEÇÃO DE MÉTRICAS — organizada em GRID simétrica
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+
+                            child: GridView.count(
+                              crossAxisCount: 2,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              children: [
+                                _buildMetricCard(Icons.route, "$distanceKm km", "Distância"),
+                                _buildMetricCard(Icons.timer, _fmtDuration(durationSec), "Tempo"),
+                                _buildMetricCard(
+                                    Icons.local_fire_department, "$calories kcal", "Calorias"),
+                                _buildMetricCard(Icons.speed, "${_fmtPace(pace)} min/km", "Ritmo"),
+                              ],
+                            ),
                           ),
 
                           const SizedBox(height: 10),
+
                           Text(
                             "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 13),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text(
-                              "Fechar",
-                              style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500),
+                            style: GoogleFonts.poppins(
+                              color: Colors.black87,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
+
+                          const SizedBox(height: 5),
                         ],
                       ),
                     ),
+
                   ),
                 ),
               ),

@@ -52,16 +52,6 @@ class _MainScaffoldState extends State<MainScaffold>
     FeedbackPage(),
   ];
 
-  final List<String> _titles = const [
-    "Feed",
-    "Comunidade",
-    "Atividade",
-    "Correr",
-    "Progresso",
-    "Perfil",
-    "Feedback",
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -71,7 +61,7 @@ class _MainScaffoldState extends State<MainScaffold>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-      lowerBound: 0.7,
+      lowerBound: 0.8,
       upperBound: 1.1,
     )..repeat(reverse: true);
   }
@@ -94,7 +84,8 @@ class _MainScaffoldState extends State<MainScaffold>
 
     final screenWidth = MediaQuery.of(context).size.width;
     final itemWidth = screenWidth / 7;
-    final center = Offset(itemWidth * (index + 0.5), MediaQuery.of(context).size.height - 40);
+    final center =
+    Offset(itemWidth * (index + 0.5), MediaQuery.of(context).size.height - 40);
 
     setState(() {
       _transitioning = true;
@@ -115,7 +106,7 @@ class _MainScaffoldState extends State<MainScaffold>
   // 📱 -------- MOBILE VIEW --------
   Widget _buildMobileView() {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           Positioned.fill(child: _pages[_selectedIndex]),
@@ -133,7 +124,6 @@ class _MainScaffoldState extends State<MainScaffold>
                   });
                 },
                 builder: (context, value, child) {
-                  final radius = value * MediaQuery.of(context).size.longestSide * 1.2;
                   return ClipPath(
                     clipper: _CircularRevealClipper(
                       fraction: value,
@@ -147,7 +137,7 @@ class _MainScaffoldState extends State<MainScaffold>
         ],
       ),
 
-      // 👇 agora o controle afeta só a NAV BAR
+      // ⚫ Bottom Navigation Bar minimalista preta
       bottomNavigationBar: ValueListenableBuilder<bool>(
         valueListenable: ScaffoldVisibilityController.isVisible,
         builder: (context, visible, _) {
@@ -156,33 +146,23 @@ class _MainScaffoldState extends State<MainScaffold>
           return AnimatedOpacity(
             opacity: visible ? 1.0 : 0.0,
             duration: const Duration(milliseconds: 400),
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: BottomNavigationBar(
-                type: BottomNavigationBarType.fixed,
-                backgroundColor: Colors.black.withOpacity(0.85),
-                selectedItemColor: Colors.white,
-                unselectedItemColor: Colors.white70,
-                currentIndex: _selectedIndex,
-                onTap: _onItemTapped,
-                showUnselectedLabels: true,
-                selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold),
-                items: [
-                  _navItem(Icons.dashboard, "Feed", 0),
-                  _navItem(Icons.people, "Comunidade", 1),
-                  _navItem(Icons.directions_run, "Atividade", 2),
-                  _activityItem(Icons.bolt, "Correr", 3),
-                  _navItem(Icons.bar_chart, "Progresso", 4),
-                  _navItem(Icons.person, "Perfil", 5),
-                  _navItem(Icons.chat_bubble_outline, "Feedback", 6),
-                ],
-              ),
+            child: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.white,
+              selectedItemColor: Colors.black,
+              unselectedItemColor: Colors.grey.shade400,
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              showUnselectedLabels: false,
+              items: [
+                _navItem(Icons.dashboard_outlined, 0),
+                _navItem(Icons.people_outline, 1),
+                _navItem(Icons.bar_chart_outlined, 2),
+                _activityItem(Icons.bolt, 3),
+                _navItem(Icons.timeline_outlined, 4),
+                _navItem(Icons.person_outline, 5),
+                _navItem(Icons.chat_bubble_outline, 6),
+              ],
             ),
           );
         },
@@ -190,37 +170,28 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 
-
-  BottomNavigationBarItem _navItem(IconData icon, String label, int index) {
+  BottomNavigationBarItem _navItem(IconData icon, int index) {
     final isSelected = _selectedIndex == index;
     return BottomNavigationBarItem(
-      icon: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: isSelected
-              ? const LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          )
-              : null,
-        ),
-        child: Icon(icon, color: isSelected ? Colors.white : Colors.white70),
+      icon: AnimatedScale(
+        duration: const Duration(milliseconds: 200),
+        scale: isSelected ? 1.2 : 1.0,
+        child: Icon(icon,
+            color: isSelected ? Colors.black : Colors.grey.shade400, size: 26),
       ),
-      label: label,
+      label: "",
     );
   }
 
-  BottomNavigationBarItem _activityItem(IconData icon, String label, int index) {
+  BottomNavigationBarItem _activityItem(IconData icon, int index) {
     final isSelected = _selectedIndex == index;
     return BottomNavigationBarItem(
       icon: AnimatedBuilder(
         animation: _pulseController,
         builder: (context, child) {
           final scale = isSelected ? _pulseController.value : 1.0;
-          final glowOpacity = isSelected ? (sin(_pulseController.value * pi).abs()) * 0.6 : 0.0;
+          final glowOpacity =
+          isSelected ? (sin(_pulseController.value * pi).abs()) * 0.6 : 0.0;
 
           return Transform.scale(
             scale: scale,
@@ -228,55 +199,41 @@ class _MainScaffoldState extends State<MainScaffold>
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: isSelected
-                    ? const LinearGradient(
-                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-                    : null,
+                color: isSelected ? Colors.black : Colors.black12,
                 boxShadow: isSelected
                     ? [
                   BoxShadow(
-                    color: const Color(0xFF4A90E2).withOpacity(0.45 * glowOpacity),
-                    blurRadius: 18 + 10 * glowOpacity,
+                    color: Colors.black.withOpacity(glowOpacity * 0.3),
+                    blurRadius: 18,
                     spreadRadius: 2,
-                  ),
-                  BoxShadow(
-                    color: const Color(0xFF007AFF).withOpacity(0.45 * glowOpacity),
-                    blurRadius: 22 + 10 * glowOpacity,
-                    spreadRadius: 3,
                   ),
                 ]
                     : [],
               ),
-              child: Icon(icon, size: isSelected ? 36 : 28, color: Colors.white),
+              child: Icon(icon,
+                  size: isSelected ? 34 : 28,
+                  color: isSelected ? Colors.white : Colors.black),
             ),
           );
         },
       ),
-      label: label,
+      label: "",
     );
   }
 
   Widget _buildWearOSView() {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              scrollDirection: Axis.vertical,
-              itemCount: _pages.length,
-              itemBuilder: (context, index) => AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: _pages[index],
-              ),
-            ),
-          ],
+        child: PageView.builder(
+          controller: _pageController,
+          onPageChanged: _onPageChanged,
+          scrollDirection: Axis.vertical,
+          itemCount: _pages.length,
+          itemBuilder: (context, index) => AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: _pages[index],
+          ),
         ),
       ),
     );

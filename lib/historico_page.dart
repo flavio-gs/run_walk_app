@@ -1,9 +1,9 @@
-import 'dart:ui';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:run_walk_app/detalhe_corrida_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'detalhe_corrida_page.dart';
 import 'model/run_model.dart';
 
 class HistoricoPage extends StatefulWidget {
@@ -16,11 +16,6 @@ class HistoricoPage extends StatefulWidget {
 class _HistoricoPageState extends State<HistoricoPage> {
   String? _filtroSelecionado;
 
-  bool get isWearOS {
-    final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
-    return size.shortestSide < 300;
-  }
-
   String _formatDuration(int seconds) {
     final duration = Duration(seconds: seconds);
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -30,273 +25,285 @@ class _HistoricoPageState extends State<HistoricoPage> {
     return "$h:$m:$s";
   }
 
-  String _formatarData(DateTime date) {
-    final dia = date.day.toString().padLeft(2, '0');
-    final mes = date.month.toString().padLeft(2, '0');
-    final ano = date.year.toString();
-    final hora = date.hour.toString().padLeft(2, '0');
-    final minuto = date.minute.toString().padLeft(2, '0');
-    return "$dia/$mes/$ano $hora:$minuto";
+  String _formatDate(DateTime date) {
+    final d = date.day.toString().padLeft(2, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final y = date.year.toString();
+    return "$d/$m/$y";
   }
-
 
   @override
   Widget build(BuildContext context) {
-    return isWearOS ? _buildWearView() : _buildMobileView(context);
-  }
-
-  // -------- 📱 MOBILE VIEW --------
-  Widget _buildMobileView(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
         elevation: 0,
+        backgroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.black),
         centerTitle: true,
         title: Text(
-          "Histórico de Corridas",
-          style: GoogleFonts.inter(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
+          'Histórico de Corridas',
+          style: GoogleFonts.poppins(
+            color: Colors.black,
+            fontWeight: FontWeight.w700,
           ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-          child: Container(
-            color: Colors.black.withOpacity(0.35),
-            child: Column(
-              children: [
-                // 🔹 Filtro de corridas
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 100, 16, 8),
-                  child: DropdownButtonFormField<String>(
-                    dropdownColor: Colors.grey[900],
-                    style: GoogleFonts.inter(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: "Filtrar por",
-                      labelStyle:
-                      GoogleFonts.inter(color: Colors.white70, fontSize: 13),
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.1),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    value: _filtroSelecionado,
-                    items: const [
-                      DropdownMenuItem(
-                        value: "hoje",
-                        child: Text("Hoje"),
-                      ),
-                      DropdownMenuItem(
-                        value: "semana",
-                        child: Text("Últimos 7 dias"),
-                      ),
-                      DropdownMenuItem(
-                        value: "mes",
-                        child: Text("Últimos 30 dias"),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      setState(() => _filtroSelecionado = value);
-                    },
-                  ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: DropdownButtonFormField<String>(
+              value: _filtroSelecionado,
+              decoration: InputDecoration(
+                labelText: 'Filtrar por',
+                labelStyle: GoogleFonts.poppins(color: Colors.black54),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Colors.black26),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-
-                // 🔁 Lista de corridas
-                Expanded(
-                  child: _buildRunStream(
-                    filtro: _filtroSelecionado,
-                    itemBuilder: (corrida, index) => _buildRunCard(corrida),
-                  ),
-                ),
+              ),
+              dropdownColor: Colors.white,
+              items: const [
+                DropdownMenuItem(value: 'hoje', child: Text('Hoje')),
+                DropdownMenuItem(value: 'semana', child: Text('Últimos 7 dias')),
+                DropdownMenuItem(value: 'mes', child: Text('Últimos 30 dias')),
               ],
+              onChanged: (value) => setState(() => _filtroSelecionado = value),
             ),
           ),
-        ),
+          Expanded(child: _buildRunStream(filtro: _filtroSelecionado)),
+        ],
       ),
     );
   }
 
-  // -------- 💳 CARD DE CADA CORRIDA --------
-  Widget _buildRunCard(RunModel corrida) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Colors.white.withOpacity(0.08),
-          border: Border.all(color: Colors.white24, width: 1),
-        ),
-        child: ListTile(
-          onTap: () {
-            Navigator.of(context).push(PageRouteBuilder(
-              transitionDuration: const Duration(milliseconds: 500),
-              reverseTransitionDuration: const Duration(milliseconds: 400),
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  FadeTransition(
-                    opacity: animation,
-                    child: DetalheCorridaPage(corrida: corrida),
-                  ),
-            ));
-          },
-          leading: const CircleAvatar(
-            radius: 22,
-            backgroundColor: Color(0xFFFF6D00),
-            child: Icon(Icons.directions_run, color: Colors.white),
-          ),
-          title: Text(
-            "Corrida em ${_formatarData(corrida.date)}",
-            style: GoogleFonts.inter(
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-          subtitle: Text(
-            "Distância ${(corrida.distance / 1000).toStringAsFixed(2)} km  •  "
-                "Tempo ${_formatDuration(corrida.duration)}",
-            style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
-          ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-        ),
-      ),
-    );
-  }
-
-  // -------- ⌚ WEAR OS VIEW --------
-  Widget _buildWearView() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: _buildRunStream(
-          itemBuilder: (corrida, index) => Padding(
-            padding: const EdgeInsets.all(8),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: Colors.white.withOpacity(0.1),
-              ),
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "${(corrida.distance / 1000).toStringAsFixed(2)} km",
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatDuration(corrida.duration),
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // -------- 🔁 STREAM COMPARTILHADA --------
-  Widget _buildRunStream({
-    required Widget Function(RunModel corrida, int index) itemBuilder,
-    String? filtro,
-  }) {
+  Widget _buildRunStream({String? filtro}) {
     final user = FirebaseAuth.instance.currentUser;
-
     if (user == null) {
       return const Center(
-        child: Text(
-          "Usuário não autenticado",
-          style: TextStyle(color: Colors.redAccent),
-        ),
+        child: Text('Usuário não autenticado', style: TextStyle(color: Colors.black54)),
       );
     }
 
+    // Base: corridas do usuário (sem depender de índice descendente)
     Query query = FirebaseFirestore.instance
         .collection('corridas')
         .where('userId', isEqualTo: user.uid)
-        .orderBy('createdAt', descending: true);
+        .orderBy('createdAt'); // ASC por compatibilidade
 
-    // Filtros simples
     final agora = DateTime.now();
-    if (filtro == "hoje") {
-      query = query.where(
-        "createdAt",
-        isGreaterThanOrEqualTo: Timestamp.fromDate(
-          DateTime(agora.year, agora.month, agora.day),
-        ),
-      );
-    } else if (filtro == "semana") {
-      query = query.where(
-        "createdAt",
-        isGreaterThanOrEqualTo: Timestamp.fromDate(
-          agora.subtract(const Duration(days: 7)),
-        ),
-      );
-    } else if (filtro == "mes") {
-      query = query.where(
-        "createdAt",
-        isGreaterThanOrEqualTo: Timestamp.fromDate(
-          agora.subtract(const Duration(days: 30)),
-        ),
-      );
+
+    // Limites por filtro (início-inclusivo, agora-inclusivo)
+    if (filtro == 'hoje') {
+      final inicioHoje = DateTime(agora.year, agora.month, agora.day);
+      query = query
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(inicioHoje))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
+    } else if (filtro == 'semana') {
+      final inicioSemana = agora.subtract(const Duration(days: 7));
+      query = query
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(inicioSemana))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
+    } else if (filtro == 'mes') {
+      final inicioMes = agora.subtract(const Duration(days: 30));
+      query = query
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(inicioMes))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
     }
-
-
+    // Se quiser um filtro "todas", basta não aplicar where em createdAt.
 
     return StreamBuilder<QuerySnapshot>(
       stream: query.snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const Center(
-              child: Text("Erro ao carregar histórico.",
-                  style: TextStyle(color: Colors.redAccent)));
+            child: Text('Erro ao carregar histórico', style: TextStyle(color: Colors.redAccent)),
+          );
         }
-
         if (!snapshot.hasData) {
-          return const Center(
-              child: CircularProgressIndicator(color: Color(0xFFFF6D00)));
+          return const Center(child: CircularProgressIndicator(color: Color(0xFFFF6D00)));
         }
 
+        // Mapeia com tolerância a route ausente/errada
         final docs = snapshot.data!.docs;
-        final corridas = docs
-            .map((doc) =>
-            RunModel.fromMap(doc.data() as Map<String, dynamic>))
-            .toList();
+        final corridas = <RunModel>[];
+        for (final d in docs) {
+          final raw = d.data() as Map<String, dynamic>;
+          try {
+            // Normaliza "route" opcional
+            raw['route'] ??= (raw['path'] ?? const []);
+            corridas.add(RunModel.fromMap(raw));
+          } catch (_) {
+            // ignora doc malformado
+          }
+        }
 
         if (corridas.isEmpty) {
           return Center(
-            child: Text(
-              "Nenhuma corrida encontrada",
-              style: GoogleFonts.inter(color: Colors.white70),
-            ),
+            child: Text('Nenhuma corrida encontrada', style: GoogleFonts.poppins(color: Colors.black54)),
           );
         }
 
-        return ListView.builder(
-          physics: const BouncingScrollPhysics(),
-          itemCount: corridas.length,
-          itemBuilder: (context, index) => itemBuilder(corridas[index], index),
+        // Como a ordem no Firestore está ASC, invertimos aqui para mostrar as mais novas primeiro
+        final corridasDesc = corridas.reversed.toList();
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+            childAspectRatio: 1,
+          ),
+          itemCount: corridasDesc.length,
+          itemBuilder: (context, index) {
+            final corrida = corridasDesc[index];
+            return _buildRunCard(corrida);
+          },
         );
       },
     );
   }
+
+
+
+  Widget _buildRunCard(RunModel corrida) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DetalheCorridaPage(corrida: corrida),
+          ),
+        );
+      },
+
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.black12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 🔹 Mini traçado da corrida
+            Expanded(
+              child: CustomPaint(
+                painter: _RoutePainter(corrida.route),
+                child: Container(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 🔸 Dados da corrida
+            Text(
+              "${(corrida.distance / 1000).toStringAsFixed(2)} km",
+              style: GoogleFonts.poppins(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+              ),
+            ),
+            Text(
+              _formatDuration(corrida.duration),
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _iconInfo(Icons.local_fire_department, "${corrida.calories?.toStringAsFixed(0)} kcal"),
+                _iconInfo(Icons.speed, "${corrida.pace?.toStringAsFixed(2)} min/km"),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _iconInfo(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFFFF6D00), size: 16),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: GoogleFonts.poppins(
+            fontSize: 12,
+            color: Colors.black87,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
 }
+
+// 🎨 Desenha uma rota aleatória simples (simula o traçado da corrida)
+class _RoutePainter extends CustomPainter {
+  final List<Map<String, double>> route;
+
+  _RoutePainter(this.route);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (route.isEmpty) return;
+
+    // 🔹 Define o estilo da linha (laranja flat)
+    final paint = Paint()
+      ..color = const Color(0xFFFF6D00)
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // 🔹 Normaliza coordenadas (para caber no card)
+    double minLat = route.first['lat']!;
+    double maxLat = route.first['lat']!;
+    double minLng = route.first['lng']!;
+    double maxLng = route.first['lng']!;
+
+    for (final p in route) {
+      minLat = minLat < p['lat']! ? minLat : p['lat']!;
+      maxLat = maxLat > p['lat']! ? maxLat : p['lat']!;
+      minLng = minLng < p['lng']! ? minLng : p['lng']!;
+      maxLng = maxLng > p['lng']! ? maxLng : p['lng']!;
+    }
+
+    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
+    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+
+    // 🔹 Cria o path real
+    final path = Path();
+    for (int i = 0; i < route.length; i++) {
+      final latNorm = (route[i]['lat']! - minLat) / latRange;
+      final lngNorm = (route[i]['lng']! - minLng) / lngRange;
+
+      // Inverte o eixo Y pra desenhar no sentido natural
+      final dx = lngNorm * size.width;
+      final dy = size.height - (latNorm * size.height);
+
+      if (i == 0) {
+        path.moveTo(dx, dy);
+      } else {
+        path.lineTo(dx, dy);
+      }
+    }
+
+    // 🔹 Desenha o caminho
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoutePainter oldDelegate) =>
+      oldDelegate.route != route;
+}
+

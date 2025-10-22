@@ -1,19 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:async';
-import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'dart:io';
-import 'model/run_model.dart';
+import 'dart:math';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:flutter/rendering.dart';
-
+import 'model/run_model.dart';
 
 class DetalheCorridaPage extends StatefulWidget {
   final RunModel corrida;
-
   const DetalheCorridaPage({super.key, required this.corrida});
 
   @override
@@ -21,83 +18,40 @@ class DetalheCorridaPage extends StatefulWidget {
 }
 
 class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
-  final Completer<GoogleMapController> _controller = Completer();
-  final Set<Polyline> _polylines = {};
-  final Set<Polygon> _polygons = {};
+  final List<String> backgrounds = [
+    // 🏃 Mulher correndo ao nascer do sol
+    'https://images.unsplash.com/photo-1599058917212-d750089bc07d?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
 
-  final GlobalKey _repaintKey = GlobalKey();
+    // 🌅 Homem correndo em estrada ao pôr do sol
+    'https://images.unsplash.com/photo-1508609349937-5ec4ae374ebf?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🌇 Corrida urbana noturna
+    'https://images.unsplash.com/photo-1579758629939-037fdd6b2a12?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🌄 Trilha em montanha (natureza)
+    'https://images.unsplash.com/photo-1505678261036-a3fcc5e884ee?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🛣️ Estrada reta (minimalista)
+    'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🏙️ Skyline urbano ao entardecer
+    'https://images.unsplash.com/photo-1605296867304-46d5465a13f1?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🌌 Corrida noturna com iluminação azul
+    'https://images.unsplash.com/photo-1571019613918-721f80be263d?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+
+    // 🌳 Pista arborizada (verde e natural)
+    'https://images.unsplash.com/photo-1558981359-219d6364c9c8?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
+  ];
+
+  late String selectedBackground;
+  bool sharing = false;
+  bool storyMode = false; // false = Feed, true = Story
 
   @override
   void initState() {
     super.initState();
-    _montarMapa();
-  }
-
-  void _montarMapa() {
-    final route = widget.corrida.route;
-    if (route.isEmpty) return;
-
-    final points = route.map((p) => LatLng(p['lat']!, p['lng']!)).toList();
-
-    _polylines.add(Polyline(
-      polylineId: const PolylineId('trajeto'),
-      color: const Color(0xFFFF6D00),
-      width: 6,
-      points: points,
-    ));
-
-    double minLat = points.first.latitude;
-    double maxLat = points.first.latitude;
-    double minLng = points.first.longitude;
-    double maxLng = points.first.longitude;
-
-    for (var p in points) {
-      if (p.latitude < minLat) minLat = p.latitude;
-      if (p.latitude > maxLat) maxLat = p.latitude;
-      if (p.longitude < minLng) minLng = p.longitude;
-      if (p.longitude > maxLng) maxLng = p.longitude;
-    }
-
-    _polygons.add(Polygon(
-      polygonId: const PolygonId('territorio'),
-      points: [
-        LatLng(minLat, minLng),
-        LatLng(minLat, maxLng),
-        LatLng(maxLat, maxLng),
-        LatLng(maxLat, minLng),
-      ],
-      strokeWidth: 2,
-      strokeColor: const Color(0xFF00C853).withOpacity(0.8),
-      fillColor: const Color(0xFF00C853).withOpacity(0.2),
-    ));
-  }
-
-  // 📸 Função para capturar o widget e compartilhar
-  Future<void> _compartilharCorrida() async {
-    try {
-      // Captura o widget
-      RenderRepaintBoundary boundary =
-      _repaintKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      ByteData? byteData =
-      await image.toByteData(format: ui.ImageByteFormat.png);
-      Uint8List pngBytes = byteData!.buffer.asUint8List();
-
-      // Salva a imagem temporariamente
-      final directory = await Directory.systemTemp.createTemp();
-      final file = File("${directory.path}/corrida_${DateTime.now().millisecondsSinceEpoch}.png");
-      await file.writeAsBytes(pngBytes);
-
-      // Compartilha
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text:
-        "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp",
-        subject: "Minha corrida no Runner",
-      );
-    } catch (e) {
-      debugPrint("Erro ao capturar ou compartilhar: $e");
-    }
+    selectedBackground = backgrounds[Random().nextInt(backgrounds.length)];
   }
 
   String _formatDuration(int seconds) {
@@ -106,150 +60,297 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     return "${two(d.inHours)}:${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}";
   }
 
+  String _formatarData(DateTime date) {
+    final dia = date.day.toString().padLeft(2, '0');
+    final mes = date.month.toString().padLeft(2, '0');
+    final ano = date.year.toString();
+    return "$dia/$mes/$ano";
+  }
+
+  Future<void> _compartilhar() async {
+    setState(() => sharing = true);
+
+    try {
+      final bytes =
+      await _gerarImagemCompartilhamento(widget.corrida, selectedBackground, storyMode);
+      final dir = await Directory.systemTemp.createTemp();
+      final file = File("${dir.path}/runner_share.png");
+      await file.writeAsBytes(bytes);
+
+      await Share.shareXFiles([XFile(file.path)],
+          text:
+          "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp");
+    } catch (e) {
+      debugPrint("Erro ao compartilhar: $e");
+    }
+
+    setState(() => sharing = false);
+  }
+
+  Future<Uint8List> _gerarImagemCompartilhamento(
+      RunModel corrida, String backgroundUrl, bool story) async {
+    final width = 1080;
+    final height = story ? 1920 : 1350;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
+
+    // 🔹 Fundo
+    final imageData = (await NetworkAssetBundle(Uri.parse(backgroundUrl)).load(""))
+        .buffer
+        .asUint8List();
+    final codec = await ui.instantiateImageCodec(imageData, targetWidth: width, targetHeight: height);
+    final frame = await codec.getNextFrame();
+    canvas.drawImage(frame.image, Offset.zero, Paint());
+
+    // 🔹 Escurece o fundo
+    canvas.drawRect(Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+        Paint()..color = Colors.black.withOpacity(0.35));
+
+    // 🔹 Texto helper
+    void drawText(String text, double size, Offset offset,
+        {FontWeight weight = FontWeight.w600, TextAlign align = TextAlign.left}) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: text,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size,
+              fontWeight: weight,
+              fontFamily: 'Poppins',
+            )),
+        textDirection: TextDirection.ltr,
+        textAlign: align,
+      )..layout(maxWidth: width - 120);
+      tp.paint(canvas, offset);
+    }
+
+    // 🔹 Cabeçalho
+    drawText("RUNNER", 46, const Offset(60, 100), weight: FontWeight.bold);
+    drawText("CORRIDA", 30, const Offset(60, 180), weight: FontWeight.w700);
+
+    // 🔹 Dados
+    final dist = "${(corrida.distance / 1000).toStringAsFixed(2)} km";
+    final duracao = _formatDuration(corrida.duration);
+    final calorias = "${((corrida.distance / 1000) * 60).toStringAsFixed(0)} kcal";
+
+    drawText(dist, 70, const Offset(60, 260), weight: FontWeight.bold);
+    drawText("Duração  $duracao", 34, const Offset(60, 400));
+    drawText("Calorias  $calorias", 34, const Offset(60, 460));
+
+    // 🔹 Mini mapa (pequeno canto inferior direito)
+    final routeRect = story
+        ? Rect.fromLTWH(width - 250, height - 350, 180, 180)
+        : Rect.fromLTWH(width - 250, height - 250, 180, 180);
+    _drawRoute(canvas, corrida.route, routeRect, color: const Color(0xFFFF6D00));
+
+    // 🔹 Rodapé
+    drawText("🏁 ${_formatarData(corrida.date)}", 32, Offset(60, height - 120));
+
+    final pic = recorder.endRecording();
+    final img = await pic.toImage(width, height);
+    final png = await img.toByteData(format: ui.ImageByteFormat.png);
+    return png!.buffer.asUint8List();
+  }
+
+  void _drawRoute(Canvas canvas, List<Map<String, double>> route, Rect rect,
+      {Color color = Colors.white}) {
+    if (route.isEmpty) return;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    double minLat = route.first['lat']!;
+    double maxLat = route.first['lat']!;
+    double minLng = route.first['lng']!;
+    double maxLng = route.first['lng']!;
+
+    for (final p in route) {
+      minLat = min(minLat, p['lat']!);
+      maxLat = max(maxLat, p['lat']!);
+      minLng = min(minLng, p['lng']!);
+      maxLng = max(maxLng, p['lng']!);
+    }
+
+    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
+    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+
+    final path = Path();
+    for (int i = 0; i < route.length; i++) {
+      final latNorm = (route[i]['lat']! - minLat) / latRange;
+      final lngNorm = (route[i]['lng']! - minLng) / lngRange;
+      final dx = rect.left + (lngNorm * rect.width);
+      final dy = rect.bottom - (latNorm * rect.height);
+      if (i == 0) path.moveTo(dx, dy);
+      else path.lineTo(dx, dy);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
   @override
   Widget build(BuildContext context) {
     final corrida = widget.corrida;
+    final ratio = storyMode ? (9 / 16) : (4 / 5);
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(80),
-        child: SafeArea(
-          child: Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // 🔙 Voltar
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: GestureDetector(
-                    onTap: () {
-                      Navigator.pop(context);
-                      HapticFeedback.selectionClick();
-                    },
-                    child: Container(
-                      height: 44,
-                      width: 44,
-                      margin: const EdgeInsets.only(left: 4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(0.35),
-                      ),
-                      child: const Icon(
-                        Icons.arrow_back_ios_new,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ),
-                // 📤 Compartilhar
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: GestureDetector(
-                    onTap: _compartilharCorrida,
-                    child: Container(
-                      height: 44,
-                      width: 44,
-                      margin: const EdgeInsets.only(right: 4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.black.withOpacity(0.35),
-                      ),
-                      child: const Icon(
-                        Icons.ios_share,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ),
-                // 🏁 Título
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    "Detalhes da Corrida",
-                    style: GoogleFonts.russoOne(
-                      textStyle: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 19,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-
-      // 🌈 Corpo que será capturado
-      body: RepaintBoundary(
-        key: _repaintKey,
-        child: Stack(
+      body: SafeArea(
+        child: Column(
           children: [
-            GoogleMap(
-              mapType: MapType.normal,
-              myLocationEnabled: false,
-              zoomControlsEnabled: false,
-              polylines: _polylines,
-              polygons: _polygons,
-              initialCameraPosition: CameraPosition(
-                target: _polylines.isNotEmpty
-                    ? _polylines.first.points.first
-                    : const LatLng(0, 0),
-                zoom: 16,
+            // 🔙 Top bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _circleButton(Icons.arrow_back_ios_new, () => Navigator.pop(context)),
+                  Text("Criar Imagem",
+                      style: GoogleFonts.poppins(
+                          fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white)),
+                  const SizedBox(width: 44),
+                ],
               ),
-              onMapCreated: (controller) => _controller.complete(controller),
             ),
 
-            // Painel inferior
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: Container(
-                margin: const EdgeInsets.all(18),
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.8),
-                  borderRadius: BorderRadius.circular(20),
-                ),
+            // 🔹 Conteúdo com rolagem (preview + seleção de fundo)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      "Corrida em ${_formatarData(corrida.date)}",
-                      style: GoogleFonts.inter(
-                        color: Colors.white70,
-                        fontSize: 13,
+                    // 🖼️ Preview com proporção variável
+                    AspectRatio(
+                      aspectRatio: ratio,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          image: DecorationImage(
+                            image: NetworkImage(selectedBackground),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        child: Stack(
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                color: Colors.black.withOpacity(0.25),
+                              ),
+                            ),
+
+                            // 📊 Dados da corrida
+                            Positioned(
+                              left: 20,
+                              bottom: 40,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "CORRIDA",
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white),
+                                  ),
+                                  Text(
+                                    "${(corrida.distance / 1000).toStringAsFixed(2)} km  •  ${_formatDuration(corrida.duration)}  •  ${((corrida.distance / 1000) * 60).toStringAsFixed(0)} kcal",
+                                    style: GoogleFonts.poppins(
+                                        color: Colors.white70, fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // 🟠 Mini mapa canto inferior direito
+                            Positioned(
+                              right: 25,
+                              bottom: 30,
+                              child: Container(
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.25),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                padding: const EdgeInsets.all(6),
+                                child: CustomPaint(
+                                  painter: _RoutePreviewPainter(corrida.route),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _infoItem("Distância",
-                            "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
-                        _infoItem(
-                            "Tempo", _formatDuration(corrida.duration)),
-                        _infoItem("Ritmo",
-                            _calcularRitmo(corrida.distance, corrida.duration)),
-                      ],
+
+                    // 🔘 Alternar modo
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10, bottom: 10),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _toggleButton("Feed", !storyMode, () {
+                            setState(() => storyMode = false);
+                          }),
+                          const SizedBox(width: 12),
+                          _toggleButton("Story", storyMode, () {
+                            setState(() => storyMode = true);
+                          }),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      "🏁 Feito com Runner App",
-                      style: GoogleFonts.orbitron(
-                        color: Colors.white70,
-                        fontSize: 12,
+
+                    // 🖼️ Seleção de fundos
+                    SizedBox(
+                      height: 100,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: backgrounds.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (context, i) {
+                          final img = backgrounds[i];
+                          final selected = img == selectedBackground;
+                          return GestureDetector(
+                            onTap: () => setState(() => selectedBackground = img),
+                            child: Container(
+                              width: 90,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: selected
+                                        ? Colors.blueAccent
+                                        : Colors.transparent,
+                                    width: 2),
+                                image: DecorationImage(
+                                    image: NetworkImage(img), fit: BoxFit.cover),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
                 ),
               ),
+            ),
+
+            // 🔘 Botão fixo de compartilhar
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.9),
+                border: const Border(
+                  top: BorderSide(color: Colors.white24, width: 0.5),
+                ),
+              ),
+              child: _shareButton(Icons.share, "Compartilhar", _compartilhar),
             ),
           ],
         ),
@@ -257,46 +358,102 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     );
   }
 
-  String _formatarData(DateTime date) {
-    final dia = date.day.toString().padLeft(2, '0');
-    final mes = date.month.toString().padLeft(2, '0');
-    final ano = date.year.toString();
-    final hora = date.hour.toString().padLeft(2, '0');
-    final minuto = date.minute.toString().padLeft(2, '0');
-    return "$dia/$mes/$ano $hora:$minuto";
-  }
 
-  String _calcularRitmo(double distancia, int duracao) {
-    if (distancia == 0 || duracao == 0) return "--";
-    final minutos = duracao / 60;
-    final km = distancia / 1000;
-    final ritmo = minutos / km;
-    final min = ritmo.floor();
-    final seg = ((ritmo - min) * 60).round();
-    return "${min}m${seg.toString().padLeft(2, '0')}/km";
-  }
-
-  Widget _infoItem(String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: GoogleFonts.orbitron(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            letterSpacing: 1.1,
-          ),
+  Widget _toggleButton(String label, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? Colors.blueAccent : Colors.grey[800],
+          borderRadius: BorderRadius.circular(30),
         ),
-        const SizedBox(height: 3),
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            color: Colors.white70,
-            fontSize: 12,
-          ),
-        ),
-      ],
+        child: Text(label,
+            style: GoogleFonts.poppins(
+                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+      ),
     );
   }
+
+  Widget _circleButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        width: 44,
+        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.black),
+      ),
+    );
+  }
+
+  Widget _shareButton(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: sharing ? null : onTap,
+      child: Column(
+        children: [
+          Container(
+            height: 60,
+            width: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: sharing ? Colors.grey : Colors.white,
+            ),
+            child: Icon(icon, color: Colors.black, size: 26),
+          ),
+          const SizedBox(height: 6),
+          Text(label,
+              style: GoogleFonts.poppins(fontSize: 12, color: Colors.white.withOpacity(0.9))),
+        ],
+      ),
+    );
+  }
+}
+
+// 🎨 Desenha o traçado da corrida (preview)
+class _RoutePreviewPainter extends CustomPainter {
+  final List<Map<String, double>> route;
+  _RoutePreviewPainter(this.route);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (route.isEmpty) return;
+
+    final paint = Paint()
+      ..color = const Color(0xFFFF6D00)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    double minLat = route.first['lat']!;
+    double maxLat = route.first['lat']!;
+    double minLng = route.first['lng']!;
+    double maxLng = route.first['lng']!;
+
+    for (final p in route) {
+      minLat = min(minLat, p['lat']!);
+      maxLat = max(maxLat, p['lat']!);
+      minLng = min(minLng, p['lng']!);
+      maxLng = max(maxLng, p['lng']!);
+    }
+
+    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
+    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+
+    final path = Path();
+    for (int i = 0; i < route.length; i++) {
+      final latNorm = (route[i]['lat']! - minLat) / latRange;
+      final lngNorm = (route[i]['lng']! - minLng) / lngRange;
+      final dx = lngNorm * size.width;
+      final dy = size.height - (latNorm * size.height);
+      if (i == 0) path.moveTo(dx, dy);
+      else path.lineTo(dx, dy);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoutePreviewPainter oldDelegate) =>
+      oldDelegate.route != route;
 }

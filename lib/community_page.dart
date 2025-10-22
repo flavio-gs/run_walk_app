@@ -1,25 +1,10 @@
-// community_page.dart — versão COMPLETA com Firestore + Geolocator + UI glass
-// Requisitos no pubspec:
-//  cloud_firestore, firebase_auth, geolocator, google_maps_flutter
-
 import 'dart:async';
-import 'dart:ui';
-import 'dart:math' as math;
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:run_walk_app/profile_page.dart';
-
-// Raio em graus aproximados (1 deg ~ 111km). Para ~3km: 3 / 111 ≈ 0.027
-const double _nearbyDelta = 0.2; // ~22 km
-
-class _LatLngBox {
-  final double minLat, maxLat, minLng, maxLng;
-  const _LatLngBox({required this.minLat, required this.maxLat, required this.minLng, required this.maxLng});
-}
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -30,22 +15,16 @@ class CommunityPage extends StatefulWidget {
 
 class _CommunityPageState extends State<CommunityPage>
     with SingleTickerProviderStateMixin {
-  bool _isFollowing = false;
-  bool _isLoadingFollow = false;
   late final TabController _tabController;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  // Busca global compartilhada entre abas
   final ValueNotifier<String> _searchQuery = ValueNotifier('');
 
   @override
   void initState() {
-
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
-
 
   @override
   void dispose() {
@@ -56,161 +35,135 @@ class _CommunityPageState extends State<CommunityPage>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF0F172A), Color(0xFF0B1020)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        centerTitle: true,
+        // 🔧 Garante respiro vertical suficiente
+        toolbarHeight: 64,
+        title: Text(
+          'Comunidade',
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.w800,
+            fontSize: 22,
+          ),
         ),
-      ),
-      child: Builder(
-        // 👇 rootContext estável do Scaffold principal
-        builder: (rootContext) => Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: Colors.transparent,
-            title: const _NeonTitle(text: 'Comunidade'),
-            centerTitle: true,
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(112),
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  _SearchBar(onChanged: (v) => _searchQuery.value = v),
-                  const SizedBox(height: 8),
-                  _GlassContainer(
-                    child: TabBar(
-                      controller: _tabController,
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      indicator: const BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(12)),
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      labelColor: Colors.white,
-                      unselectedLabelColor: Colors.white70,
-                      tabs: const [
-                        Tab(text: 'Descobrir'),
-                        Tab(text: 'Mapa'),
-                        Tab(text: 'Ranking'),
-                        /*Tab(text: 'Chats'),*/
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(100),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: _SearchBar(
+                  onChanged: (v) => _searchQuery.value = v,
+                ),
+              ),
+              TabBar(
+                controller: _tabController,
+                indicatorColor: const Color(0xFFFF6D00),
+                labelColor: Colors.black,
+                unselectedLabelColor: Colors.black54,
+                tabs: const [
+                  Tab(text: 'Descobrir'),
+                  Tab(text: 'Mapa'),
+                  Tab(text: 'Ranking'),
                 ],
               ),
-            ),
-          ),
-          body: TabBarView(
-            controller: _tabController,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _DiscoverTab(
-                firestore: _firestore,
-                auth: _auth,
-                searchQuery: _searchQuery,
-                messengerContext: rootContext, // 👈 garante SnackBars estáveis
-              ),
-              _MapTab(
-                firestore: _firestore,
-                auth: _auth,
-                searchQuery: _searchQuery,
-                rootContext: rootContext, // 👈 usado para SnackBars
-              ),
-              _ChallengesTab(
-                firestore: _firestore,
-                auth: _auth,
-              ),
-              _ChatsTab(firestore: _firestore, auth: _auth),
             ],
           ),
-          /*floatingActionButton: const _InviteFab(),*/
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        physics: const BouncingScrollPhysics(),
+        children: [
+          _DiscoverTab(
+            firestore: _firestore,
+            auth: _auth,
+            searchQuery: _searchQuery,
+          ),
+          _MapTab(
+            firestore: _firestore,
+            auth: _auth,
+            searchQuery: _searchQuery,
+          ),
+          _ChallengesTab(firestore: _firestore, auth: _auth),
+        ],
+      ),
+    );
+  }
+}
+
+/// 🔍 Barra de busca simples e limpa
+class _SearchBar extends StatefulWidget {
+  final ValueChanged<String>? onChanged;
+  const _SearchBar({this.onChanged});
+
+  @override
+  State<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends State<_SearchBar> {
+  final _controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.black12),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.search, color: Colors.black54),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                onChanged: widget.onChanged, // 🔥 mantém o vínculo com _searchQuery
+                style: const TextStyle(color: Colors.black87),
+                decoration: const InputDecoration(
+                  hintText: 'Digite @ para usuário ou # para grupo...',
+                  hintStyle: TextStyle(color: Colors.black45),
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+            if (_controller.text.isNotEmpty)
+              IconButton(
+                onPressed: () {
+                  _controller.clear();
+                  widget.onChanged?.call('');
+                },
+                icon: const Icon(Icons.close, color: Colors.black45),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-// =============================================================
-// AÇÕES GERAIS DE COMUNIDADE (seguir / convidar)
-// =============================================================
-class CommunityActions {
-  static Future<void> followRunner(
-      FirebaseFirestore firestore,
-      FirebaseAuth auth,
-      BuildContext messengerContext, // 👈 usar SEMPRE o rootContext
-      String targetUserId,
-      ) async {
-    try {
-      final me = auth.currentUser?.uid;
-      if (me == null || targetUserId.isEmpty) return;
-
-      final id = '${me}_$targetUserId';
-      await firestore.collection('follows').doc(id).set({
-        'followerId': me,
-        'followingId': targetUserId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.maybeOf(messengerContext)?.showSnackBar(
-        const SnackBar(content: Text('Agora você segue este corredor 🎉')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(messengerContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao seguir: $e')),
-      );
-    }
-  }
-
-  static Future<void> inviteToRun(
-      FirebaseFirestore firestore,
-      FirebaseAuth auth,
-      BuildContext messengerContext, // 👈 usar SEMPRE o rootContext
-      String targetUserId,
-      ) async {
-    try {
-      final me = auth.currentUser?.uid;
-      if (me == null || targetUserId.isEmpty) return;
-
-      await firestore.collection('invites').add({
-        'from': me,
-        'to': targetUserId,
-        'type': 'run_invite',
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      ScaffoldMessenger.maybeOf(messengerContext)?.showSnackBar(
-        const SnackBar(content: Text('Convite enviado ✅')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(messengerContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao convidar: $e')),
-      );
-    }
-  }
-}
 
 // =============================================================
-// 1) DESCOBRIR — Busca otimizada com @ e # + UI glass
+// 1️⃣ ABA "DESCOBRIR" — busca de corredores e sugestões
 // =============================================================
 class _DiscoverTab extends StatefulWidget {
   final FirebaseFirestore firestore;
   final FirebaseAuth auth;
   final ValueNotifier<String> searchQuery;
-  final BuildContext messengerContext;
 
   const _DiscoverTab({
     required this.firestore,
     required this.auth,
     required this.searchQuery,
-    required this.messengerContext,
     Key? key,
   }) : super(key: key);
 
@@ -223,29 +176,29 @@ class _DiscoverTabState extends State<_DiscoverTab> {
   bool _loadingNearby = false;
 
   static const double _nearbyDelta = 0.2; // ~22 km
-  final _categories = const [
-    'Trilhas', 'Noturno', 'Iniciantes', '5K', '10K', '21K', 'Maratona', 'HIIT'
-  ];
-  String _selectedCat = 'Trilhas';
+
+  @override
+  void initState() {
+    super.initState();
+    _findNearbyRunners();
+  }
 
   Future<void> _findNearbyRunners() async {
     try {
       setState(() => _loadingNearby = true);
 
-      // Solicita permissão de localização
       LocationPermission perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Permissão de localização negada')),
         );
         setState(() => _loadingNearby = false);
         return;
       }
 
-      // Pega localização atual
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
       final lat = pos.latitude;
       final lng = pos.longitude;
@@ -254,10 +207,8 @@ class _DiscoverTabState extends State<_DiscoverTab> {
       final maxLat = lat + _nearbyDelta;
       final minLng = lng - _nearbyDelta;
       final maxLng = lng + _nearbyDelta;
+      final currentUserId = widget.auth.currentUser?.uid;
 
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-      // Busca runners dentro da bounding box
       final q = await widget.firestore
           .collection('users')
           .where('isOnline', isEqualTo: true)
@@ -265,39 +216,23 @@ class _DiscoverTabState extends State<_DiscoverTab> {
           .where('lat', isLessThanOrEqualTo: maxLat)
           .get();
 
-      // 🔹 Filtra apenas usuários diferentes de você e dentro da área
       final nearby = q.docs.where((d) {
         final m = d.data() as Map<String, dynamic>;
         final userLng = (m['lng'] ?? 0).toDouble();
         final uid = (m['uid'] ?? m['userId'])?.toString();
-
-        // ❌ Ignora o próprio usuário (se o ID ou UID for o mesmo)
         if (d.id == currentUserId || uid == currentUserId) return false;
-
         return userLng >= minLng && userLng <= maxLng;
       }).toList();
 
-      if (mounted) {
-        setState(() => _nearbyUsers = nearby);
-      }
-
+      if (mounted) setState(() => _nearbyUsers = nearby);
     } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao buscar próximos: $e')),
       );
     } finally {
       if (mounted) setState(() => _loadingNearby = false);
     }
   }
-
-
-  @override
-  void initState() {
-    super.initState();
-    _findNearbyRunners(); // 🔹 busca autom. ao abrir a aba
-  }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -306,10 +241,9 @@ class _DiscoverTabState extends State<_DiscoverTab> {
       builder: (_, query, __) {
         final q = query.trim().toLowerCase();
         final isUserSearch = q.startsWith('@');
-        final isGroupSearch = q.startsWith('#');
         final searchTerm = q.isNotEmpty ? q.substring(1) : '';
 
-        // 🔹 Se for busca de usuário e tiver 2+ letras → busca direta no Firestore
+        // 🔎 Stream para busca por username
         final userStream = (isUserSearch && searchTerm.length >= 2)
             ? widget.firestore
             .collection('users')
@@ -317,211 +251,198 @@ class _DiscoverTabState extends State<_DiscoverTab> {
             .where('username', isLessThanOrEqualTo: '$searchTerm\uf8ff')
             .limit(30)
             .snapshots()
-            : widget.firestore
-            .collection('users')
-            .orderBy('lastActive', descending: true)
-            .limit(30)
-            .snapshots();
+            : null;
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
-            // 🔹 Chips de categorias
-            /*_HorizontalChips(
-              items: _categories,
-              selected: _selectedCat,
-              onSelected: (v) => setState(() => _selectedCat = v),
-            ),
-            const SizedBox(height: 12),*/
-
-            // 🏃 Usuários — busca ou sugestões
-            _SectionTitle(isUserSearch ? 'Resultados de usuários' : 'Sugestões perto de você'),
-            const SizedBox(height: 8),
-            _GlassContainer(
-              child: Builder(
-                builder: (context) {
-                  if (isUserSearch && searchTerm.length >= 2) {
-                    // 🔹 Busca por username (@)
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: userStream,
-                      builder: (context, snap) {
-                        if (!snap.hasData) {
-                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                        }
-                        final docs = snap.data!.docs;
-                        return _buildUserList(docs);
-                      },
-                    );
-                  } else {
-                    // 🔹 Sugestões automáticas (usuários próximos)
-                    if (_loadingNearby) {
-                      return const SizedBox(
-                        height: 120,
-                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      );
-                    }
-                    if (_nearbyUsers.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: Center(
-                          child: Text(
-                            'Nenhum corredor próximo encontrado 😔',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        ),
-                      );
-                    }
-                    return _buildUserList(_nearbyUsers);
-                  }
-                },
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                isUserSearch ? 'Resultados da busca' : 'Corredores próximos',
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
 
-
-            const SizedBox(height: 16),
-
-            // 👥 Grupos
-            /*_SectionTitle(isGroupSearch ? 'Grupos encontrados' : 'Grupos em destaque'),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: widget.firestore
-                  .collection('groups')
-                  .orderBy('members', descending: true)
-                  .limit(20)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                }
-
-                final docs = snap.data!.docs.where((d) {
-                  final m = d.data() as Map<String, dynamic>;
-                  final name = (m['name'] ?? '').toString().toLowerCase();
-                  final tag = (m['tag'] ?? '').toString().toLowerCase();
-
-                  final matchesQuery = q.isEmpty ||
-                      (isGroupSearch
-                          ? name.contains(searchTerm) || tag.contains(searchTerm)
-                          : name.contains(q) || tag.contains(q));
-
-                  final matchesCat = _selectedCat.isEmpty || tag == _selectedCat;
-                  return matchesQuery && matchesCat;
-                }).toList();
-
-                if (docs.isEmpty) {
-                  return const _EmptyState(text: 'Nenhum grupo encontrado.');
-                }
-
-                return Column(
-                  children: docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: _GroupCard(
-                        name: data['name'] ?? 'Grupo',
-                        members: data['members'] ?? 0,
-                        tag: data['tag'] ?? '',
-                        onJoin: () async {
-                          final user = widget.auth.currentUser;
-                          if (user == null) return;
-
-                          await widget.firestore.collection('groups').doc(doc.id).update({
-                            'requests': FieldValue.arrayUnion([user.uid])
-                          });
-
-                          ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
-                            SnackBar(content: Text('Pedido enviado para "${data['name']}"')),
-                          );
-                        },
+            // 🔹 Caso seja busca por usuário com @
+            if (isUserSearch && searchTerm.length >= 2)
+              StreamBuilder<QuerySnapshot>(
+                stream: userStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: Colors.black),
+                    );
+                  }
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Center(
+                        child: Text(
+                          'Nenhum usuário encontrado 😕',
+                          style: TextStyle(color: Colors.black54),
+                        ),
                       ),
                     );
-                  }).toList(),
-                );
-              },
-            ),*/
+                  }
 
-            const SizedBox(height: 16),
+                  final docs = snapshot.data!.docs;
+                  return _buildUserList(docs);
+                },
+              )
 
-            // 💬 Salas temáticas
-            /*_SectionTitle('Salas temáticas'),
-            const SizedBox(height: 8),
-            _GlassContainer(
-              child: Column(children: const [
-                _TopicTile(title: 'Desafios Semanais', members: 540),
-                _TopicTile(title: 'Maratonistas RJ', members: 128),
-                _TopicTile(title: 'Iniciantes — Dúvidas', members: 312),
-              ]),
-            ),*/
+            // 🔹 Caso contrário, mostra os corredores próximos
+            else if (_loadingNearby)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(color: Colors.black),
+                ),
+              )
+            else if (_nearbyUsers.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Center(
+                    child: Text(
+                      'Nenhum corredor próximo encontrado 😔',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                )
+              else
+                _buildUserList(_nearbyUsers),
           ],
         );
       },
     );
   }
+
+
   Widget _buildUserList(List<QueryDocumentSnapshot> docs) {
     return SizedBox(
-      height: 190,
+      height: 180,
       child: ListView.separated(
-        padding: const EdgeInsets.all(12),
         scrollDirection: Axis.horizontal,
-        itemCount: docs.length,
         separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemCount: docs.length,
         itemBuilder: (_, i) {
           final data = docs[i].data() as Map<String, dynamic>;
           final targetUserId = (data['uid'] ?? data['userId'] ?? docs[i].id) as String? ?? '';
 
-          return _RunnerCard(
-            name: data['displayName'] ?? 'Runner',
-            pace: data['pace'] ?? '--',
-            city: data['city'] ?? '',
-            username: data['username'] ?? '',
-            userId: targetUserId,
-            firestore: widget.firestore,
-            auth: widget.auth,
-            messengerContext: widget.messengerContext,
-            onInvite: () async {
-              await CommunityActions.inviteToRun(
-                widget.firestore,
-                widget.auth,
-                widget.messengerContext,
-                targetUserId,
-              );
-            },
+          return Container(
+            width: 220,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const CircleAvatar(
+                    backgroundColor: Colors.black12,
+                    child: Icon(Icons.person, color: Colors.black87),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      data['displayName'] ?? 'Corredor',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                Text(
+                  '@${data['username'] ?? 'sem_username'}',
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Cidade: ${data['city'] ?? '---'}',
+                  style: const TextStyle(color: Colors.black54),
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          await FirebaseFirestore.instance
+                              .collection('follows')
+                              .doc('${widget.auth.currentUser?.uid}_$targetUserId')
+                              .set({
+                            'followerId': widget.auth.currentUser?.uid,
+                            'followingId': targetUserId,
+                            'createdAt': FieldValue.serverTimestamp(),
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Agora você segue este corredor 🎉')),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Seguir'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ProfilePage(userId: targetUserId),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.info_outline, color: Color(0xFFFF6D00)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           );
         },
       ),
     );
   }
-
 }
 
-
-
-
 // =============================================================
-// 2) MAPA — Rotas populares e corredores ativos
+// 2️⃣ ABA "MAPA" — corredores e rotas populares
 // =============================================================
 class _MapTab extends StatefulWidget {
   final FirebaseFirestore firestore;
   final FirebaseAuth auth;
   final ValueNotifier<String> searchQuery;
-  final BuildContext rootContext; // 👈 contexto estável do Scaffold
+
   const _MapTab({
     required this.firestore,
     required this.auth,
     required this.searchQuery,
-    required this.rootContext,
-  });
+    Key? key,
+  }) : super(key: key);
 
   @override
   State<_MapTab> createState() => _MapTabState();
 }
 
 class _MapTabState extends State<_MapTab> {
-
-
-
   GoogleMapController? _mapController;
-  LatLng _center = const LatLng(-22.978, -43.365); // Barra da Tijuca (aprox)
+  LatLng _center = const LatLng(-22.978, -43.365);
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
   bool _loadingLocation = false;
@@ -530,18 +451,7 @@ class _MapTabState extends State<_MapTab> {
   void initState() {
     super.initState();
     _ensureLocationPermission();
-    _loadRoutesAndRunners();
-    _findNearbyRunners();
-  }
-
-  Future<bool> _isFollowingUser(String targetUserId) async {
-    final me = FirebaseAuth.instance.currentUser?.uid;
-    if (me == null || targetUserId.isEmpty) return false;
-    final doc = await FirebaseFirestore.instance
-        .collection('follows')
-        .doc('${me}_$targetUserId')
-        .get();
-    return doc.exists;
+    _loadRunnersAndRoutes();
   }
 
   Future<void> _ensureLocationPermission() async {
@@ -551,516 +461,220 @@ class _MapTabState extends State<_MapTab> {
     }
   }
 
-  // 🔹 Carrega rotas + corredores online próximos (raio de ~5 km)
-  Future<void> _loadRoutesAndRunners() async {
-    if (!mounted) return;
-
+  Future<void> _loadRunnersAndRoutes() async {
     try {
-      // --- Carrega rotas ---
       final routesSnap = await widget.firestore.collection('routes').limit(10).get();
       final polylines = <Polyline>{};
 
       for (final r in routesSnap.docs) {
         final data = r.data();
-        final points = (data['points'] as List?)?.whereType<GeoPoint>().map(
-              (gp) => LatLng(gp.latitude, gp.longitude),
-        ).toList();
+        final points = (data['points'] as List?)
+            ?.whereType<GeoPoint>()
+            .map((gp) => LatLng(gp.latitude, gp.longitude))
+            .toList();
 
         if (points == null || points.isEmpty) continue;
-        polylines.add(Polyline(
-          polylineId: PolylineId(r.id),
-          points: points,
-          width: 4,
-          color: const Color(0xFF4A90E2),
-        ));
+        polylines.add(
+          Polyline(
+            polylineId: PolylineId(r.id),
+            points: points,
+            width: 3,
+            color: const Color(0xFFFF6D00),
+          ),
+        );
       }
 
-      // --- Posição atual ---
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       final current = LatLng(pos.latitude, pos.longitude);
 
-      // --- Caixa aproximada (~5 km = 0.045°) ---
-      const double delta = 0.045;
-      final minLat = current.latitude - delta;
-      final maxLat = current.latitude + delta;
-      final minLng = current.longitude - delta;
-      final maxLng = current.longitude + delta;
-
-      // --- Busca usuários online próximos ---
       final runnersSnap = await widget.firestore
           .collection('users')
           .where('isOnline', isEqualTo: true)
-          .where('lat', isGreaterThanOrEqualTo: minLat)
-          .where('lat', isLessThanOrEqualTo: maxLat)
           .get();
 
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+      final currentUserId = widget.auth.currentUser?.uid;
 
       final markers = <Marker>{};
       for (final d in runnersSnap.docs) {
         final m = d.data();
-        final docUid = d.id;
-        final dataUid = (m['uid'] ?? m['userId'])?.toString();
-        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-        // ❌ ignora o próprio jogador, independente de onde o UID esteja
-        if (docUid == currentUserId || dataUid == currentUserId) continue;
-
-        final lat = (m['lat'] ?? 0).toDouble();
-        final lng = (m['lng'] ?? 0).toDouble();
-
-        // 🔹 Filtra por longitude e distância real (≤ 5 km)
-        if (lng < minLng || lng > maxLng) continue;
-
-        final dist = Geolocator.distanceBetween(
-          current.latitude,
-          current.longitude,
-          lat,
-          lng,
-        );
-
-        if (dist > 5000) continue;
-
-        markers.add(Marker(
-          markerId: MarkerId('runner_${d.id}'),
-          position: LatLng(lat, lng),
-          infoWindow: InfoWindow(
-            title: m['displayName'] ?? 'Runner',
-            snippet: m['pace'] ?? '',
-          ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-          onTap: () => _openRunnerSheet(m),
-        ));
-      }
-
-
-      if (!mounted) return;
-      setState(() {
-        // 🔄 Atualiza apenas rotas e marcadores de corredores (limpa os antigos)
-        _polylines
-          ..clear()
-          ..addAll(polylines);
-
-        // 🔄 Mantém apenas marcadores de corredores online (sem você)
-        _markers
-          ..removeWhere((m) => m.markerId.value.startsWith('runner_'))
-          ..removeWhere((m) => m.markerId.value == 'currentLocation') // garante que o seu some
-          ..addAll(markers);
-      });
-
-      debugPrint("✅ ${markers.length} corredores online dentro de 5 km carregados");
-    } catch (e) {
-      debugPrint("❌ Erro ao carregar rotas e corredores: $e");
-    }
-  }
-
-
-
-  // 🔹 Centraliza mapa na posição atual
-  Future<void> _centerOnUser() async {
-    try {
-      if (mounted) setState(() => _loadingLocation = true);
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      if (!mounted) return;
-      final here = LatLng(pos.latitude, pos.longitude);
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(CameraPosition(target: here, zoom: 14)),
-      );
-    } catch (e) {
-      // 👇 usa SEMPRE o rootContext
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        SnackBar(content: Text('Não foi possível obter sua localização: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loadingLocation = false);
-    }
-  }
-
-  // 🔹 Cria bounding box para consulta
-  _LatLngBox _makeBox(LatLng center, {double delta = _nearbyDelta}) {
-    return _LatLngBox(
-      minLat: center.latitude - delta,
-      maxLat: center.latitude + delta,
-      minLng: center.longitude - delta,
-      maxLng: center.longitude + delta,
-    );
-  }
-
-  // 🔹 Busca corredores próximos
-  Future<void> _findNearbyRunners() async {
-    if (!mounted) return;
-    try {
-      if (mounted) setState(() => _loadingLocation = true);
-
-      // Solicita permissão
-      LocationPermission perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-        ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-          const SnackBar(content: Text('Permissão de localização negada')),
-        );
-        return;
-      }
-
-      // Pega localização atual
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
-      if (!mounted) return;
-      final here = LatLng(pos.latitude, pos.longitude);
-      final box = _makeBox(here);
-
-      // Busca runners dentro da bounding box
-      final q = await widget.firestore
-          .collection('users')
-          .where('isOnline', isEqualTo: true)
-          .where('lat', isGreaterThanOrEqualTo: box.minLat)
-          .where('lat', isLessThanOrEqualTo: box.maxLat)
-          .get();
-
-      final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-      final nearby = q.docs.where((d) {
-        final m = d.data() as Map<String, dynamic>;
-        final lng = (m['lng'] ?? 0).toDouble();
         final uid = (m['uid'] ?? m['userId'])?.toString();
+        if (uid == currentUserId) continue;
 
-        // ❌ Ignora o próprio usuário (caso o uid esteja no ID ou no campo interno)
-        if (d.id == currentUserId || uid == currentUserId) return false;
-
-        return lng >= box.minLng && lng <= box.maxLng;
-      }).toList();
-
-      final newMarkers = nearby.map((d) {
-        final m = d.data() as Map<String, dynamic>;
         final lat = (m['lat'] ?? 0).toDouble();
         final lng = (m['lng'] ?? 0).toDouble();
-        final p = LatLng(lat, lng);
 
-        return Marker(
-          markerId: MarkerId('nearby_${d.id}'),
-          position: p,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-          infoWindow: InfoWindow(
-            title: m['displayName'] ?? 'Runner',
-            snippet: m['pace'] ?? '',
+        markers.add(
+          Marker(
+            markerId: MarkerId('runner_${d.id}'),
+            position: LatLng(lat, lng),
+            infoWindow: InfoWindow(
+              title: m['displayName'] ?? 'Corredor',
+              snippet: m['pace'] ?? '',
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+            onTap: () => _openRunnerSheet(m),
           ),
-          onTap: () => _openRunnerSheet(m),
         );
-      }).toSet();
+      }
 
       if (!mounted) return;
       setState(() {
-        _markers.removeWhere((m) => m.markerId.value.startsWith('nearby_'));
-        _markers.addAll(newMarkers);
+        _center = current;
+        _markers.clear();
+        _markers.addAll(markers);
+        _polylines.clear();
+        _polylines.addAll(polylines);
       });
-
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(here, 14));
-
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        SnackBar(content: Text('${nearby.length} corredor(es) próximo(s) encontrados')),
-      );
     } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao buscar próximos: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loadingLocation = false);
+      debugPrint("Erro ao carregar mapa: $e");
     }
   }
 
-
-  // 🔹 Seguir corredor (sempre usando rootContext)
-  Future<void> _followRunner(String targetUserId) async {
-    try {
-      final me = FirebaseAuth.instance.currentUser?.uid;
-      if (me == null || targetUserId.isEmpty) return;
-
-      final followsRef = FirebaseFirestore.instance.collection('follows');
-      final id = '${me}_$targetUserId';
-
-      // Verifica se já segue
-      final doc = await followsRef.doc(id).get();
-      if (doc.exists) {
-        // Já segue → pode cancelar se quiser
-        await followsRef.doc(id).delete();
-        ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-          const SnackBar(content: Text('Você deixou de seguir este corredor.')),
-        );
-        return;
-      }
-
-      // Cria registro de follow
-      await followsRef.doc(id).set({
-        'followerId': me,
-        'followingId': targetUserId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // Adiciona também em subcoleções (opcional, para consultas mais rápidas)
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(me)
-          .collection('following')
-          .doc(targetUserId)
-          .set({'timestamp': FieldValue.serverTimestamp()});
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(targetUserId)
-          .collection('followers')
-          .doc(me)
-          .set({'timestamp': FieldValue.serverTimestamp()});
-
-      // Fecha sheet antes de mostrar snackbar
-      if (mounted) Navigator.of(widget.rootContext).maybePop();
-
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        const SnackBar(content: Text('Agora você segue este corredor 🎉')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao seguir: $e')),
-      );
-    }
-  }
-
-
-  // 🔹 Enviar convite (sempre usando rootContext)
-  Future<void> _inviteToRun(String targetUserId) async {
-    try {
-      final me = FirebaseAuth.instance.currentUser?.uid;
-      if (me == null || targetUserId.isEmpty) return;
-
-      await widget.firestore.collection('invites').add({
-        'from': me,
-        'to': targetUserId,
-        'type': 'run_invite',
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      if (mounted) Navigator.of(widget.rootContext).maybePop();
-
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        const SnackBar(content: Text('Convite enviado ✅')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.rootContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao convidar: $e')),
-      );
-    }
-  }
-
-  // 🔹 Bottom sheet com perfil do corredor
   void _openRunnerSheet(Map<String, dynamic> runner) {
-    final String targetId = (runner['uid'] ?? runner['userId'] ?? '') as String? ?? '';
-    final Future<bool> followFuture = _isFollowingUser(targetId);
-
     showModalBottomSheet(
-      context: widget.rootContext,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true, // permite que o modal se ajuste à tela
-      builder: (sheetContext) {
-        bool isLoading = false;
-        bool isFollowingCached = false;
-
-        return SafeArea( // 🔹 evita corte pelos botões do Android
-          top: false,
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(sheetContext).viewInsets.bottom +
-                  MediaQuery.of(sheetContext).padding.bottom +
-                  12, // margem extra opcional
-            ),
-            child: _GlassContainer(
-              borderRadius: 22,
-              padding: const EdgeInsets.all(16),
-              child: StatefulBuilder(
-                builder: (context, setModalState) {
-                  return FutureBuilder<bool>(
-                    future: followFuture,
-                    builder: (context, snap) {
-                      final isFollowing = snap.data ?? false;
-                      if (snap.connectionState == ConnectionState.done) {
-                        isFollowingCached = isFollowing;
-                      }
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const CircleAvatar(child: Icon(Icons.person)),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  runner['displayName'] ?? runner['name'] ?? 'Usuário',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ),
-                              ElevatedButton.icon(
-                                onPressed: targetId.isEmpty || isLoading || snap.connectionState != ConnectionState.done
-                                    ? null
-                                    : () async {
-                                  setModalState(() => isLoading = true);
-                                  await _followRunner(targetId);
-                                  setModalState(() {
-                                    isFollowingCached = !isFollowingCached;
-                                    isLoading = false;
-                                  });
-                                },
-                                style: _primaryBtn,
-                                icon: isLoading
-                                    ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                                    : Icon(
-                                  isFollowingCached
-                                      ? Icons.check
-                                      : Icons.person_add_alt_1,
-                                  color: Colors.white,
-                                ),
-                                label: Text(
-                                  isFollowingCached ? 'Seguindo' : 'Seguir',
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(children: [
-                            const Icon(Icons.speed, color: Colors.white70, size: 18),
-                            const SizedBox(width: 6),
-                            Text('Ritmo: ${runner['pace'] ?? '--'}',
-                                style: const TextStyle(color: Colors.white70)),
-                          ]),
-                          const SizedBox(height: 6),
-                          Row(children: [
-                            const Icon(Icons.place, color: Colors.white70, size: 18),
-                            const SizedBox(width: 6),
-                            Text(runner['city'] ?? 'Local não informado',
-                                style: const TextStyle(color: Colors.white70)),
-                          ]),
-                          const SizedBox(height: 14),
-                          Row(children: [
-                            /*OutlinedButton.icon(
-                              onPressed: targetId.isEmpty
-                                  ? null
-                                  : () => _inviteToRun(targetId),
-                              style: _outlineBtn,
-                              icon: const Icon(Icons.chat_bubble_outline),
-                              label: const Text('Convidar p/ correr'),
-                            ),
-                            const SizedBox(width: 10),*/
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                if (targetId.isEmpty) return;
-                                Navigator.of(context).push(
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) =>
-                                        ProfilePage(userId: targetId),
-                                    transitionsBuilder:
-                                        (context, animation, secondaryAnimation, child) {
-                                      final curved = CurvedAnimation(
-                                          parent: animation, curve: Curves.easeInOut);
-                                      return FadeTransition(
-                                          opacity: curved, child: child);
-                                    },
-                                  ),
-                                );
-                              },
-                              style: _outlineBtn,
-                              icon: const Icon(Icons.info_outline),
-                              label: const Text('Ver perfil'),
-                            ),
-                          ]),
-                        ],
-                      );
-                    },
-                  );
-                },
+      context: context,
+      backgroundColor: Colors.white,
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const CircleAvatar(
+                    backgroundColor: Colors.black12,
+                    child: Icon(Icons.person, color: Colors.black87),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      runner['displayName'] ?? 'Corredor',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.black54),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
               ),
-            ),
+              const SizedBox(height: 12),
+              Text(
+                'Ritmo: ${runner['pace'] ?? '--'}',
+                style: const TextStyle(color: Colors.black87),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Cidade: ${runner['city'] ?? '---'}',
+                style: const TextStyle(color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final targetUserId =
+                        (runner['uid'] ?? runner['userId'] ?? '') as String? ?? '';
+                    if (targetUserId.isEmpty) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfilePage(userId: targetUserId),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Ver perfil'),
+                ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
+  Future<void> _centerOnUser() async {
+    try {
+      setState(() => _loadingLocation = true);
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final here = LatLng(pos.latitude, pos.longitude);
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(here, 14));
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível obter sua localização')),
+      );
+    } finally {
+      setState(() => _loadingLocation = false);
+    }
+  }
 
-  // 🔹 UI principal
   @override
   Widget build(BuildContext context) {
-    return Stack(children: [
-      GoogleMap(
-        initialCameraPosition: CameraPosition(target: _center, zoom: 13.2),
-        onMapCreated: (c) => _mapController = c,
-        markers: _markers,
-        polylines: _polylines,
-        myLocationEnabled: true,
-        myLocationButtonEnabled: false,
-        compassEnabled: false,
-        zoomControlsEnabled: false,
-        mapToolbarEnabled: false,
-      ),
-      Positioned(
-        right: 16,
-        bottom: 16,
-        child: Column(children: [
-          FloatingActionButton(
-            heroTag: 'center_on_me',
-            backgroundColor: const Color(0xFF007AFF),
-            onPressed: _loadingLocation ? null : _centerOnUser,
-            child: _loadingLocation
-                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.my_location, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'find_nearby',
-            backgroundColor: const Color(0xFF3DA648),
-            onPressed: _findNearbyRunners,
-            icon: const Icon(Icons.radar),
-            label: const Text('Encontrar próximos'),
-          ),
-        ]),
-      ),
-      /*Positioned(
-        left: 16,
-        right: 16,
-        top: 12,
-        child: _GlassContainer(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(children: const [
-            Icon(Icons.route, color: Colors.white70),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Rotas sugeridas: Orla da Barra, Bosque da Barra',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ),
-          ]),
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(target: _center, zoom: 13.2),
+          onMapCreated: (c) => _mapController = c,
+          markers: _markers,
+          polylines: _polylines,
+          myLocationEnabled: true,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
         ),
-      ),*/
-    ]);
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: Column(
+            children: [
+              FloatingActionButton(
+                heroTag: 'center_on_me',
+                backgroundColor: Colors.black,
+                onPressed: _loadingLocation ? null : _centerOnUser,
+                child: _loadingLocation
+                    ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.my_location, color: Colors.white),
+              ),
+              const SizedBox(height: 10),
+              FloatingActionButton.extended(
+                heroTag: 'reload',
+                backgroundColor: const Color(0xFFFF6D00),
+                onPressed: _loadRunnersAndRoutes,
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                label: const Text(
+                  'Atualizar',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
 // =============================================================
-// 🏆 ABA DE DESAFIOS — RANKINGS (Global / Semanal / Amigos)
+// 3️⃣ ABA "RANKING / DESAFIOS" — Rankings globais e de amigos
 // =============================================================
 class _ChallengesTab extends StatefulWidget {
   final FirebaseFirestore firestore;
@@ -1085,26 +699,18 @@ class _ChallengesTabState extends State<_ChallengesTab> {
   }
 
   Future<void> _loadRanking() async {
-    setState(() {
-      _loading = true;
-      _userPosition = null;
-    });
+    setState(() => _loading = true);
 
     try {
       Query query;
 
-      // 📆 Ranking semanal → filtra pela semana atual
       if (_rankingType == 'weekly') {
         final now = DateTime.now();
-        final weekStart =
-        DateTime(now.year, now.month, now.day - (now.weekday - 1));
+        final weekStart = DateTime(now.year, now.month, now.day - (now.weekday - 1));
         query = widget.firestore
             .collection('leaderboard_weekly')
             .where('weekStart', isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart));
-      }
-
-      // 👥 Ranking de amigos → só quem o usuário segue + ele mesmo
-      else if (_rankingType == 'friends') {
+      } else if (_rankingType == 'friends') {
         final me = widget.auth.currentUser?.uid;
         final followsSnap = await widget.firestore
             .collection('users')
@@ -1114,37 +720,28 @@ class _ChallengesTabState extends State<_ChallengesTab> {
 
         final friendIds = followsSnap.docs.map((d) => d.id).toList();
         friendIds.add(me ?? '');
-
         query = widget.firestore
             .collection('leaderboard_global')
             .where('userId', whereIn: friendIds.isEmpty ? ['dummy'] : friendIds);
-      }
-
-      // 🌍 Ranking global (padrão)
-      else {
+      } else {
         query = widget.firestore.collection('leaderboard_global');
       }
 
       query = query.orderBy(_metric, descending: true).limit(50);
-
       final snap = await query.get();
       final docs = snap.docs;
       final me = widget.auth.currentUser?.uid;
-
-      // 🏁 Calcula posição atual
       final index = docs.indexWhere((d) => (d.data() as Map)['userId'] == me);
       final pos = index != -1 ? index + 1 : null;
 
-      if (mounted) {
-        setState(() {
-          _docs = docs;
-          _userPosition = pos;
-        });
-      }
+      setState(() {
+        _docs = docs;
+        _userPosition = pos;
+      });
     } catch (e) {
       debugPrint('Erro ao carregar ranking: $e');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      setState(() => _loading = false);
     }
   }
 
@@ -1160,124 +757,97 @@ class _ChallengesTabState extends State<_ChallengesTab> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      children: [
-        const _SectionTitle('🏆 Rankings'),
-        const SizedBox(height: 10),
+    return Container(
+      color: Colors.white,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        children: [
+          const Text(
+            '🏆 Rankings',
+            style: TextStyle(
+              color: Colors.black,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
 
-        // 🎛️ Alternadores principais
-        _GlassContainer(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          child: Column(
+          // 🔘 Seletores
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // 🌍 GLOBAL / 🗓️ SEMANAL / 👥 AMIGOS
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _ToggleChip(
-                    label: '🌍 Global',
-                    active: _rankingType == 'global',
-                    onTap: () => _changeRanking('global'),
-                  ),
-                  _ToggleChip(
-                    label: '🗓️ Semanal',
-                    active: _rankingType == 'weekly',
-                    onTap: () => _changeRanking('weekly'),
-                  ),
-                  _ToggleChip(
-                    label: '👥 Amigos',
-                    active: _rankingType == 'friends',
-                    onTap: () => _changeRanking('friends'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // ⚡ XP / 🏃 KM
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _ToggleChip(
-                    label: '⚡ XP',
-                    active: _metric == 'xp',
-                    onTap: () => _changeMetric('xp'),
-                  ),
-                  const SizedBox(width: 8),
-                  _ToggleChip(
-                    label: '🏃 KM',
-                    active: _metric == 'km',
-                    onTap: () => _changeMetric('km'),
-                  ),
-                ],
-              ),
+              _ToggleChip(label: '🌍 Global', active: _rankingType == 'global', onTap: () => _changeRanking('global')),
+              _ToggleChip(label: '🗓️ Semanal', active: _rankingType == 'weekly', onTap: () => _changeRanking('weekly')),
+              _ToggleChip(label: '👥 Amigos', active: _rankingType == 'friends', onTap: () => _changeRanking('friends')),
             ],
           ),
-        ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _ToggleChip(label: '⚡ XP', active: _metric == 'xp', onTap: () => _changeMetric('xp')),
+              const SizedBox(width: 8),
+              _ToggleChip(label: '🏃 KM', active: _metric == 'km', onTap: () => _changeMetric('km')),
+            ],
+          ),
 
-        const SizedBox(height: 20),
+          const SizedBox(height: 20),
 
-        _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _docs.isEmpty
-            ? const _EmptyState(text: 'Nenhum dado encontrado neste ranking.')
-            : Column(
-          children: [
-            _GlassContainer(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                children: [
-                  for (int i = 0; i < _docs.length; i++)
-                    _LeaderTile(
-                      position: i + 1,
-                      name: (_docs[i].data() as Map<String, dynamic>)['displayName'] ??
-                          'Runner',
-                      value: _metric == 'xp'
-                          ? '${(_docs[i].data() as Map<String, dynamic>)['xp'] ?? 0} XP'
-                          : '${((_docs[i].data() as Map<String, dynamic>)['km'] ?? 0).toStringAsFixed(2)} km',
-                    ),
-                ],
+          _loading
+              ? const Center(child: CircularProgressIndicator(color: Colors.black))
+              : _docs.isEmpty
+              ? const Padding(
+            padding: EdgeInsets.all(20),
+            child: Center(
+              child: Text(
+                'Nenhum dado encontrado neste ranking.',
+                style: TextStyle(color: Colors.black54),
               ),
             ),
-            const SizedBox(height: 14),
-
-            // 🏁 Posição atual
-            if (_userPosition != null)
-              _GlassContainer(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          )
+              : Column(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
                   children: [
-                    Text(
-                      '🏁 Você está em ',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w400,
+                    for (int i = 0; i < _docs.length; i++)
+                      _LeaderTile(
+                        position: i + 1,
+                        name: (_docs[i].data() as Map<String, dynamic>)['displayName'] ?? 'Runner',
+                        value: _metric == 'xp'
+                            ? '${(_docs[i].data() as Map<String, dynamic>)['xp'] ?? 0} XP'
+                            : '${((_docs[i].data() as Map<String, dynamic>)['km'] ?? 0).toStringAsFixed(2)} km',
                       ),
-                    ),
-                    Text(
-                      '$_userPositionº lugar',
-                      style: const TextStyle(
-                        color: Colors.amber,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      _rankingType == 'weekly'
-                          ? ' nesta semana!'
-                          : _rankingType == 'friends'
-                          ? ' entre seus amigos!'
-                          : ' no global!',
-                      style: const TextStyle(color: Colors.white70),
-                    ),
                   ],
                 ),
               ),
-          ],
-        ),
-      ],
+              const SizedBox(height: 20),
+              if (_userPosition != null)
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6D00).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '🏁 Você está em $_userPositionº lugar ${_rankingType == 'weekly' ? 'nesta semana!' : _rankingType == 'friends' ? 'entre seus amigos!' : 'no global!'}',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1296,745 +866,18 @@ class _ToggleChip extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          gradient: active
-              ? const LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          )
-              : null,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? Colors.transparent : Colors.white24,
-            width: 1.2,
-          ),
-          color: active ? null : Colors.black.withOpacity(0.2),
+          color: active ? const Color(0xFFFF6D00) : Colors.grey[200],
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: Colors.white,
-            fontWeight: active ? FontWeight.bold : FontWeight.w400,
+            color: active ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
     );
-  }
-}
-
-
-
-
-
-
-// =============================================================
-// 4) CHATS — Salas e mensagens em tempo real
-// =============================================================
-class _ChatsTab extends StatelessWidget {
-  final FirebaseFirestore firestore;
-  final FirebaseAuth auth;
-  const _ChatsTab({required this.firestore, required this.auth});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-      children: [
-        _SectionTitle('Salas disponíveis'),
-        const SizedBox(height: 8),
-        _GlassContainer(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: firestore.collection('chatRooms').orderBy('updatedAt', descending: true).snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()));
-              }
-              final rooms = snapshot.data!.docs;
-              if (rooms.isEmpty) return const _EmptyState(text: 'Nenhuma sala ainda.');
-
-              return Column(children: [
-                for (final r in rooms)
-                  _ChatRoomTile(
-                    title: (r.data() as Map<String, dynamic>)['name'] ?? 'Chat',
-                    members: ((r.data() as Map<String, dynamic>)['members'] as List?)?.length ?? 0,
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => ChatRoomPage(
-                          roomId: r.id,
-                          firestore: firestore,
-                          auth: auth,
-                        ),
-                      ));
-                    },
-                  ),
-              ]);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class ChatRoomPage extends StatefulWidget {
-  final String roomId;
-  final FirebaseFirestore firestore;
-  final FirebaseAuth auth;
-  const ChatRoomPage({required this.roomId, required this.firestore, required this.auth});
-
-  @override
-  State<ChatRoomPage> createState() => _ChatRoomPageState();
-}
-
-class _ChatRoomPageState extends State<ChatRoomPage> {
-  final TextEditingController _controller = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(title: const Text('Chat'), backgroundColor: Colors.transparent, elevation: 0),
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: widget.firestore
-                  .collection('chatRooms')
-                  .doc(widget.roomId)
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                final messages = snapshot.data!.docs;
-                return ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.all(12),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final m = messages[index].data() as Map<String, dynamic>;
-                    final isMe = m['userId'] == widget.auth.currentUser?.uid;
-                    return Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: _GlassContainer(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          color: isMe ? Colors.blue.withOpacity(0.16) : null,
-                          child: Column(
-                            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                            children: [
-                              Text(m['author'] ?? (isMe ? 'Você' : '—'),
-                                  style: const TextStyle(fontSize: 12, color: Colors.white54)),
-                              const SizedBox(height: 4),
-                              Text(m['text'] ?? '', style: const TextStyle(color: Colors.white)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-              child: Row(children: [
-                Expanded(
-                  child: _GlassContainer(
-                    child: TextField(
-                      controller: _controller,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'Escreva uma mensagem…',
-                        hintStyle: TextStyle(color: Colors.white54),
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _sendMessage,
-                  style: _primaryBtn,
-                  child: const Icon(Icons.send),
-                )
-              ]),
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Future<void> _sendMessage() async {
-    final txt = _controller.text.trim();
-    if (txt.isEmpty) return;
-    final user = widget.auth.currentUser;
-    await widget.firestore
-        .collection('chatRooms')
-        .doc(widget.roomId)
-        .collection('messages')
-        .add({
-      'text': txt,
-      'author': user?.displayName ?? 'Você',
-      'userId': user?.uid,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    await widget.firestore.collection('chatRooms').doc(widget.roomId).update({
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    _controller.clear();
-  }
-}
-
-// =============================================================
-// FAB — Convites (link, QR, criar grupo/desafio)
-// =============================================================
-/*class _InviteFab extends StatelessWidget {
-  const _InviteFab();
-
-  @override
-  Widget build(BuildContext context) {
-    return FloatingActionButton.extended(
-      backgroundColor: const Color(0xFF007AFF),
-      onPressed: () {
-        showModalBottomSheet(
-          context: context,
-          backgroundColor: Colors.transparent,
-          isScrollControlled: true, // 🔹 permite o ajuste total de altura
-          builder: (sheetContext) {
-            return SafeArea(
-              top: false, // só protege a parte inferior
-              child: Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom +
-                      MediaQuery.of(sheetContext).padding.bottom +
-                      12, // 🔹 evita sobreposição com a barra de navegação
-                ),
-                child: _GlassContainer(
-                  borderRadius: 24,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Convidar para correr',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _InviteBtn(
-                            icon: Icons.share,
-                            label: 'Compartilhar link',
-                            onTap: () {},
-                          ),
-                          _InviteBtn(
-                            icon: Icons.qr_code,
-                            label: 'Gerar QR Code',
-                            onTap: () {},
-                          ),
-                          _InviteBtn(
-                            icon: Icons.group_add,
-                            label: 'Criar grupo',
-                            onTap: () {},
-                          ),
-                          _InviteBtn(
-                            icon: Icons.emoji_events_outlined,
-                            label: 'Criar desafio',
-                            onTap: () {},
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-      icon: const Icon(Icons.person_add_alt_1),
-      label: const Text('Convidar'),
-    );
-  }
-}*/
-
-class _InviteBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _InviteBtn({required this.icon, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: _GlassContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white70),
-            const SizedBox(width: 8),
-            Text(label, style: const TextStyle(color: Colors.white)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================
-// WIDGETS BÁSICOS / VISUAIS
-// =============================================================
-class _NeonTitle extends StatelessWidget {
-  final String text;
-  const _NeonTitle({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ).createShader(bounds),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.5,
-          color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchBar extends StatefulWidget {
-  final ValueChanged<String>? onChanged;
-  const _SearchBar({this.onChanged});
-
-  @override
-  State<_SearchBar> createState() => _SearchBarState();
-}
-
-class _SearchBarState extends State<_SearchBar> {
-  final _controller = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: _GlassContainer(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            const Icon(Icons.search, color: Colors.white70),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                onChanged: widget.onChanged,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: 'Digite @ + o usuário que deseja encontrar...',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-            IconButton(
-              onPressed: () {
-                _controller.clear();
-                widget.onChanged?.call('');
-              },
-              icon: const Icon(Icons.close, color: Colors.white54),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HorizontalChips extends StatelessWidget {
-  final List<String> items;
-  final String selected;
-  final ValueChanged<String> onSelected;
-  const _HorizontalChips({required this.items, required this.selected, required this.onSelected});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        itemBuilder: (_, i) {
-          final item = items[i];
-          final active = item == selected;
-          return ChoiceChip(
-            selected: active,
-            label: Text(item),
-            labelStyle: TextStyle(
-              color: active ? Colors.white : Colors.black,
-              fontWeight: FontWeight.w600,
-            ),
-            backgroundColor: Colors.black.withOpacity(0.06),
-            selectedColor: const Color(0xFF4A90E2).withOpacity(0.6),
-            onSelected: (_) => onSelected(item),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: items.length,
-      ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String text;
-  const _SectionTitle(this.text);
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4.0, bottom: 4),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 16,
-          letterSpacing: .3,
-        ),
-      ),
-    );
-  }
-}
-
-class _GroupCard extends StatelessWidget {
-  final String name;
-  final int members;
-  final String tag;
-  final VoidCallback onJoin;
-  const _GroupCard({required this.name, required this.members, required this.tag, required this.onJoin});
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassContainer(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          const CircleAvatar(radius: 24, child: Icon(Icons.group)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                Text('$members membros • $tag', style: const TextStyle(color: Colors.white70)),
-              ],
-            ),
-          ),
-          ElevatedButton.icon(
-            onPressed: onJoin,
-            style: _primaryBtn,
-            icon: const Icon(Icons.how_to_reg),
-            label: const Text('Entrar'),
-          )
-        ],
-      ),
-    );
-  }
-}
-
-class _RunnerCard extends StatefulWidget {
-  final String name;
-  final String pace;
-  final String username;
-  final String city;
-  final String userId;
-  final FirebaseFirestore firestore;
-  final FirebaseAuth auth;
-  final BuildContext messengerContext;
-  final VoidCallback onInvite;
-
-  const _RunnerCard({
-    required this.name,
-    required this.pace,
-    required this.username,
-    required this.city,
-    required this.userId,
-    required this.firestore,
-    required this.auth,
-    required this.messengerContext,
-    required this.onInvite,
-    Key? key,
-  }) : super(key: key);
-
-  @override
-  State<_RunnerCard> createState() => _RunnerCardState();
-}
-
-class _RunnerCardState extends State<_RunnerCard> {
-  bool _isFollowing = false;
-  bool _loading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkIfFollowing();
-
-  }
-
-  Future<void> _checkIfFollowing() async {
-    final me = widget.auth.currentUser?.uid;
-    if (me == null) return;
-
-    final doc = await widget.firestore
-        .collection('follows')
-        .doc('${me}_${widget.userId}')
-        .get();
-
-    if (mounted) {
-      setState(() => _isFollowing = doc.exists);
-    }
-  }
-
-  Future<void> _toggleFollow() async {
-    final me = widget.auth.currentUser?.uid;
-    if (me == null || widget.userId.isEmpty) return;
-
-    setState(() => _loading = true);
-    try {
-      final followsRef = widget.firestore.collection('follows');
-      final followId = '${me}_${widget.userId}';
-      final doc = await followsRef.doc(followId).get();
-
-      if (doc.exists) {
-        // 👇 já segue → desfaz follow
-        await followsRef.doc(followId).delete();
-        await widget.firestore
-            .collection('users')
-            .doc(me)
-            .collection('following')
-            .doc(widget.userId)
-            .delete();
-        await widget.firestore
-            .collection('users')
-            .doc(widget.userId)
-            .collection('followers')
-            .doc(me)
-            .delete();
-
-        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
-          const SnackBar(content: Text('Você deixou de seguir este corredor.')),
-        );
-        setState(() => _isFollowing = false);
-      } else {
-        // 👇 cria novo follow
-        await followsRef.doc(followId).set({
-          'followerId': me,
-          'followingId': widget.userId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        await widget.firestore
-            .collection('users')
-            .doc(me)
-            .collection('following')
-            .doc(widget.userId)
-            .set({'timestamp': FieldValue.serverTimestamp()});
-        await widget.firestore
-            .collection('users')
-            .doc(widget.userId)
-            .collection('followers')
-            .doc(me)
-            .set({'timestamp': FieldValue.serverTimestamp()});
-
-        ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
-          const SnackBar(content: Text('Agora você segue este corredor 🎉')),
-        );
-        setState(() => _isFollowing = true);
-      }
-    } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.messengerContext)?.showSnackBar(
-        SnackBar(content: Text('Erro ao seguir: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 250, // 🔹 largura ajustada para caber os botões
-      child: _GlassContainer(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(children: [
-              const CircleAvatar(child: Icon(Icons.person)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.name,
-                        style: const TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
-                    Text(widget.city,
-                        style: const TextStyle(color: Colors.white54)),
-                  ],
-                ),
-              ),
-            ]),
-            const SizedBox(height: 8),
-            Row(children: [
-              const Icon(Icons.speed, color: Colors.white70, size: 18),
-              const SizedBox(width: 6),
-              Text('Ritmo: ${widget.pace}',
-                  style: const TextStyle(color: Colors.white70)),
-            ]),
-            Row(children: [
-              const Icon(Icons.account_circle, color: Colors.white70, size: 18),
-              const SizedBox(width: 6),
-              Text('@: ${widget.username}',
-                  style: const TextStyle(color: Colors.white70)),
-            ]),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _loading ? null : _toggleFollow,
-                  style: _outlineBtn,
-                  icon: _loading
-                      ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
-                      : Icon(
-                    _isFollowing
-                        ? Icons.check
-                        : Icons.person_add_alt_1,
-                    color: Colors.white,
-                  ),
-                  label: Text(
-                    _isFollowing ? 'Seguindo' : 'Seguir',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              /*Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: widget.onInvite,
-                  style: _outlineBtn,
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  label: const Text('Convidar'),
-                ),
-              ),*/
-            ]),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-class _TopicTile extends StatelessWidget {
-  final String title;
-  final int members;
-  const _TopicTile({required this.title, required this.members});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.forum, color: Colors.white70),
-      title: Text(title, style: const TextStyle(color: Colors.white)),
-      subtitle: Text('$members membros', style: const TextStyle(color: Colors.white54)),
-      trailing: ElevatedButton(onPressed: () {}, style: _primaryBtn, child: const Text('Entrar')),
-    );
-  }
-}
-
-class _TeamBattleCard extends StatelessWidget {
-  final String title;
-  final String goal;
-  final double blueProgress;
-  final double redProgress;
-  final VoidCallback onJoinBlue;
-  final VoidCallback onCreateChallenge;
-  const _TeamBattleCard({
-    required this.title,
-    required this.goal,
-    required this.blueProgress,
-    required this.redProgress,
-    required this.onJoinBlue,
-    required this.onCreateChallenge,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassContainer(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 4),
-        Text(goal, style: const TextStyle(color: Colors.white70)),
-        const SizedBox(height: 12),
-        _progress('Equipe Azul', blueProgress, const Color(0xFF4A90E2)),
-        const SizedBox(height: 10),
-        _progress('Equipe Vermelha', redProgress, const Color(0xFFFF4D4F)),
-        const SizedBox(height: 12),
-        Row(children: [
-          ElevatedButton.icon(onPressed: onJoinBlue, style: _primaryBtn, icon: const Icon(Icons.group_add), label: const Text('Entrar na Equipe Azul')),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(onPressed: onCreateChallenge, style: _outlineBtn, icon: const Icon(Icons.flag_outlined), label: const Text('Criar desafio')),
-        ])
-      ]),
-    );
-  }
-
-  Widget _progress(String label, double value, Color color) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
-        Text('${(value * 100).toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white70)),
-      ]),
-      const SizedBox(height: 6),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: LinearProgressIndicator(
-          minHeight: 10,
-          value: value,
-          backgroundColor: Colors.white.withOpacity(0.08),
-          valueColor: AlwaysStoppedAnimation<Color>(color),
-        ),
-      )
-    ]);
   }
 }
 
@@ -2047,150 +890,23 @@ class _LeaderTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: CircleAvatar(backgroundColor: Colors.white10, child: Text('$position', style: const TextStyle(color: Colors.white))),
-      title: Text(name, style: const TextStyle(color: Colors.white)),
-      trailing: Text(value, style: const TextStyle(color: Colors.white70)),
-    );
-  }
-}
-
-class _RewardBadge extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _RewardBadge({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return _GlassContainer(
-      padding: const EdgeInsets.all(10),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, color: Colors.white),
-        const SizedBox(height: 6),
-        Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-      ]),
-    );
-  }
-}
-
-class _AchievementTile extends StatelessWidget {
-  final String user;
-  final String text;
-  const _AchievementTile({required this.user, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const CircleAvatar(child: Icon(Icons.person)),
-      title: Text(user, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-      subtitle: Text(text, style: const TextStyle(color: Colors.white)),
-    );
-  }
-}
-
-class _ChatRoomTile extends StatelessWidget {
-  final String title;
-  final int members;
-  final VoidCallback onTap;
-  const _ChatRoomTile({required this.title, required this.members, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      leading: const Icon(Icons.forum, color: Colors.white70),
-      title: Text(title, style: const TextStyle(color: Colors.white)),
-      subtitle: Text('$members membros', style: const TextStyle(color: Colors.white54)),
-      trailing: const Icon(Icons.chevron_right, color: Colors.white54),
-    );
-  }
-}
-
-// =============================================================
-// STYLE HELPERS (botões e glass)
-// =============================================================
-final ButtonStyle _primaryBtn = ElevatedButton.styleFrom(
-  backgroundColor: const Color(0xFF007AFF),
-  foregroundColor: Colors.white,
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-);
-
-final ButtonStyle _outlineBtn = OutlinedButton.styleFrom(
-  foregroundColor: Colors.white,
-  side: BorderSide(color: Colors.white.withOpacity(0.25)),
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-);
-
-class _GlassContainer extends StatelessWidget {
-  final Widget child;
-  final EdgeInsetsGeometry? padding;
-  final double? blur;
-  final double? opacity;
-  final double borderRadius;
-  final Color? color;
-  const _GlassContainer({
-    required this.child,
-    this.padding,
-    this.blur,
-    this.opacity,
-    this.borderRadius = 16,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final b = blur ?? 16.0;
-    final o = opacity ?? 0.12;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: b, sigmaY: b),
-        child: Container(
-          padding: padding ?? const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: (color ?? Colors.black.withOpacity(o)),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: Colors.white.withOpacity(0.16)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF4A90E2).withOpacity(0.08),
-                blurRadius: 16,
-                spreadRadius: 1,
-                offset: const Offset(0, 6),
-              )
-            ],
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================
-// ESTADO VAZIO (mensagem genérica)
-// =============================================================
-class _EmptyState extends StatelessWidget {
-  final String text;
-  const _EmptyState({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Center(
+      leading: CircleAvatar(
+        backgroundColor: Colors.grey[300],
         child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white54,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
+          '$position',
+          style: const TextStyle(color: Colors.black),
         ),
+      ),
+      title: Text(
+        name,
+        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w600),
+      ),
+      trailing: Text(
+        value,
+        style: const TextStyle(color: Colors.black54),
       ),
     );
   }
 }
 
 
-// =============================== END ===============================
