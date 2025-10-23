@@ -13,6 +13,7 @@ import 'package:run_walk_app/complete_profile_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
 import 'package:run_walk_app/widgets/main_scaffold.dart';
 import 'package:run_walk_app/auth_gate.dart';
+import 'package:run_walk_app/splash_page.dart';
 
 // Serviço de gamificação
 import 'package:run_walk_app/service/service/gamification_service.dart';
@@ -69,7 +70,7 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Colors.grey[100],
       ),
-      home: const AuthGate(),
+      home: const SplashPage(), // ⬅️ começa pelo vídeo
       routes: {
         '/main': (context) => const MainScaffold(),
         '/complete_profile': (context) => const CompleteProfilePage(),
@@ -80,6 +81,7 @@ class _MyAppState extends State<MyApp> {
         '/perfil': (context) => const ProfilePage(),
       },
     );
+
   }
 }
 

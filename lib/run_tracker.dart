@@ -13,6 +13,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'service/background_service.dart';
 
 import 'widgets/main_scaffold.dart';
 
@@ -313,11 +315,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     // senão, centraliza na última posição conhecida.
     final target = _currentPosition;
 
+    if (_googleMapController != null && mounted) {
     await _googleMapController!.animateCamera(
       CameraUpdate.newCameraPosition(
         CameraPosition(target: target, zoom: 17),
       ),
     );
+    }
 
     // Pequeno feedback tátil
     HapticFeedback.lightImpact();
@@ -394,7 +398,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void initState() {
-    _initLocationFlow();
+    _checkLocationPermissionAndSetInitialLocation();
 
     super.initState();
 
@@ -434,7 +438,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Future<void> _initLocationFlow() async {
     await _checkLocationPermissionAndSetInitialLocation();
-    await _startLocationTracking(); // atualiza posição mesmo sem iniciar corrida
   }
 
   Future<void> _checkLocationPermissionAndSetInitialLocation() async {
@@ -667,6 +670,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     }
 
+    await initializeService();
+    final service = FlutterBackgroundService();
+    await service.startService();
+
     _positions.clear();
     _polylines.clear();
     _totalDistance = 0;
@@ -893,6 +900,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _stopRun() async {
+    final service = FlutterBackgroundService();
+    service.invoke('stopService');
     _timer?.cancel();
     _stopwatch.stop();
     // _stopPulseEffect();
@@ -964,9 +973,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         if (!isWearOS && _followUser) {
           _isProgrammaticCameraMove = true;
-          _googleMapController?.animateCamera(
-            CameraUpdate.newLatLng(_currentPosition),
-          );
+          if (mounted && _googleMapController != null) {
+            try {
+              _googleMapController!.animateCamera(
+                CameraUpdate.newLatLng(_currentPosition),
+              );
+            } catch (e) {
+              debugPrint("Erro ao animar câmera: $e");
+            }
+          }
           Future.delayed(const Duration(milliseconds: 300), () {
             _isProgrammaticCameraMove = false;
           });
@@ -1460,6 +1475,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               _googleMapController = controller;
               _mapReady = true;
               await _updateMarker();
+              await _startLocationTracking();
               final style = await rootBundle.loadString('assets/map_style/white_map.json');
               _googleMapController?.setMapStyle(style);
             },
