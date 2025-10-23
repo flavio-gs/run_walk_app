@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "423107963134-qb7dmp0oessatvf3c7lfkvgnud7jrbs2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.run_walk_app",
+            "certificate_hash": "f9a63fcffe586535152d4de8b65c8e7b6c9efa3a"
+          }
+        },
+        {
           "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -45,6 +53,5 @@
   ],
   "configuration_version": "1"
 }
-
 
 
