@@ -8,6 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'model/run_model.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
+
+
 
 class DetalheCorridaPage extends StatefulWidget {
   final RunModel corrida;
@@ -19,30 +23,15 @@ class DetalheCorridaPage extends StatefulWidget {
 
 class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
   final List<String> backgrounds = [
-    // 🏃 Mulher correndo ao nascer do sol
-    'https://images.unsplash.com/photo-1599058917212-d750089bc07d?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🌅 Homem correndo em estrada ao pôr do sol
     'https://images.unsplash.com/photo-1508609349937-5ec4ae374ebf?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🌇 Corrida urbana noturna
-    'https://images.unsplash.com/photo-1579758629939-037fdd6b2a12?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🌄 Trilha em montanha (natureza)
     'https://images.unsplash.com/photo-1505678261036-a3fcc5e884ee?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🛣️ Estrada reta (minimalista)
     'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🏙️ Skyline urbano ao entardecer
     'https://images.unsplash.com/photo-1605296867304-46d5465a13f1?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🌌 Corrida noturna com iluminação azul
-    'https://images.unsplash.com/photo-1571019613918-721f80be263d?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
-
-    // 🌳 Pista arborizada (verde e natural)
-    'https://images.unsplash.com/photo-1558981359-219d6364c9c8?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
   ];
+
+  VideoPlayerController? _videoController;
+  bool isVideo = false;
+
 
   late String selectedBackground;
   bool sharing = false;
@@ -95,66 +84,202 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
 
-    // 🔹 Fundo
-    final imageData = (await NetworkAssetBundle(Uri.parse(backgroundUrl)).load(""))
-        .buffer
-        .asUint8List();
-    final codec = await ui.instantiateImageCodec(imageData, targetWidth: width, targetHeight: height);
-    final frame = await codec.getNextFrame();
-    canvas.drawImage(frame.image, Offset.zero, Paint());
+    // 🖼️ Fundo (detecta URL ou arquivo local)
+    ui.Image bgImage;
+    if (backgroundUrl.startsWith('http')) {
+      final imageData =
+      (await NetworkAssetBundle(Uri.parse(backgroundUrl)).load("")).buffer.asUint8List();
+      final codec =
+      await ui.instantiateImageCodec(imageData, targetWidth: width, targetHeight: height);
+      final frame = await codec.getNextFrame();
+      bgImage = frame.image;
+    } else {
+      final fileData = await File(backgroundUrl).readAsBytes();
+      final codec =
+      await ui.instantiateImageCodec(fileData, targetWidth: width, targetHeight: height);
+      final frame = await codec.getNextFrame();
+      bgImage = frame.image;
+    }
+    canvas.drawImage(bgImage, Offset.zero, Paint());
 
-    // 🔹 Escurece o fundo
-    canvas.drawRect(Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
-        Paint()..color = Colors.black.withOpacity(0.35));
+    // 🌫️ Fundo branco translúcido na parte inferior (mesmo do preview)
+    final overlayRect = Rect.fromLTWH(0, height - 450, width.toDouble(), 450);
+    canvas.drawRect(
+      overlayRect,
+      Paint()..color = const Color(0xFFFFFFFF).withOpacity(0.40),
+    );
 
-    // 🔹 Texto helper
-    void drawText(String text, double size, Offset offset,
-        {FontWeight weight = FontWeight.w600, TextAlign align = TextAlign.left}) {
+
+    // ✍️ Helper para texto
+    void drawText(
+        String text,
+        double size,
+        Offset offset, {
+          FontWeight weight = FontWeight.w600,
+          Color color = Colors.black,
+        }) {
       final tp = TextPainter(
         text: TextSpan(
-            text: text,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: size,
-              fontWeight: weight,
-              fontFamily: 'Poppins',
-            )),
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontSize: size,
+            fontWeight: weight,
+            fontFamily: 'Poppins',
+          ),
+        ),
         textDirection: TextDirection.ltr,
-        textAlign: align,
-      )..layout(maxWidth: width - 120);
+      )..layout();
       tp.paint(canvas, offset);
     }
 
-    // 🔹 Cabeçalho
-    drawText("RUNNER", 46, const Offset(60, 100), weight: FontWeight.bold);
-    drawText("CORRIDA", 30, const Offset(60, 180), weight: FontWeight.w700);
+    // 🧩 Carrega logo Runner branca (local asset)
+    final logoData = await rootBundle.load('assets/icon/logo_principal.png');
+    final logoCodec = await ui.instantiateImageCodec(logoData.buffer.asUint8List(),
+        targetWidth: 280); // tamanho ajustado
+    final logoFrame = await logoCodec.getNextFrame();
+    final logo = logoFrame.image;
 
-    // 🔹 Dados
+    // 🏁 Cabeçalho (logo no topo direito)
+    final logoOffset = Offset(width - 350, 120);
+    canvas.drawImage(logo, logoOffset, Paint());
+
+    // 🔹 Título principal
+    drawText("CORRIDA", 58, Offset(60, height - 400),
+        weight: FontWeight.w700, color: Colors.deepOrange);
+
+    // 🔹 Cálculos
     final dist = "${(corrida.distance / 1000).toStringAsFixed(2)} km";
     final duracao = _formatDuration(corrida.duration);
-    final calorias = "${((corrida.distance / 1000) * 60).toStringAsFixed(0)} kcal";
+    final ritmo = _calcularRitmo(corrida.distance, corrida.duration);
 
-    drawText(dist, 70, const Offset(60, 260), weight: FontWeight.bold);
-    drawText("Duração  $duracao", 34, const Offset(60, 400));
-    drawText("Calorias  $calorias", 34, const Offset(60, 460));
+    final colY = height - 280.0;
+    final labelColor = Colors.deepOrange;
 
-    // 🔹 Mini mapa (pequeno canto inferior direito)
-    final routeRect = story
-        ? Rect.fromLTWH(width - 250, height - 350, 180, 180)
-        : Rect.fromLTWH(width - 250, height - 250, 180, 180);
-    _drawRoute(canvas, corrida.route, routeRect, color: const Color(0xFFFF6D00));
+    // 📊 Colunas de dados
+    drawText(dist, 50, Offset(60, colY), weight: FontWeight.bold);
+    drawText("Distância", 28, Offset(60, colY + 60), color: labelColor);
 
-    // 🔹 Rodapé
-    drawText("🏁 ${_formatarData(corrida.date)}", 32, Offset(60, height - 120));
+    drawText(duracao, 50, Offset(width / 3 + 10, colY), weight: FontWeight.bold);
+    drawText("Duração", 28, Offset(width / 3 + 10, colY + 60), color: labelColor);
 
-    final pic = recorder.endRecording();
-    final img = await pic.toImage(width, height);
-    final png = await img.toByteData(format: ui.ImageByteFormat.png);
-    return png!.buffer.asUint8List();
+    drawText(ritmo, 50, Offset(width / 1.7 + 60, colY - 10),
+        weight: FontWeight.bold);
+    drawText("Ritmo Médio", 28, Offset(width / 1.7 + 60, colY + 50),
+        color: labelColor);
+
+// 🗺️ Traçado da rota (laranja Runner) — ajustado para não sobrepor o texto
+    final double routeSize = 240;
+    final double routeRightMargin = 100;
+    final double routeBottomMargin = 600;
+
+    final routeRect = Rect.fromLTWH(
+      width - routeSize - routeRightMargin,
+      height - routeSize - routeBottomMargin,
+      routeSize,
+      routeSize,
+    );
+
+// calcula o centro da rota (lat/lng médios)
+    final centerLat = corrida.route.map((p) => p['lat']!).reduce((a, b) => a + b) / corrida.route.length;
+    final centerLng = corrida.route.map((p) => p['lng']!).reduce((a, b) => a + b) / corrida.route.length;
+
+// gera o mapa estático real (Yandex Maps — leve, sem API key)
+    final mapUrl =
+        "https://static-maps.yandex.ru/1.x/?ll=$centerLng,$centerLat&z=15&size=450,450&l=map";
+
+    try {
+      final mapBytes = (await NetworkAssetBundle(Uri.parse(mapUrl)).load("")).buffer.asUint8List();
+      final mapCodec = await ui.instantiateImageCodec(
+        mapBytes,
+        targetWidth: routeRect.width.toInt(),
+        targetHeight: routeRect.height.toInt(),
+      );
+      final mapFrame = await mapCodec.getNextFrame();
+      final mapImage = mapFrame.image;
+
+      // cria máscara radial para fade (bordas suaves)
+      final fadeShader = ui.Gradient.radial(
+        routeRect.center,
+        routeRect.width / 1.1,
+        [
+          Colors.white.withOpacity(1.0),
+          Colors.white.withOpacity(0.0),
+        ],
+        [0.75, 1.0],
+      );
+
+      // salva camada para aplicar blend
+      canvas.saveLayer(routeRect, Paint());
+
+      // desenha mapa real
+      canvas.drawImageRect(
+        mapImage,
+        Rect.fromLTWH(0, 0, mapImage.width.toDouble(), mapImage.height.toDouble()),
+        routeRect,
+        Paint(),
+      );
+
+      // aplica fade radial
+      canvas.drawRect(
+        routeRect,
+        Paint()
+          ..shader = fadeShader
+          ..blendMode = BlendMode.dstIn,
+      );
+
+      canvas.restore();
+
+      // === 💫 EFEITO LENTE 3D ===
+      // cria gradiente elíptico na parte inferior (brilho e sombra)
+      final lensShader = ui.Gradient.linear(
+        Offset(routeRect.left, routeRect.bottom - 10),
+        Offset(routeRect.right, routeRect.bottom),
+        [
+          Colors.white.withOpacity(0.25), // brilho inferior esquerdo
+          Colors.black.withOpacity(0.15), // sombra inferior direita
+        ],
+      );
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(routeRect.inflate(8), const Radius.circular(20)),
+        Paint()
+          ..shader = lensShader
+          ..blendMode = BlendMode.overlay,
+      );
+
+      // borda e sombra suave externa
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(routeRect.inflate(12), const Radius.circular(22)),
+        Paint()
+          ..color = Colors.black.withOpacity(0.08)
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6),
+      );
+
+      // traçado Runner laranja
+      _drawRoute(canvas, corrida.route, routeRect, color: const Color(0xFFFF6D00));
+    } catch (e) {
+      debugPrint("⚠️ Erro ao carregar mapa estático: $e");
+    }
+
+
+
+    // 📅 Data da corrida
+    drawText("🏁 ${_formatarData(corrida.date)}", 32, Offset(60, height - 100),
+        color: Colors.black54);
+
+    // 🖼️ Finaliza
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(width, height);
+    final pngBytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    return pngBytes!.buffer.asUint8List();
   }
 
+
+
+
   void _drawRoute(Canvas canvas, List<Map<String, double>> route, Rect rect,
-      {Color color = Colors.white}) {
+      {Color color = Colors.black}) {
     if (route.isEmpty) return;
 
     final paint = Paint()
@@ -198,20 +323,24 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     final ratio = storyMode ? (9 / 16) : (4 / 5);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
-            // 🔙 Top bar
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _circleButton(Icons.arrow_back_ios_new, () => Navigator.pop(context)),
-                  Text("Criar Imagem",
-                      style: GoogleFonts.poppins(
-                          fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white)),
+                  Text(
+                    "Criar Imagem",
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black, // <- texto preto
+                    ),
+                  ),
                   const SizedBox(width: 44),
                 ],
               ),
@@ -223,71 +352,103 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
                   children: [
-                    // 🖼️ Preview com proporção variável
+                    // 🖼️ Preview com proporção variável (foto ou vídeo)
                     AspectRatio(
                       aspectRatio: ratio,
                       child: Container(
                         margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
-                          image: DecorationImage(
-                            image: NetworkImage(selectedBackground),
-                            fit: BoxFit.cover,
-                          ),
                         ),
                         child: Stack(
+                          fit: StackFit.expand,
                           children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                color: Colors.black.withOpacity(0.25),
+                            // 🎥 Fundo — vídeo ou imagem
+                            if (isVideo && _videoController != null && _videoController!.value.isInitialized)
+                              FittedBox(
+                                fit: BoxFit.cover,
+                                child: SizedBox(
+                                  width: _videoController!.value.size.width,
+                                  height: _videoController!.value.size.height,
+                                  child: VideoPlayer(_videoController!),
+                                ),
+                              )
+                            else
+                            // 📸 Fundo — imagem padrão
+                              Container(
+                                decoration: BoxDecoration(
+                                  image: DecorationImage(
+                                    image: selectedBackground.startsWith('http')
+                                        ? NetworkImage(selectedBackground)
+                                        : FileImage(File(selectedBackground)) as ImageProvider,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+
+                            // 🔸 Container translúcido para legibilidade
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Container(
+                                height: 260,
+                                decoration: BoxDecoration(
+                                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                                  color: Colors.white.withOpacity(0.8),
+                                ),
                               ),
                             ),
 
-                            // 📊 Dados da corrida
+                            // 🔹 Conteúdo textual + dados
                             Positioned(
+                              bottom: 50,
                               left: 20,
-                              bottom: 40,
+                              right: 20,
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     "CORRIDA",
                                     style: GoogleFonts.poppins(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white),
+                                      color: const Color(0xFFFF6D00),
+                                      fontSize: 26,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                  Text(
-                                    "${(corrida.distance / 1000).toStringAsFixed(2)} km  •  ${_formatDuration(corrida.duration)}  •  ${((corrida.distance / 1000) * 60).toStringAsFixed(0)} kcal",
-                                    style: GoogleFonts.poppins(
-                                        color: Colors.white70, fontSize: 16),
+                                  const SizedBox(height: 20),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      _infoItem("Distância",
+                                          "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
+                                      _infoItem("Duração", _formatDuration(corrida.duration)),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          _infoItem("Ritmo Médio",
+                                              _calcularRitmo(corrida.distance, corrida.duration)),
+                                          const SizedBox(height: 8),
+                                          SizedBox(
+                                            width: 80,
+                                            height: 80,
+                                            child: CustomPaint(
+                                              painter: _RoutePreviewPainter(corrida.route),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                 ],
-                              ),
-                            ),
-
-                            // 🟠 Mini mapa canto inferior direito
-                            Positioned(
-                              right: 25,
-                              bottom: 30,
-                              child: Container(
-                                width: 100,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.25),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                padding: const EdgeInsets.all(6),
-                                child: CustomPaint(
-                                  painter: _RoutePreviewPainter(corrida.route),
-                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
+
+
+
 
                     // 🔘 Alternar modo
                     Padding(
@@ -306,16 +467,35 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                       ),
                     ),
 
-                    // 🖼️ Seleção de fundos
+                    // 🖼️ Seleção de fundos + botão de câmera (em primeiro lugar)
                     SizedBox(
                       height: 100,
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         scrollDirection: Axis.horizontal,
-                        itemCount: backgrounds.length,
+                        itemCount: backgrounds.length + 1, // +1 para incluir o botão da câmera
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
                         itemBuilder: (context, i) {
-                          final img = backgrounds[i];
+                          // 📸 O primeiro item agora é o botão de adicionar imagem
+                          if (i == 0) {
+                            return GestureDetector(
+                              onTap: _selecionarImagemPersonalizada,
+                              child: Container(
+                                width: 90,
+                                decoration: BoxDecoration(
+                                  color: Colors.white10,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFFF6D00), width: 2),
+                                ),
+                                child: const Center(
+                                  child: Icon(Icons.add_a_photo, color: Color(0xFFFF6D00), size: 30),
+                                ),
+                              ),
+                            );
+                          }
+
+                          // 🎨 Demais itens são as imagens padrão
+                          final img = backgrounds[i - 1];
                           final selected = img == selectedBackground;
                           return GestureDetector(
                             onTap: () => setState(() => selectedBackground = img),
@@ -324,18 +504,21 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                    color: selected
-                                        ? Colors.blueAccent
-                                        : Colors.transparent,
-                                    width: 2),
+                                  color: selected ? const Color(0xFFFF6D00) : Colors.transparent,
+                                  width: 2,
+                                ),
                                 image: DecorationImage(
-                                    image: NetworkImage(img), fit: BoxFit.cover),
+                                  image: NetworkImage(img),
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ),
                           );
                         },
                       ),
                     ),
+
+
                   ],
                 ),
               ),
@@ -345,18 +528,161 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
             Container(
               padding: const EdgeInsets.symmetric(vertical: 20),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.9),
                 border: const Border(
-                  top: BorderSide(color: Colors.white24, width: 0.5),
+                  top: BorderSide(color: Colors.black12, width: 0.5),
                 ),
               ),
-              child: _shareButton(Icons.share, "Compartilhar", _compartilhar),
+              child: GestureDetector(
+                onTap: sharing ? null : _compartilhar,
+                child: Column(
+                  children: [
+                    Container(
+                      height: 60,
+                      width: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: sharing ? Colors.grey[300] : const Color(0xFFFF6D00),
+                      ),
+                      child: const Icon(Icons.share, color: Colors.white, size: 26),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Compartilhar",
+                      style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+  String _calcularRitmo(double distanciaMetros, int duracaoSegundos) {
+    if (distanciaMetros == 0 || duracaoSegundos == 0) return "--:--";
+    final distanciaKm = distanciaMetros / 1000;
+    final minutos = duracaoSegundos / 60;
+    final ritmo = minutos / distanciaKm;
+    final min = ritmo.floor();
+    final seg = ((ritmo - min) * 60).round();
+    return "${min.toString().padLeft(2, '0')}:${seg.toString().padLeft(2, '0')} min/km";
+  }
+
+  Widget _infoItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: GoogleFonts.poppins(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: GoogleFonts.poppins(
+            color: Colors.deepOrange,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+
+
+
+
+  Future<void> _selecionarImagemPersonalizada() async {
+    final picker = ImagePicker();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.video_camera_back, color: Colors.white),
+                title: const Text("Gravar vídeo (10s)", style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final XFile? video =
+                  await picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(seconds: 10));
+                  if (video != null) {
+                    _videoController = VideoPlayerController.file(File(video.path))
+                      ..initialize().then((_) {
+                        setState(() {
+                          selectedBackground = video.path;
+                          isVideo = true;
+                          _videoController!.setLooping(true);
+                          _videoController!.play();
+                        });
+                      });
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera, color: Colors.white),
+                title: const Text("Tirar foto", style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final XFile? foto = await picker.pickImage(source: ImageSource.camera);
+                  if (foto != null) {
+                    setState(() {
+                      selectedBackground = foto.path;
+                      isVideo = false;
+                    });
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.white),
+                title: const Text("Escolher da galeria", style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final XFile? arquivo = await picker.pickMedia();
+                  if (arquivo != null) {
+                    final ext = arquivo.path.split('.').last.toLowerCase();
+                    if (['mp4', 'mov', 'm4v'].contains(ext)) {
+                      _videoController = VideoPlayerController.file(File(arquivo.path))
+                        ..initialize().then((_) {
+                          setState(() {
+                            selectedBackground = arquivo.path;
+                            isVideo = true;
+                            _videoController!.setLooping(true);
+                            _videoController!.play();
+                          });
+                        });
+                    } else {
+                      setState(() {
+                        selectedBackground = arquivo.path;
+                        isVideo = false;
+                      });
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
 
 
   Widget _toggleButton(String label, bool active, VoidCallback onTap) {

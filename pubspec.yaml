@@ -54,6 +54,8 @@ dependencies:
   flutter_animate: ^4.5.0
   reaction_button: ^0.0.7
 
+  video_player: ^2.9.1
+
   share_plus: ^10.0.2
   model_viewer_plus: ^1.9.1
   flutter_launcher_icons: ^0.14.4
@@ -84,3 +86,4 @@ flutter:
     - assets/icon/logo_principal.png
     - assets/sounds/raio.mp3
     - assets/sounds/1.mp3
+    - assets/videos/splash.mp4
