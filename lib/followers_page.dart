@@ -6,12 +6,15 @@ import 'profile_page.dart'; // 👈 importa o perfil existente
 class FollowersPage extends StatefulWidget {
   final String userId;
   final String displayName;
+  final int initialTabIndex;
 
   const FollowersPage({
     super.key,
     required this.userId,
     required this.displayName,
+    this.initialTabIndex = 0,
   });
+
 
   @override
   State<FollowersPage> createState() => _FollowersPageState();
@@ -26,7 +29,11 @@ class _FollowersPageState extends State<FollowersPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: widget.initialTabIndex,
+    );
   }
 
   @override

@@ -22,13 +22,16 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   bool loading = true;
 
+  // Privacidade / relacionamento
+  bool isPrivate = false;     // já existia, ok manter aqui
+  bool isFollower = false;    // NOVO: visitante é seguidor?
+
   // User
   Map<String, dynamic>? userData;
   String? photoURL;
   String? coverPhotoURL;
   DateTime? memberSince;
   String? bio;
-  bool isPrivate = false;
 
   // Social
   int followersCount = 0;
@@ -75,6 +78,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
       final data = userDoc.data() ?? {};
 
+      // 🔒 lê isPrivate do usuário visitado
+      final bool private = (data['isPrivate'] ?? false) as bool;
+
+      // 👥 contagens
       final followersSnap = await FirebaseFirestore.instance
           .collection('users')
           .doc(_profileUserId)
@@ -87,6 +94,18 @@ class _ProfilePageState extends State<ProfilePage> {
           .collection('following')
           .get();
 
+      // ✅ checa se o visitante é seguidor (somente se não for o dono)
+      bool visitorIsFollower = false;
+      if (!_isCurrentUserProfile && currentUser != null) {
+        final meAsFollowerDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_profileUserId)
+            .collection('followers')
+            .doc(currentUser.uid)
+            .get();
+        visitorIsFollower = meAsFollowerDoc.exists;
+      }
+
       setState(() {
         userData = data;
         photoURL = data['photoURL'] ?? currentUser?.photoURL;
@@ -95,7 +114,8 @@ class _ProfilePageState extends State<ProfilePage> {
             ? (data['createdAt'] as Timestamp).toDate()
             : null;
         bio = (data['bio'] as String?)?.trim();
-        isPrivate = (data['isPrivate'] ?? false) as bool;
+        isPrivate = private;              // <-- salva flag
+        isFollower = visitorIsFollower;   // <-- salva relação
 
         followersCount = followersSnap.docs.length;
         followingCount = followingSnap.docs.length;
@@ -104,6 +124,7 @@ class _ProfilePageState extends State<ProfilePage> {
       debugPrint("Erro ao carregar usuário/social: $e");
     }
   }
+
 
   Future<void> _loadStatsLast30d() async {
     try {
@@ -207,7 +228,15 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
             body: TabBarView(
               physics: const BouncingScrollPhysics(),
-              children: [
+              children: (isPrivate && !_isCurrentUserProfile && !isFollower)
+              // 🔒 VISITANTE NÃO SEGUIDOR: mostra lock em todas as abas
+                  ? const [
+                _PrivateAccountLock(),
+                _PrivateAccountLock(),
+                _PrivateAccountLock(),
+              ]
+              // ✅ DONO OU SEGUIDOR: conteúdo normal
+                  : [
                 _StatsTab(
                   userId: _profileUserId,
                   isOwner: _isCurrentUserProfile,
@@ -217,8 +246,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   followersCount: followersCount,
                   followingCount: followingCount,
                   memberSinceText: memberSince != null
-                      ? "Membro desde ${_formatDate(memberSince)}"
-                      : "",
+                      ? 'Membro desde ${_formatDate(memberSince)}'
+                      : 'Membro desde —',
                   totalDistance30d: totalDistance,
                   totalDuration30d: totalDuration,
                   totalCalories30d: totalCalories,
@@ -235,6 +264,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 _HistoryTab(userId: _profileUserId),
               ],
             ),
+
           ),
         ),
       ),
@@ -387,6 +417,37 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   bool shouldRebuild(_TabBarDelegate oldDelegate) =>
       oldDelegate.tabBar != tabBar;
 }
+
+class _PrivateAccountLock extends StatelessWidget {
+  const _PrivateAccountLock();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.lock, size: 56, color: Colors.black45),
+            SizedBox(height: 16),
+            Text(
+              "Esta conta é privada",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 8),
+            Text(
+              "Siga para ver corridas, estatísticas e conquistas.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
 // ---------------------- ABA ESTATÍSTICAS ----------------------
 class _StatsTab extends StatefulWidget {
@@ -566,6 +627,7 @@ class _StatsTabState extends State<_StatsTab> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     GestureDetector(
+                      // 👉 ao clicar em "Seguidores"
                       onTap: () {
                         Navigator.push(
                           context,
@@ -573,13 +635,16 @@ class _StatsTabState extends State<_StatsTab> {
                             builder: (_) => FollowersPage(
                               userId: widget.userId,
                               displayName: widget.userData?['displayName'] ?? 'Usuário',
+                              initialTabIndex: 0, // 👈 abre na aba Seguidores
                             ),
                           ),
                         );
                       },
+
                       child: _chipStat("Seguidores", _followers),
                     ),
                     GestureDetector(
+                      // 👉 ao clicar em "Seguindo"
                       onTap: () {
                         Navigator.push(
                           context,
@@ -587,10 +652,12 @@ class _StatsTabState extends State<_StatsTab> {
                             builder: (_) => FollowersPage(
                               userId: widget.userId,
                               displayName: widget.userData?['displayName'] ?? 'Usuário',
+                              initialTabIndex: 1, // 👈 abre na aba Seguindo
                             ),
                           ),
                         );
                       },
+
                       child: _chipStat("Seguindo", _following),
                     ),
                     IconButton(
