@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // HapticFeedback + rootBundle
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -650,6 +651,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _startRun() async {
     ScaffoldVisibilityController.hide();
+    FlutterBackgroundService().startService();
+
 
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -899,6 +902,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     setState(() => _isRunning = false);
     await _playStop(); // som apenas no Wear
     ScaffoldVisibilityController.show();
+    FlutterBackgroundService().invoke('stopService');
   }
 
   void _calculatePaceAndCalories() {
