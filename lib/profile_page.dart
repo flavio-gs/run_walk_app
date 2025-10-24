@@ -245,9 +245,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   isPrivate: isPrivate,
                   followersCount: followersCount,
                   followingCount: followingCount,
-                  memberSinceText: memberSince != null
-                      ? 'Membro desde ${_formatDate(memberSince)}'
-                      : 'Membro desde —',
                   totalDistance30d: totalDistance,
                   totalDuration30d: totalDuration,
                   totalCalories30d: totalCalories,
@@ -458,7 +455,6 @@ class _StatsTab extends StatefulWidget {
   final bool isPrivate;
   final int followersCount;
   final int followingCount;
-  final String memberSinceText;
 
   final double totalDistance30d;
   final int totalDuration30d;
@@ -477,7 +473,6 @@ class _StatsTab extends StatefulWidget {
     required this.isPrivate,
     required this.followersCount,
     required this.followingCount,
-    required this.memberSinceText,
     required this.totalDistance30d,
     required this.totalDuration30d,
     required this.totalCalories30d,
@@ -592,11 +587,6 @@ class _StatsTabState extends State<_StatsTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Membro desde
-                Text(
-                  widget.memberSinceText,
-                  style: const TextStyle(color: Colors.black54, fontSize: 12),
-                ),
                 const SizedBox(height: 8),
                 // Bio
                 GestureDetector(
