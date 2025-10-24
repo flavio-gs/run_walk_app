@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -22,9 +21,6 @@ class _LoginPageState extends State<LoginPage> {
   String mensagemErro = '';
   bool isRegistering = false;
 
-  static const String logoUrl =
-      "http://ninelabs-wordpress-1aba45-177-136-235-199.traefik.me/wp-content/uploads/2022/05/Group-1.png";
-
   final AudioPlayer _player = AudioPlayer();
 
   void navigateToRunTrackingPage() {
@@ -46,7 +42,6 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final FirebaseAuth auth = FirebaseAuth.instance;
-
       final userCredential = isRegistering
           ? await auth.createUserWithEmailAndPassword(
         email: emailController.text.trim(),
@@ -60,24 +55,22 @@ class _LoginPageState extends State<LoginPage> {
       final user = userCredential.user;
       if (user == null) return;
 
-      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-// 🔹 Cria o doc se não existir
+      // 🔹 Cria doc se não existir
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '', // 👈 garante que o campo exista
+          'username': '',
           'createdAt': FieldValue.serverTimestamp(),
         });
-
-        // 🔁 Recarrega o doc atualizado
         userDoc = await userDocRef.get();
       }
 
-// 🔎 Lê os dados e verifica perfil
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
         data['username'],
@@ -101,7 +94,6 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         navigateToRunTrackingPage();
       }
-
     } on FirebaseAuthException catch (e) {
       String errorMessage = switch (e.code) {
         'user-not-found' || 'wrong-password' => 'E-mail ou senha inválidos.',
@@ -116,25 +108,6 @@ class _LoginPageState extends State<LoginPage> {
 
   // ------------------ 🔑 LOGIN COM GOOGLE -------------------
   Future<void> signInWithGoogle() async {
-    // ✅ Simulação automática no Wear OS (para testes em emulador)
-    if (isWearOS) {
-      await _playFeedback();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Simulando login no Wear OS...",
-            style: TextStyle(color: Colors.white),
-          ),
-          backgroundColor: Colors.black87,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      await Future.delayed(const Duration(seconds: 1));
-      navigateToRunTrackingPage();
-      return;
-    }
-
-    // 🔐 Login real no mobile
     setState(() => loading = true);
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
@@ -142,7 +115,6 @@ class _LoginPageState extends State<LoginPage> {
 
       final GoogleSignInAuthentication googleAuth =
       await googleUser.authentication;
-
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
@@ -153,47 +125,21 @@ class _LoginPageState extends State<LoginPage> {
       final user = userCred.user;
       if (user == null) return;
 
-      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-// 🔹 Cria o doc se não existir
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '', // 👈 garante que o campo exista
+          'username': '',
           'createdAt': FieldValue.serverTimestamp(),
         });
-
-        // 🔁 Recarrega o doc atualizado
-        userDoc = await userDocRef.get();
       }
 
-// 🔎 Lê os dados e verifica perfil
-      final data = userDoc.data() ?? {};
-      final camposObrigatorios = [
-        data['username'],
-        data['displayName'],
-        data['birthDate'],
-        data['gender'],
-        data['weight'],
-        data['height'],
-        data['cep'],
-      ];
-
-      final perfilIncompleto = camposObrigatorios.any(
-            (valor) =>
-        valor == null ||
-            (valor is String && valor.trim().isEmpty) ||
-            (valor is num && valor == 0),
-      );
-
-      if (perfilIncompleto) {
-        Navigator.pushReplacementNamed(context, '/complete_profile');
-      } else {
-        navigateToRunTrackingPage();
-      }
+      navigateToRunTrackingPage();
     } catch (e) {
       setState(() => mensagemErro = 'Erro ao autenticar: $e');
     } finally {
@@ -201,320 +147,179 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // ------------------ 🧭 DETECTOR WEAR OS -------------------
-  bool get isWearOS {
-    final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
-    return size.shortestSide < 300;
-  }
-
-  // ------------------ 🧱 CAMPOS DE TEXTO -------------------
+  // ------------------ 🧱 CAMPOS -------------------
   Widget _buildTextField({
     required TextEditingController controller,
-    required String placeholder,
+    required String label,
     required IconData icon,
     bool obscureText = false,
   }) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: CupertinoTextField(
-        controller: controller,
-        placeholder: placeholder,
-        obscureText: obscureText,
-        prefix: Padding(
-          padding: const EdgeInsets.only(left: 10),
-          child: Icon(icon, color: Colors.white70, size: 20),
+    return TextField(
+      controller: controller,
+      obscureText: obscureText,
+      cursorColor: Colors.orange,
+      style: const TextStyle(color: Colors.black87, fontSize: 15),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.black54),
+        prefixIcon: Icon(icon, color: Colors.black87, size: 20),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Colors.orange, width: 1.5),
+          borderRadius: BorderRadius.circular(8),
         ),
-        padding: const EdgeInsets.all(15),
-        cursorColor: Colors.orangeAccent,
-        placeholderStyle: const TextStyle(color: Colors.black),
-        style: const TextStyle(color: Colors.black, fontSize: 15),
-      ),
-    );
-  }
-
-  // ------------------ 🎵 FEEDBACK HÁPTICO + SOM -------------------
-  Future<void> _playFeedback() async {
-    if (!isWearOS) return;
-    try {
-      await HapticFeedback.lightImpact();
-      await _player.play(AssetSource('click.mp3'));
-    } catch (e) {
-      debugPrint("Erro ao reproduzir som: $e");
-    }
-  }
-
-  // ------------------ 💻 MOBILE LOGIN -------------------
-  Widget _buildDefaultLogin() {
-    return Scaffold(
-      body: AnimatedContainer(
-        duration: const Duration(seconds: 4),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Colors.black12, width: 1.2),
+          borderRadius: BorderRadius.circular(8),
         ),
-        child: Center(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(25),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.9,
-                padding: const EdgeInsets.all(25),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(25),
-                  border: Border.all(color: Colors.white30, width: 1.2),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Image.network(logoUrl, width: 120),
-                    const SizedBox(height: 20),
-                    Text(
-                      isRegistering
-                          ? "Crie sua conta para começar"
-                          : "Bem-vindo de volta!",
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildTextField(
-                      controller: emailController,
-                      placeholder: "Digite seu e-mail",
-                      icon: CupertinoIcons.mail,
-                    ),
-                    _buildTextField(
-                      controller: senhaController,
-                      placeholder: "Digite sua senha",
-                      obscureText: true,
-                      icon: CupertinoIcons.lock_fill,
-                    ),
-                    const SizedBox(height: 10),
-                    if (mensagemErro.isNotEmpty)
-                      Text(
-                        mensagemErro,
-                        style: const TextStyle(
-                            color: Colors.amberAccent, fontSize: 13),
-                        textAlign: TextAlign.center,
-                      ),
-                    const SizedBox(height: 25),
-                    GestureDetector(
-                      onTap: loading
-                          ? null
-                          : () {
-                        _playFeedback();
-                        handleAuthAction();
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFF00E676),
-                              Color(0xFFFF9100),
-                            ],
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              offset: const Offset(0, 4),
-                              blurRadius: 10,
-                            )
-                          ],
-                        ),
-                        child: Center(
-                          child: loading
-                              ? const CupertinoActivityIndicator(
-                              color: Colors.black)
-                              : Text(
-                            isRegistering ? "Cadastrar" : "Entrar",
-                            style: const TextStyle(
-                              color: Colors.black87,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () {
-                        _playFeedback();
-                        setState(() {
-                          isRegistering = !isRegistering;
-                          mensagemErro = '';
-                        });
-                      },
-                      child: Text(
-                        isRegistering
-                            ? "Já tenho conta, entrar"
-                            : "Não tem conta? Cadastrar",
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: const [
-                        Expanded(child: Divider(color: Colors.white38)),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text("ou",
-                              style: TextStyle(color: Colors.white70)),
-                        ),
-                        Expanded(child: Divider(color: Colors.white38)),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    GestureDetector(
-                      onTap: loading
-                          ? null
-                          : () {
-                        _playFeedback();
-                        signInWithGoogle();
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.g_mobiledata,
-                                color: Colors.black87, size: 28),
-                            SizedBox(width: 10),
-                            Text(
-                              "Entrar com Google",
-                              style: TextStyle(
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
     );
   }
 
-  // ------------------ ⌚ WEAR OS LOGIN -------------------
-  Widget _buildWearOSLogin() {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-            begin: Alignment.bottomLeft,
-            end: Alignment.topRight,
-          ),
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ClipOval(
-                  child: Image.network(
-                    logoUrl,
-                    width: 70,
-                    height: 70,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Império da Corrida",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    letterSpacing: 1.2,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  "Toque para entrar",
-                  style: TextStyle(color: Colors.white70, fontSize: 11),
-                ),
-                const SizedBox(height: 20),
-                GestureDetector(
-                  onTap: loading
-                      ? null
-                      : () async {
-                    await _playFeedback();
-                    await signInWithGoogle();
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 400),
-                    height: 60,
-                    width: 60,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF00C853), Color(0xFFFF6D00)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.orangeAccent.withOpacity(0.7),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: loading
-                        ? const CupertinoActivityIndicator(color: Colors.black)
-                        : const Icon(Icons.play_arrow_rounded,
-                        color: Colors.black, size: 32),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  "Google Login",
-                  style: TextStyle(color: Colors.white, fontSize: 10),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ------------------ 🧩 BUILD FINAL -------------------
+  // ------------------ 🧩 BUILD -------------------
   @override
   Widget build(BuildContext context) {
-    return isWearOS ? _buildWearOSLogin() : _buildDefaultLogin();
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Logo
+              Image.asset(
+                'assets/icon/logo_principal.png',
+                height: 100,
+              ),
+              const SizedBox(height: 40),
+
+              Text(
+                isRegistering ? "Crie sua conta" : "Bem-vindo de volta!",
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 30),
+
+              // Campos
+              _buildTextField(
+                controller: emailController,
+                label: "E-mail",
+                icon: Icons.email_outlined,
+              ),
+              const SizedBox(height: 15),
+              _buildTextField(
+                controller: senhaController,
+                label: "Senha",
+                icon: Icons.lock_outline,
+                obscureText: true,
+              ),
+
+              const SizedBox(height: 10),
+              if (mensagemErro.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    mensagemErro,
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                ),
+
+              const SizedBox(height: 25),
+
+              // Botão principal
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: loading ? null : handleAuthAction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: loading
+                      ? const CupertinoActivityIndicator(color: Colors.white)
+                      : Text(
+                    isRegistering ? "Cadastrar" : "Entrar",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Alternar login/cadastro
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    isRegistering = !isRegistering;
+                    mensagemErro = '';
+                  });
+                },
+                child: Text(
+                  isRegistering
+                      ? "Já tenho uma conta"
+                      : "Não tem conta? Cadastre-se",
+                  style: const TextStyle(color: Colors.black54),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // Divisor
+              Row(
+                children: const [
+                  Expanded(child: Divider(color: Colors.black12)),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      "ou",
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                  Expanded(child: Divider(color: Colors.black12)),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Botão Google
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: loading ? null : signInWithGoogle,
+                  icon: const Icon(Icons.g_mobiledata, color: Colors.black87),
+                  label: const Text(
+                    "Entrar com Google",
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Colors.black26),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

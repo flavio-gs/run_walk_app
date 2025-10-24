@@ -1,13 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:io';
-import 'dart:ui' as ui;
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:run_walk_app/followers_page.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
-import 'package:run_walk_app/auth_gate.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
+import 'detalhe_corrida_page.dart';
+import 'model/run_model.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
@@ -17,24 +19,32 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage>
-    with SingleTickerProviderStateMixin {
-  double totalDistance = 0;
-  int totalDuration = 0;
-  double totalCalories = 0;
-  int totalPoints = 0;
-
+class _ProfilePageState extends State<ProfilePage> {
   bool loading = true;
-  String? photoURL;
-  Map<String, dynamic>? userData;
 
-  final Color primaryGreen = const Color(0xFF00C853);
-  final Color accentOrange = const Color(0xFFFF6D00);
-  final Color softOrange = const Color(0xFFFF9100);
-  final Color logoutRed = const Color(0xFFE53935);
+  // User
+  Map<String, dynamic>? userData;
+  String? photoURL;
+  String? coverPhotoURL;
+  DateTime? memberSince;
+  String? bio;
+  bool isPrivate = false;
+
+  // Social
+  int followersCount = 0;
+  int followingCount = 0;
+
+  // Stats (últimos 30 dias)
+  double totalDistance = 0; // km
+  int totalDuration = 0; // s
+  double totalCalories = 0; // kcal
+  int totalPoints = 0; // total geral
 
   late final String _profileUserId;
   late final bool _isCurrentUserProfile;
+
+  final Color orange = const Color(0xFFFF6D00);
+  final Color lightGray = const Color(0xFFF7F7F7);
 
   @override
   void initState() {
@@ -42,431 +52,292 @@ class _ProfilePageState extends State<ProfilePage>
     _profileUserId = widget.userId ?? FirebaseAuth.instance.currentUser!.uid;
     _isCurrentUserProfile =
         _profileUserId == FirebaseAuth.instance.currentUser!.uid;
-    _loadUserStats();
+    _loadAll();
   }
 
-  Future<void> _showAddUsernameDialog(BuildContext context) async {
-    final TextEditingController controller = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
-            'Escolher seu @',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Crie um nome de usuário único para seu perfil.\nExemplo: @naurea',
-                style: TextStyle(color: Colors.black87, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Nome de usuário',
-                  prefixText: '@',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final newUsername = controller.text.trim().toLowerCase();
-                if (newUsername.isEmpty) return;
-
-                try {
-                  // verifica se já existe username igual
-                  final check = await FirebaseFirestore.instance
-                      .collection('users')
-                      .where('username', isEqualTo: newUsername)
-                      .limit(1)
-                      .get();
-
-                  if (check.docs.isNotEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Esse nome de usuário já está em uso 😕'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  final uid = FirebaseAuth.instance.currentUser?.uid;
-                  if (uid != null) {
-                    await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(uid)
-                        .update({'username': newUsername});
-                  }
-
-                  if (mounted) {
-                    setState(() {
-                      userData?['username'] = newUsername;
-                    });
-                  }
-
-                  if (context.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Nome de usuário atualizado com sucesso 🎉'),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Erro ao salvar: $e')),
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: const Text('Salvar'),
-            ),
-          ],
-        );
-      },
-    );
+  Future<void> _loadAll() async {
+    await Future.wait([
+      _loadUserAndSocial(),
+      _loadStatsLast30d(),
+      _loadPoints(),
+    ]);
+    if (mounted) setState(() => loading = false);
   }
 
-
-
-  Future<void> _loadUserStats() async {
+  Future<void> _loadUserAndSocial() async {
     try {
-      totalPoints = await GamificationService().getTotalPoints();
-
       final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        setState(() => loading = false);
-        return;
-      }
 
-      final corridasQuery = await FirebaseFirestore.instance
-          .collection('corridas')
-          .where('userId', isEqualTo: _profileUserId)
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_profileUserId)
           .get();
 
-      double distance = 0;
-      int duration = 0;
-      double calories = 0;
-      for (var doc in corridasQuery.docs) {
-        final data = doc.data();
-        distance += (data['distance'] as num?)?.toDouble() ?? 0.0;
-        duration += (data['duration'] as num?)?.toInt() ?? 0;
-        calories += (data['calories'] as num?)?.toDouble() ?? 0.0;
-      }
-
-      final userDoc =
-      await FirebaseFirestore.instance.collection('users').doc(_profileUserId).get();
-
       final data = userDoc.data() ?? {};
-      final int xp = (data['xp'] ?? 0) as int;
-      final int level = (data['level'] ?? 1) as int;
-      final double levelProgress = (data['levelProgress'] ?? 0.0).toDouble();
 
-      if (mounted) {
-        setState(() {
-          totalDistance = distance / 1000;
-          totalDuration = duration;
-          totalCalories = calories;
-          userData = userDoc.data() ?? {};
-          photoURL = userData?['photoURL'] ?? currentUser.photoURL;
-          loading = false;
-          userData = {
-            ...data,
-            'xp': xp,
-            'level': level,
-            'levelProgress': levelProgress,
-          };
-        });
-      }
+      final followersSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_profileUserId)
+          .collection('followers')
+          .get();
+
+      final followingSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_profileUserId)
+          .collection('following')
+          .get();
+
+      setState(() {
+        userData = data;
+        photoURL = data['photoURL'] ?? currentUser?.photoURL;
+        coverPhotoURL = data['coverPhoto'];
+        memberSince = (data['createdAt'] is Timestamp)
+            ? (data['createdAt'] as Timestamp).toDate()
+            : null;
+        bio = (data['bio'] as String?)?.trim();
+        isPrivate = (data['isPrivate'] ?? false) as bool;
+
+        followersCount = followersSnap.docs.length;
+        followingCount = followingSnap.docs.length;
+      });
     } catch (e) {
-      debugPrint("Erro ao carregar estatísticas: $e");
-      if (mounted) setState(() => loading = false);
+      debugPrint("Erro ao carregar usuário/social: $e");
     }
   }
 
-  String _formatDuration(int seconds) {
-    final h = seconds ~/ 3600;
-    final m = (seconds % 3600) ~/ 60;
-    final s = seconds % 60;
-    if (h > 0) return '${h}h ${m}min';
-    if (m > 0) return '${m}min ${s}s';
-    return '${s}s';
+  Future<void> _loadStatsLast30d() async {
+    try {
+      final agora = DateTime.now();
+      final inicio = agora.subtract(const Duration(days: 30));
+
+      final corridas = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: _profileUserId)
+          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(inicio))
+          .get();
+
+      double distKm = 0;
+      int durS = 0;
+      double cal = 0;
+
+      for (var c in corridas.docs) {
+        final data = c.data();
+        distKm += ((data['distance'] as num?)?.toDouble() ?? 0.0) / 1000.0;
+        durS += (data['duration'] as num?)?.toInt() ?? 0;
+        cal += (data['calories'] as num?)?.toDouble() ?? 0.0;
+      }
+
+      setState(() {
+        totalDistance = distKm;
+        totalDuration = durS;
+        totalCalories = cal;
+      });
+    } catch (e) {
+      debugPrint("Erro ao carregar estatísticas 30d: $e");
+    }
   }
+
+  Future<void> _loadPoints() async {
+    try {
+      totalPoints = await GamificationService().getTotalPoints();
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint("Erro ao carregar pontos: $e");
+    }
+  }
+
+  // -------- capa: upload e salvar url
+  Future<void> _changeCoverPhoto() async {
+    if (!_isCurrentUserProfile) return;
+
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
+
+    final file = File(picked.path);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Enviando nova imagem de capa...')),
+    );
+
+    try {
+      final ref = FirebaseStorage.instance.ref('users/$uid/cover.jpg');
+      await ref.putFile(file);
+      final url = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'coverPhoto': url});
+
+      setState(() => coverPhotoURL = url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Capa atualizada com sucesso!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao enviar imagem: $e')),
+      );
+    }
+  }
+
+  String _formatDate(DateTime? d) {
+    if (d == null) return '';
+    return d.year.toString(); // mostra apenas o ano
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-        onRefresh: _loadUserStats,
-        child: CustomScrollView(
-          slivers: [
-            // ------------------------------
-            //  APP BAR COM EFEITO PARALLAX
-            // ------------------------------
-            SliverAppBar(
-              pinned: true,
-              backgroundColor: primaryGreen,
-              expandedHeight: 240,
-              flexibleSpace: LayoutBuilder(
-                builder: (context, constraints) {
-                  final percent =
-                      (constraints.maxHeight - kToolbarHeight) / 200;
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      AnimatedOpacity(
-                        opacity: percent.clamp(0.3, 1.0),
-                        duration: const Duration(milliseconds: 250),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [primaryGreen, accentOrange],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.bottomLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Hero(
-                            tag: 'profile-photo-$_profileUserId',
-                            child: CircleAvatar(
-                              radius: 45,
-                              backgroundColor:
-                              Colors.white.withOpacity(0.25),
-                              backgroundImage: (photoURL != null &&
-                                  photoURL!.isNotEmpty)
-                                  ? NetworkImage(photoURL!)
-                                  : null,
-                              child: (photoURL == null ||
-                                  photoURL!.isEmpty)
-                                  ? const Icon(Icons.person,
-                                  color: Colors.white, size: 50)
-                                  : null,
-                            ),
-
-                          ),
-
-                        ),
-                      ),
-                      // -------------------- BOTÃO PRO RUNNER --------------------
-                      if (!(userData?['isPro'] ?? false))
-                        Positioned(
-                          bottom: 16,
-                          right: 16,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              showModalBottomSheet(
-                                context: context,
-                                backgroundColor: Colors.transparent,
-                                isScrollControlled: true,
-                                builder: (context) {
-                                  return Container(
-                                    padding: const EdgeInsets.all(20),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.9),
-                                      borderRadius: const BorderRadius.only(
-                                        topLeft: Radius.circular(24),
-                                        topRight: Radius.circular(24),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Container(
-                                          width: 60,
-                                          height: 6,
-                                          decoration: BoxDecoration(
-                                            color: Colors.white24,
-                                            borderRadius: BorderRadius.circular(3),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 16),
-                                        const Text(
-                                          '🏅 Torne-se Pro Runner',
-                                          style: TextStyle(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.amber,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        const Text(
-                                          'Desbloqueie conquistas douradas, rankings exclusivos e análises avançadas!',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(color: Colors.white70, fontSize: 16),
-                                        ),
-                                        const SizedBox(height: 20),
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(12),
-                                            color: Colors.white.withOpacity(0.1),
-                                          ),
-                                          child: const Text(
-                                            '• Áreas douradas ✨\\n'
-                                                '• Rankings e títulos exclusivos\\n'
-                                                '• Radar e alertas de domínio\\n'
-                                                '• Relatórios semanais e backup em nuvem',
-                                            style: TextStyle(color: Colors.white70, height: 1.5),
-                                            textAlign: TextAlign.left,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 24),
-                                        ElevatedButton(
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: Colors.amber,
-                                            foregroundColor: Colors.black,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
-                                            ),
-                                            padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 14),
-                                          ),
-                                          onPressed: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(builder: (_) => const ProPlansPage()),
-                                            );
-                                          },
-                                          child: const Text(
-                                            'Assinar Pro Runner',
-                                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 20),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.amber,
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(30),
-                              ),
-                            ),
-                            child: const Text('🏅 Torne-se Pro Runner'),
-                          ),
-                        ),
-// -----------------------------------------------------------
-
-                    ],
-                  );
-                },
-              ),
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    userData?['displayName'] ?? 'Perfil',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Builder(
-                    builder: (_) {
-                      final username = userData?['username']?.toString().trim();
-                      if (username == null || username.isEmpty) {
-                        return GestureDetector(
-                          onTap: () => _showAddUsernameDialog(context),
-                          child: const Text(
-                            'Adicione um @ para personalizar seu perfil! Clique aqui!!!',
-                            style: TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 13,
-                              fontStyle: FontStyle.italic,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        );
-                      }
-                      return Text(
-                        '@$username',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-
-
-
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: lightGray,
+        body: loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+          onRefresh: _loadAll,
+          child: NestedScrollView(
+            headerSliverBuilder: (context, inner) => [
+              _buildHeader(),
+              _buildTabBar(),
+            ],
+            body: TabBarView(
+              physics: const BouncingScrollPhysics(),
+              children: [
+                _StatsTab(
+                  userId: _profileUserId,
+                  isOwner: _isCurrentUserProfile,
+                  userData: userData,
+                  bio: bio,
+                  isPrivate: isPrivate,
+                  followersCount: followersCount,
+                  followingCount: followingCount,
+                  memberSinceText: memberSince != null
+                      ? "Membro desde ${_formatDate(memberSince)}"
+                      : "",
+                  totalDistance30d: totalDistance,
+                  totalDuration30d: totalDuration,
+                  totalCalories30d: totalCalories,
+                  totalPoints: totalPoints,
+                  onBioUpdated: (newBio) {
+                    setState(() => bio = newBio);
+                  },
+                  onPrivacyToggled: (v) {
+                    setState(() => isPrivate = v);
+                  },
+                  onRefreshSocial: _loadUserAndSocial,
+                ),
+                const _AchievementsTab(),
+                _HistoryTab(userId: _profileUserId),
+              ],
             ),
-            // ------------------------------
-            //  CONTEÚDO COM ANIMAÇÕES
-            // ------------------------------
-            SliverToBoxAdapter(
+          ),
+        ),
+      ),
+    );
+  }
+
+  // -------- Header
+  SliverAppBar _buildHeader() {
+    return SliverAppBar(
+      pinned: true,
+      expandedHeight: 260,
+      backgroundColor: Colors.white,
+      elevation: 0,
+      flexibleSpace: FlexibleSpaceBar(
+        background: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.network(
+              coverPhotoURL ??
+                  'https://images.unsplash.com/photo-1605287449435-3a8d1be9a401?auto=format&fit=crop&w=1200&q=60',
+              fit: BoxFit.cover,
+            ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.center,
+                ),
+              ),
+            ),
+            if (_isCurrentUserProfile)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 10,
+                right: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.white),
+                    onPressed: _changeCoverPhoto,
+                    tooltip: 'Alterar imagem de capa',
+                  ),
+                ),
+              ),
+            Align(
+              alignment: Alignment.bottomLeft,
               child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    _buildInfoCard()
-                        .animate()
-                        .fadeIn(duration: 600.ms)
-                        .slideY(begin: 0.2),
-                    const SizedBox(height: 20),
-                    if (!_isCurrentUserProfile)
-                      _FollowButton(profileUserId: _profileUserId)
-                          .animate()
-                          .fadeIn(delay: 200.ms)
-                          .scale(begin: const Offset(0.8, 0.8)),
-                    const SizedBox(height: 20),
-                    _buildStatsGrid()
-                        .animate()
-                        .slideY(begin: 0.2)
-                        .fadeIn(duration: 500.ms),
-                    const SizedBox(height: 25),
-                    _buildPointsCard()
-                        .animate()
-                        .fadeIn(duration: 500.ms)
-                        .scale(),
-                    const SizedBox(height: 25),
-                    _AchievementsSection()
-                        .animate()
-                        .fadeIn(duration: 700.ms)
-                        .slideY(begin: 0.1),
-                    const SizedBox(height: 40),
-                    if (_isCurrentUserProfile)
-                      _buildLogoutButton()
-                          .animate()
-                          .fadeIn()
-                          .slideY(begin: 0.2),
+                    CircleAvatar(
+                      radius: 45,
+                      backgroundColor: Colors.white,
+                      backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
+                          ? NetworkImage(photoURL!)
+                          : null,
+                      child: (photoURL == null || photoURL!.isEmpty)
+                          ? const Icon(Icons.person, size: 45)
+                          : null,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            (userData?['displayName'] as String?) ?? 'Usuário',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            (userData?['username'] != null &&
+                                (userData?['username'] as String)
+                                    .trim()
+                                    .isNotEmpty)
+                                ? "@${userData?['username']}"
+                                : "Adicionar @",
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 14),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            memberSince != null
+                                ? "Membro desde ${_formatDate(memberSince)}"
+                                : "",
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -477,251 +348,456 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  // ----------------------------------------
-  //   COMPONENTES COM ANIMAÇÕES LEVES
-  // ----------------------------------------
-  Widget _buildInfoCard() {
-    final email = _isCurrentUserProfile
-        ? FirebaseAuth.instance.currentUser?.email
-        : userData?['email'];
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      elevation: 4,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            color: Colors.white.withOpacity(0.5),
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              children: [
-                Text(
-                  email ?? 'E-mail não disponível',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  userData?['city'] != null
-                      ? "${userData?['city']} - ${userData?['state'] ?? ''}"
-                      : "Localização não informada",
-                  style: const TextStyle(color: Colors.black54),
-                ),
-              ],
-            ),
-          ),
+  // -------- TabBar
+  SliverPersistentHeader _buildTabBar() {
+    return SliverPersistentHeader(
+      pinned: true,
+      delegate: _TabBarDelegate(
+        TabBar(
+          labelColor: Colors.black,
+          unselectedLabelColor: Colors.black54,
+          indicatorColor: orange,
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(text: 'Estatísticas'),
+            Tab(text: 'Conquistas'),
+            Tab(text: 'Histórico'),
+          ],
         ),
       ),
     );
   }
-
-  Widget _buildStatsGrid() {
-    final List<Map<String, dynamic>> stats = [
-      {'icon': Icons.directions_run, 'label': 'Distância', 'value': "${totalDistance.toStringAsFixed(2)} km", 'color': primaryGreen},
-      {'icon': Icons.access_time, 'label': 'Tempo', 'value': _formatDuration(totalDuration), 'color': accentOrange},
-      {'icon': Icons.local_fire_department, 'label': 'Calorias', 'value': "${totalCalories.toStringAsFixed(0)} kcal", 'color': softOrange},
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: stats.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12),
-      itemBuilder: (context, index) {
-        final stat = stats[index];
-        final Color color = stat['color'] as Color;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 600),
-          curve: Curves.easeOutCubic,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(stat['icon'] as IconData, color: color, size: 30),
-              const SizedBox(height: 8),
-              Text(stat['value'] as String,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              const SizedBox(height: 4),
-              Text(stat['label'] as String,
-                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPointsCard() {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 800),
-      curve: Curves.easeOut,
-      builder: (context, value, child) {
-        return Transform.scale(
-          scale: 0.9 + (0.1 * value),
-          child: Card(
-            color: Colors.white,
-            elevation: 6,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                children: [
-                  Icon(Icons.stars, color: accentOrange, size: 40),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      "Pontuação total: $totalPoints pts",
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildLogoutButton() {
-    return ElevatedButton.icon(
-      icon: const Icon(Icons.logout),
-      label: const Text('Sair da Conta'),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: logoutRed,
-        foregroundColor: Colors.white,
-        minimumSize: const Size(double.infinity, 50),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      onPressed: () async {
-        await FirebaseAuth.instance.signOut();
-        if (context.mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (c) => const AuthGate()), (r) => false);
-        }
-      },
-    );
-  }
-
-
 }
 
-// ---------------------------------
-//  BOTÃO SEGUIR
-// ---------------------------------
-class _FollowButton extends StatefulWidget {
-  final String profileUserId;
-  const _FollowButton({required this.profileUserId});
+class _TabBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar tabBar;
+  _TabBarDelegate(this.tabBar);
 
   @override
-  State<_FollowButton> createState() => _FollowButtonState();
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(color: Colors.white, child: tabBar);
+  }
+
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+  @override
+  bool shouldRebuild(_TabBarDelegate oldDelegate) =>
+      oldDelegate.tabBar != tabBar;
 }
 
-class _FollowButtonState extends State<_FollowButton> {
-  final _currentUser = FirebaseAuth.instance.currentUser!;
-  bool _isFollowing = false;
-  bool _isLoading = true;
+// ---------------------- ABA ESTATÍSTICAS ----------------------
+class _StatsTab extends StatefulWidget {
+  final String userId;
+  final bool isOwner;
+  final Map<String, dynamic>? userData;
+  final String? bio;
+  final bool isPrivate;
+  final int followersCount;
+  final int followingCount;
+  final String memberSinceText;
+
+  final double totalDistance30d;
+  final int totalDuration30d;
+  final double totalCalories30d;
+  final int totalPoints;
+
+  final ValueChanged<String?> onBioUpdated;
+  final ValueChanged<bool> onPrivacyToggled;
+  final Future<void> Function() onRefreshSocial;
+
+  const _StatsTab({
+    required this.userId,
+    required this.isOwner,
+    required this.userData,
+    required this.bio,
+    required this.isPrivate,
+    required this.followersCount,
+    required this.followingCount,
+    required this.memberSinceText,
+    required this.totalDistance30d,
+    required this.totalDuration30d,
+    required this.totalCalories30d,
+    required this.totalPoints,
+    required this.onBioUpdated,
+    required this.onPrivacyToggled,
+    required this.onRefreshSocial,
+  });
+
+  @override
+  State<_StatsTab> createState() => _StatsTabState();
+}
+
+class _StatsTabState extends State<_StatsTab> {
+  late String? _bio;
+  late bool _isPrivate;
+  late int _followers;
+  late int _following;
 
   @override
   void initState() {
     super.initState();
-    _checkIfFollowing();
+    _bio = widget.bio;
+    _isPrivate = widget.isPrivate;
+    _followers = widget.followersCount;
+    _following = widget.followingCount;
   }
 
-  Future<void> _checkIfFollowing() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(_currentUser.uid)
-        .collection('following')
-        .doc(widget.profileUserId)
-        .get();
-    if (mounted) {
-      setState(() {
-        _isFollowing = doc.exists;
-        _isLoading = false;
-      });
-    }
+  String _formatDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h > 0) return '${h}h ${m}min';
+    if (m > 0) return '${m}min';
+    return '${seconds % 60}s';
   }
 
-  Future<void> _toggleFollow() async {
-    setState(() => _isLoading = true);
-    final currentUserRef =
-    FirebaseFirestore.instance.collection('users').doc(_currentUser.uid);
-    final targetUserRef =
-    FirebaseFirestore.instance.collection('users').doc(widget.profileUserId);
-    final newFollowingState = !_isFollowing;
+  Future<void> _editBio() async {
+    if (!widget.isOwner) return;
+    final controller = TextEditingController(text: _bio ?? '');
+    final res = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Editar biografia'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 160,
+          decoration: const InputDecoration(
+            hintText: 'Escreva algo sobre você…',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
 
+    if (res == null) return;
     try {
-      if (newFollowingState) {
-        await currentUserRef
-            .collection('following')
-            .doc(widget.profileUserId)
-            .set({'timestamp': FieldValue.serverTimestamp()});
-        await targetUserRef
-            .collection('followers')
-            .doc(_currentUser.uid)
-            .set({'timestamp': FieldValue.serverTimestamp()});
-        await targetUserRef.collection('notifications').add({
-          'type': 'follow',
-          'followerId': _currentUser.uid,
-          'message':
-          '${_currentUser.displayName ?? 'Alguém'} começou a seguir você.',
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-      } else {
-        await currentUserRef
-            .collection('following')
-            .doc(widget.profileUserId)
-            .delete();
-        await targetUserRef
-            .collection('followers')
-            .doc(_currentUser.uid)
-            .delete();
-      }
-      if (mounted) setState(() => _isFollowing = newFollowingState);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .update({'bio': res});
+      setState(() => _bio = res);
+      widget.onBioUpdated(res);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Biografia atualizada!')));
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro ao salvar bio: $e')));
     }
+  }
+
+  Future<void> _togglePrivacy(bool v) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .update({'isPrivate': v});
+      setState(() => _isPrivate = v);
+      widget.onPrivacyToggled(v);
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro ao atualizar privacidade: $e')));
+    }
+  }
+
+  Future<void> _refreshCounts() async {
+    await widget.onRefreshSocial();
+    // Os novos valores virão do pai numa próxima build; para feedback imediato,
+    // podemos reconsultar localmente também, se quiser.
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const SizedBox(
-          height: 48, child: Center(child: CircularProgressIndicator()));
-    }
-    return ElevatedButton(
-      onPressed: _toggleFollow,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: _isFollowing ? Colors.grey[700] : Theme.of(context).colorScheme.primary,
-        foregroundColor: _isFollowing ? Colors.white : Colors.black,
-        minimumSize: const Size(double.infinity, 48),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    final isPro = (widget.userData?['isPro'] ?? false) as bool;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        children: [
+          // --------- Perfil social: Bio / Seguidores / Privacidade
+          Container(
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Membro desde
+                Text(
+                  widget.memberSinceText,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                // Bio
+                GestureDetector(
+                  onTap: widget.isOwner ? _editBio : null,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F7F7),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      (_bio != null && _bio!.isNotEmpty)
+                          ? _bio!
+                          : (widget.isOwner
+                          ? "Adicione uma biografia ao perfil"
+                          : "Sem biografia"),
+                      style: TextStyle(
+                        color: (_bio != null && _bio!.isNotEmpty)
+                            ? Colors.black87
+                            : Colors.black45,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Seguidores | Seguindo
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FollowersPage(
+                              userId: widget.userId,
+                              displayName: widget.userData?['displayName'] ?? 'Usuário',
+                            ),
+                          ),
+                        );
+                      },
+                      child: _chipStat("Seguidores", _followers),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FollowersPage(
+                              userId: widget.userId,
+                              displayName: widget.userData?['displayName'] ?? 'Usuário',
+                            ),
+                          ),
+                        );
+                      },
+                      child: _chipStat("Seguindo", _following),
+                    ),
+                    IconButton(
+                      onPressed: _refreshCounts,
+                      icon: const Icon(Icons.refresh, size: 20),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+                // Privacidade
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Conta privada',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: const Text(
+                    'Apenas seguidores aprovados podem ver suas atividades.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                  value: _isPrivate,
+                  onChanged: widget.isOwner ? _togglePrivacy : null,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // --------- Plano
+          Container(
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                const Icon(Icons.workspace_premium, color: Colors.amber, size: 38),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isPro ? "Pro Runner" : "Runner Free",
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 17, color: Colors.black),
+                      ),
+                      Text(
+                        isPro
+                            ? "Aproveite seus benefícios exclusivos"
+                            : "Desbloqueie conquistas douradas e rankings premium",
+                        style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const ProPlansPage()));
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFFF6D00),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  child: const Text("VER MAIS →"),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // --------- Estatísticas (últimos 30 dias)
+          GridView(
+            shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3, mainAxisSpacing: 12, crossAxisSpacing: 12),
+            children: [
+              _StatBox(
+                icon: Icons.directions_run,
+                label: 'Distância (30d)',
+                value: "${widget.totalDistance30d.toStringAsFixed(2)} km",
+              ),
+              _StatBox(
+                icon: Icons.access_time,
+                label: 'Tempo (30d)',
+                value: _formatDuration(widget.totalDuration30d),
+              ),
+              _StatBox(
+                icon: Icons.local_fire_department,
+                label: 'Calorias (30d)',
+                value: "${widget.totalCalories30d.toStringAsFixed(0)} kcal",
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // --------- Pontos (total geral)
+          Container(
+            decoration: BoxDecoration(
+                color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    "Você acumulou ${widget.totalPoints} pontos",
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 40),
+
+          // --------- Logout
+          if (widget.isOwner)
+            ElevatedButton.icon(
+              icon: const Icon(Icons.logout),
+              label: const Text('Sair da Conta'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.red.shade700,
+                minimumSize: const Size(double.infinity, 50),
+                side: BorderSide(color: Colors.red.shade700, width: 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.of(context).pushNamedAndRemoveUntil(
+                      '/login', (Route<dynamic> route) => false);
+                }
+              },
+            ),
+          if (widget.isOwner) const SizedBox(height: 20),
+        ],
       ),
-      child: Text(
-        _isFollowing ? 'Deixar de Seguir' : 'Seguir',
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+    );
+  }
+
+  Widget _chipStat(String label, int value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+          color: const Color(0xFFF7F7F7), borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$value', style: const TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+        ],
       ),
     );
   }
 }
 
-// ---------------------------------
-//  SEÇÃO DE CONQUISTAS
-// ---------------------------------
-class _AchievementsSection extends StatefulWidget {
+class _StatBox extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatBox({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
   @override
-  State<_AchievementsSection> createState() => _AchievementsSectionState();
+  Widget build(BuildContext context) {
+    return Container(
+      decoration:
+      BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: const Color(0xFFFF6D00)),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+        ],
+      ),
+    );
+  }
 }
 
-class _AchievementsSectionState extends State<_AchievementsSection> {
+// ---------------------- ABA CONQUISTAS ----------------------
+class _AchievementsTab extends StatefulWidget {
+  const _AchievementsTab();
+
+  @override
+  State<_AchievementsTab> createState() => _AchievementsTabState();
+}
+
+class _AchievementsTabState extends State<_AchievementsTab> {
   List<Map<String, dynamic>> _achievements = [];
   bool _loading = true;
 
@@ -745,69 +821,299 @@ class _AchievementsSectionState extends State<_AchievementsSection> {
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "🏆 Minhas Conquistas",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _achievements.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 0.9,
-          ),
-          itemBuilder: (context, index) {
-            final a = _achievements[index];
-            final bool unlocked = a['unlocked'];
+    if (_achievements.isEmpty) {
+      return const Center(
+        child: Text('Nenhuma conquista ainda', style: TextStyle(color: Colors.black54)),
+      );
+    }
 
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
-              decoration: BoxDecoration(
-                color: unlocked ? Colors.white : Colors.grey[300],
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: unlocked
-                    ? [
-                  BoxShadow(
-                    color: Colors.amber.withOpacity(0.4),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-                    : [],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    a['icon'],
-                    style: TextStyle(
-                      fontSize: 36,
-                      color: unlocked ? Colors.black : Colors.black45,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    a['title'],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: unlocked ? Colors.black87 : Colors.black38,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _achievements.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12,
         ),
+        itemBuilder: (context, i) {
+          final a = _achievements[i];
+          final unlocked = a['unlocked'] == true;
+
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: unlocked
+                  ? Border.all(color: Colors.amber, width: 1.2)
+                  : Border.all(color: Colors.black12),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(a['icon'] ?? '🏅',
+                    style: TextStyle(
+                      fontSize: 30,
+                      color: unlocked ? Colors.black : Colors.black38,
+                    )),
+                const SizedBox(height: 6),
+                Text(
+                  a['title'] ?? '',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: unlocked ? Colors.black87 : Colors.black45,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------------- ABA HISTÓRICO ----------------------
+class _HistoryTab extends StatefulWidget {
+  final String userId;
+  const _HistoryTab({required this.userId});
+
+  @override
+  State<_HistoryTab> createState() => _HistoryTabState();
+}
+
+class _HistoryTabState extends State<_HistoryTab> {
+  String? _filtroSelecionado;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Filtro
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+          child: DropdownButtonFormField<String>(
+            value: _filtroSelecionado,
+            decoration: InputDecoration(
+              labelText: 'Filtrar por',
+              labelStyle: const TextStyle(color: Colors.black54),
+              contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderSide: const BorderSide(color: Colors.black26),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            dropdownColor: Colors.white,
+            items: const [
+              DropdownMenuItem(value: 'hoje', child: Text('Hoje')),
+              DropdownMenuItem(value: 'semana', child: Text('Últimos 7 dias')),
+              DropdownMenuItem(value: 'mes', child: Text('Últimos 30 dias')),
+            ],
+            onChanged: (value) => setState(() => _filtroSelecionado = value),
+          ),
+        ),
+        Expanded(child: _buildRunStream(widget.userId, _filtroSelecionado)),
       ],
     );
   }
+
+  Widget _buildRunStream(String userId, String? filtro) {
+    Query query = FirebaseFirestore.instance
+        .collection('corridas')
+        .where('userId', isEqualTo: userId)
+        .orderBy('createdAt'); // asc
+
+    final agora = DateTime.now();
+
+    if (filtro == 'hoje') {
+      final inicioHoje = DateTime(agora.year, agora.month, agora.day);
+      query = query
+          .where('createdAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(inicioHoje))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
+    } else if (filtro == 'semana') {
+      final inicioSemana = agora.subtract(const Duration(days: 7));
+      query = query
+          .where('createdAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(inicioSemana))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
+    } else if (filtro == 'mes') {
+      final inicioMes = agora.subtract(const Duration(days: 30));
+      query = query
+          .where('createdAt',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(inicioMes))
+          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(agora));
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: query.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Erro ao carregar histórico',
+                style: TextStyle(color: Colors.redAccent)),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(
+              child: CircularProgressIndicator(color: Color(0xFFFF6D00)));
+        }
+
+        final docs = snapshot.data!.docs;
+        final corridas = <RunModel>[];
+        for (final d in docs) {
+          final raw = d.data() as Map<String, dynamic>;
+          try {
+            raw['route'] ??= (raw['path'] ?? const []);
+            corridas.add(RunModel.fromMap(raw));
+          } catch (_) {}
+        }
+
+        if (corridas.isEmpty) {
+          return const Center(
+            child:
+            Text('Nenhuma corrida encontrada', style: TextStyle(color: Colors.black54)),
+          );
+        }
+
+        final corridasDesc = corridas.reversed.toList();
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: 1),
+          itemCount: corridasDesc.length,
+          itemBuilder: (context, index) {
+            final corrida = corridasDesc[index];
+            return _RunCard(corrida: corrida);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _RunCard extends StatelessWidget {
+  final RunModel corrida;
+  const _RunCard({required this.corrida});
+
+  String _formatDuration(int seconds) {
+    final duration = Duration(seconds: seconds);
+    String two(int n) => n.toString().padLeft(2, '0');
+    return "${two(duration.inHours)}:${two(duration.inMinutes.remainder(60))}:${two(duration.inSeconds.remainder(60))}";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(context,
+            MaterialPageRoute(builder: (context) => DetalheCorridaPage(corrida: corrida)));
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.black12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: CustomPaint(
+                painter: _RoutePainter(corrida.route),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "${(corrida.distance / 1000).toStringAsFixed(2)} km",
+              style: const TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black),
+            ),
+            Text(
+              _formatDuration(corrida.duration),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _iconInfo(Icons.local_fire_department,
+                    "${corrida.calories?.toStringAsFixed(0)} kcal"),
+                _iconInfo(Icons.speed,
+                    "${corrida.pace?.toStringAsFixed(2)} min/km"),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _iconInfo(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, color: const Color(0xFFFF6D00), size: 16),
+        const SizedBox(width: 4),
+        Text(text, style: const TextStyle(
+            fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+      ],
+    );
+  }
+}
+
+class _RoutePainter extends CustomPainter {
+  final List<Map<String, double>> route;
+  _RoutePainter(this.route);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (route.isEmpty) return;
+
+    final paint = Paint()
+      ..color = const Color(0xFFFF6D00)
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    double minLat = route.first['lat']!;
+    double maxLat = route.first['lat']!;
+    double minLng = route.first['lng']!;
+    double maxLng = route.first['lng']!;
+
+    for (final p in route) {
+      minLat = minLat < p['lat']! ? minLat : p['lat']!;
+      maxLat = maxLat > p['lat']! ? maxLat : p['lat']!;
+      minLng = minLng < p['lng']! ? minLng : p['lng']!;
+      maxLng = maxLng > p['lng']! ? maxLng : p['lng']!;
+    }
+
+    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
+    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+
+    final path = Path();
+    for (int i = 0; i < route.length; i++) {
+      final latNorm = (route[i]['lat']! - minLat) / latRange;
+      final lngNorm = (route[i]['lng']! - minLng) / lngRange;
+
+      final dx = lngNorm * size.width;
+      final dy = size.height - (latNorm * size.height);
+
+      if (i == 0) path.moveTo(dx, dy);
+      else path.lineTo(dx, dy);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoutePainter oldDelegate) =>
+      oldDelegate.route != route;
 }
