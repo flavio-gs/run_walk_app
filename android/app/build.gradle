@@ -11,19 +11,21 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     defaultConfig {
        
         applicationId = "com.example.run_walk_app"
        
-        minSdkVersion 23
+        minSdkVersion flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -40,3 +42,11 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // ✅ Permite usar APIs modernas do Java em versões antigas do Android
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+
+    // (mantém as outras dependências automáticas do Flutter)
+}
+

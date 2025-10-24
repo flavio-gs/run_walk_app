@@ -11,8 +11,11 @@ import 'package:run_walk_app/login_page.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/complete_profile_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
+import 'package:run_walk_app/service/background_tracking.dart';
 import 'package:run_walk_app/widgets/main_scaffold.dart';
 import 'package:run_walk_app/auth_gate.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 
 // Serviço de gamificação
 import 'package:run_walk_app/service/service/gamification_service.dart';
@@ -22,6 +25,12 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  // ✅ Pede permissão para mostrar notificações
+  if (await Permission.notification.isDenied) {
+    await Permission.notification.request();
+  }
+  await initializeBackgroundTracking();
+
 
   // 🔹 Marca o usuário online assim que o app abrir (se já estiver logado)
   final user = FirebaseAuth.instance.currentUser;
