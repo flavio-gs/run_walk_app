@@ -11,6 +11,9 @@ import 'package:run_walk_app/pro_plans_page.dart';
 import 'detalhe_corrida_page.dart';
 import 'model/run_model.dart';
 import 'package:run_walk_app/activity_page.dart';
+import 'package:lottie/lottie.dart';
+import 'package:run_walk_app/service/level_frame_manager.dart';
+
 
 
 class ProfilePage extends StatefulWidget {
@@ -23,6 +26,10 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool loading = true;
+
+  // Dados de level e XP
+  int level = 0;
+  double xp = 0.0;
 
   // User
   Map<String, dynamic>? userData;
@@ -63,8 +70,53 @@ class _ProfilePageState extends State<ProfilePage> {
       _loadStatsLast30d(),
       _loadPoints(),
     ]);
+
+    // 👇 Agora o listener inicia independente dos outros
+    _loadLevelAndXP();
+
     if (mounted) setState(() => loading = false);
   }
+
+
+  void _loadLevelAndXP() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((snapshot) {
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() ?? {};
+      final double totalXp = (data['xp'] ?? 0.0).toDouble();
+      final int currentLevel = (data['level'] ?? 0).toInt();
+
+      // 🔹 Cálculos derivados
+      final double progress = (totalXp % 500) / 500; // entre 0 e 1
+      final double currentXp = totalXp % 500;        // XP dentro do nível
+      final double xpToNext = 500 - currentXp;       // quanto falta
+
+      setState(() {
+        level = currentLevel;
+        xp = progress;
+        userData ??= {};
+        userData!['currentXp'] = currentXp;
+        userData!['xpToNext'] = xpToNext;
+      });
+
+      debugPrint(
+        "[XP Listener] XP total: $totalXp | Nível: $currentLevel | "
+            "Progresso ${(progress * 100).toStringAsFixed(1)}% | "
+            "Faltam ${xpToNext.toStringAsFixed(1)} XP",
+      );
+    });
+  }
+
+
+
+
 
   Future<void> _loadUserAndSocial() async {
     try {
@@ -293,16 +345,41 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    CircleAvatar(
-                      radius: 45,
-                      backgroundColor: Colors.white,
-                      backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
-                          ? NetworkImage(photoURL!)
-                          : null,
-                      child: (photoURL == null || photoURL!.isEmpty)
-                          ? const Icon(Icons.person, size: 45)
-                          : null,
+                    Stack(
+                      alignment: Alignment.center,
+                      clipBehavior: Clip.none,
+                      children: [
+                        // Avatar atrás da moldura
+                        Positioned(
+                          top: 10,
+                          child: CircleAvatar(
+                            radius: 42, // 🔹 ligeiramente menor que a moldura
+                            backgroundColor: Colors.white,
+                            backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
+                                ? NetworkImage(photoURL!)
+                                : null,
+                            child: (photoURL == null || photoURL!.isEmpty)
+                                ? const Icon(Icons.person, size: 40)
+                                : null,
+                          ),
+                        ),
+
+                        // Moldura Lottie (por cima)
+                        SizedBox(
+                          height: 110, // 🔹 reduzido para alinhar visualmente
+                          width: 200,
+                          child: Lottie.asset(
+                            LevelFrameManager.getFrameForLevel(level),
+                            repeat: true,
+                            fit: BoxFit.contain,
+                            alignment: Alignment.center,
+                          ),
+                        ),
+                      ],
                     ),
+
+
+
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -318,6 +395,15 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                           ),
                           const SizedBox(height: 2),
+                          Text(
+                            LevelFrameManager.getRankName(level),
+                            style: const TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+
                           Text(
                             (userData?['username'] != null &&
                                 (userData?['username'] as String)
@@ -338,6 +424,40 @@ class _ProfilePageState extends State<ProfilePage> {
                               fontSize: 12,
                             ),
                           ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.5),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  "Nível $level",
+                                  style: const TextStyle(
+                                    color: Colors.orangeAccent,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: LinearProgressIndicator(
+                                    value: xp.clamp(0.0, 1.0), // progresso até o próximo nível
+                                    backgroundColor: Colors.white24,
+                                    color: Colors.orangeAccent,
+                                    minHeight: 6,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
                         ],
                       ),
                     ),

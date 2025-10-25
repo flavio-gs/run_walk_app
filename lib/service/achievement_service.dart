@@ -347,4 +347,148 @@ class AchievementService {
       debugPrint("[Achievements] Falha ao postar conquista no feed: $e");
     }
   }
+  // ============================================================
+// 🧠 SISTEMA DE LEVEL E XP (com suporte a fontes futuras)
+// ============================================================
+
+  Future<void> addXP(
+      double xpGanho, {
+        BuildContext? context,
+        String source = 'run', // 🏁 padrão é corrida
+        String? description,   // opcional: texto descritivo ex: "Conquista de território"
+      }) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    double totalXP = prefs.getDouble('total_xp_${user.uid}') ?? 0.0;
+
+    totalXP += xpGanho;
+    await prefs.setDouble('total_xp_${user.uid}', totalXP);
+
+    final level = _calculateLevel(totalXP);
+
+    // Verifica se subiu de nível
+    final oldLevel = prefs.getInt('user_level_${user.uid}') ?? 0;
+    if (level > oldLevel) {
+      await prefs.setInt('user_level_${user.uid}', level);
+      if (context != null && context.mounted) {
+        await showAchievementPopup(
+          context,
+          title: 'Nível $level alcançado!',
+          icon: '🚀',
+        );
+        _showSnack(context, "🎉 Você subiu para o nível $level!");
+      }
+    }
+
+    // 🔄 Salva XP no Firestore com metadados (origem e data)
+    await _firestore.collection('users').doc(user.uid).set({
+      'xp': totalXP,
+      'level': level,
+    }, SetOptions(merge: true));
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('xp_history')
+        .add({
+      'amount': xpGanho,
+      'source': source, // 👈 "run", "territory", "challenge" etc.
+      'description': description ?? _getSourceDescription(source),
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint("[XP] +$xpGanho XP por $source | Total: ${totalXP.toStringAsFixed(1)} | Nível: $level");
+  }
+
+  /// Remove XP do jogador (ex: ao perder território)
+  Future<void> removeXP(
+      double xpPerdido, {
+        BuildContext? context,
+        String source = 'territory_loss',
+        String? description,
+      }) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    double totalXP = prefs.getDouble('total_xp_${user.uid}') ?? 0.0;
+
+    totalXP -= xpPerdido;
+    if (totalXP < 0) totalXP = 0; // evita valores negativos
+    await prefs.setDouble('total_xp_${user.uid}', totalXP);
+
+    final newLevel = _calculateLevel(totalXP);
+    final oldLevel = prefs.getInt('user_level_${user.uid}') ?? newLevel;
+
+    // Detecta perda de nível
+    if (newLevel < oldLevel) {
+      await prefs.setInt('user_level_${user.uid}', newLevel);
+
+      if (context != null && context.mounted) {
+        await showAchievementPopup(
+          context,
+          title: 'Você foi rebaixado para o nível $newLevel 😞',
+          icon: '⬇️',
+        );
+        _showSnack(context, "⚠️ Você perdeu XP e caiu para o nível $newLevel.");
+      }
+    }
+
+    // 🔁 Atualiza Firestore
+    await _firestore.collection('users').doc(user.uid).set({
+      'xp': totalXP,
+      'level': newLevel,
+    }, SetOptions(merge: true));
+
+    // Histórico do evento
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('xp_history')
+        .add({
+      'amount': -xpPerdido,
+      'source': source,
+      'description':
+      description ?? "Perda de território dominado",
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint("[XP] 🔻 -$xpPerdido XP (${source}) | Novo total: ${totalXP.toStringAsFixed(1)} | Nível: $newLevel");
+  }
+
+
+  /// Retorna um texto padrão para a origem
+  String _getSourceDescription(String source) {
+    switch (source) {
+      case 'territory':
+        return "Conquista de território";
+      case 'achievement':
+        return "Nova conquista desbloqueada";
+      case 'challenge':
+        return "Desafio completado";
+      default:
+        return "Atividade física registrada";
+    }
+  }
+
+  /// Fórmula para calcular o nível com base no XP total
+  int _calculateLevel(double xp) {
+    return (xp / 500).floor();
+  }
+
+  /// Retorna XP e level atuais
+  Future<Map<String, dynamic>> getUserLevelData() async {
+    final user = _auth.currentUser;
+    if (user == null) return {'xp': 0.0, 'level': 0};
+
+    final prefs = await SharedPreferences.getInstance();
+    final xp = prefs.getDouble('total_xp_${user.uid}') ?? 0.0;
+    final level = prefs.getInt('user_level_${user.uid}') ?? _calculateLevel(xp);
+
+    return {'xp': xp, 'level': level};
+  }
+
+
 }

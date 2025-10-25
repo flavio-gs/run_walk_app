@@ -16,6 +16,9 @@ import 'dart:ui';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'dart:math';
+import 'package:lottie/lottie.dart' hide Marker;
+import 'package:run_walk_app/service/service/territory_service.dart';
 
 
 import 'widgets/main_scaffold.dart';
@@ -220,6 +223,8 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
+  List<LatLng> _recordedRoute = [];
+
   double _slideDragValue = 0.0;
 
   bool _isOnline = true;
@@ -1105,12 +1110,53 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Future<void> _stopRun() async {
     _timer?.cancel();
     _stopwatch.stop();
-    // _stopPulseEffect();
     setState(() => _isRunning = false);
     await _playStop(); // som apenas no Wear
     ScaffoldVisibilityController.show();
     FlutterBackgroundService().invoke('stopService');
+
+    // 🚫 Evita corrida inválida
+    if (_totalDistance < 10) { // menos de 10 metros
+      debugPrint("[XP] Corrida muito curta (${_totalDistance.toStringAsFixed(2)} m) — sem XP concedido.");
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // 🔹 Garante que o pace e as calorias estão atualizados
+    _calculatePaceAndCalories();
+
+    // 🔹 Monta os dados da corrida atual
+    final runData = {
+      'userId': user.uid,
+      'distance': _totalDistance, // em metros
+      'pace': _averagePace,       // já calculado em min/km
+      'route': _recordedRoute
+          .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+          .toList(),
+    };
+
+    // 🔹 Adiciona XP proporcional à distância
+    await AchievementService().addXP(
+      _totalDistance * 0.1, // ex: 0.1 XP por metro = 100 XP por km
+      context: context,
+      source: 'run',
+      description: 'Corrida concluída',
+    );
+
+    // 🔹 Verifica se o jogador dominou algum território
+    await TerritoryService().checkTerritoryDominance(
+      userId: user.uid,
+      pace: _averagePace,
+      route: (runData['route'] as List)
+          .map((e) => Map<String, double>.from(e))
+          .toList(),
+    );
+
   }
+
+
 
   void _calculatePaceAndCalories() {
     final dMeters = _totalDistance;
@@ -1162,6 +1208,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Future<void> _startLocationTracking() async {
     try {
       await _positionStream?.cancel();
+      // 🧹 Sempre começa com rota limpa
+      _recordedRoute.clear();
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -1170,6 +1218,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ).listen((position) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
+          // 🗺️ Salva cada ponto na rota
+          _recordedRoute.add(_currentPosition);
         });
         _updateMarker();
 
@@ -2674,7 +2724,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           await Future.delayed(const Duration(milliseconds: 700));
           if (!context.mounted) return;
-          Navigator.pop(context);
 
           final userId = runData['userId'] ?? '';
           if (userId.isEmpty) {
@@ -2685,6 +2734,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           // ✅ Reabre o card no contexto atualizado
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (context.mounted) {
+              Navigator.pop(context);
               _showPlayerCard(context, userId, runData: runData);
             }
           });
@@ -2930,11 +2980,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
+
+
   void _showLoadingOverlay(BuildContext context) {
+    // 🎲 Sorteia um dos Lotties
+    final lotties = [
+      'assets/lottie/running1.json',
+      'assets/lottie/running2.json',
+    ];
+    final random = Random();
+    final selectedLottie = lotties[random.nextInt(lotties.length)];
+
     showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.55), // fundo escurecido suave
+      barrierColor: Colors.white.withOpacity(0.55), // fundo escurecido suave
       builder: (context) {
         return Center(
           child: TweenAnimationBuilder<double>(
@@ -2950,8 +3010,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                     child: BackdropFilter(
                       filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                       child: Container(
-                        height: 130,
-                        width: 130,
+                        height: 150,
+                        width: 150,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -2977,28 +3037,30 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // Anel de progresso laranja pulsante
+                            // 🔸 Anel de progresso laranja
                             SizedBox(
-                              height: 70,
-                              width: 70,
+                              height: 80,
+                              width: 80,
                               child: CircularProgressIndicator(
                                 strokeWidth: 5,
                                 valueColor: AlwaysStoppedAnimation<Color>(
                                   Colors.deepOrangeAccent,
                                 ),
-                                backgroundColor:
-                                Colors.white.withOpacity(0.08),
+                                backgroundColor: Colors.white.withOpacity(0.08),
                               ),
                             ),
 
-                            // Ícone central animado
-                            Icon(
-                              Icons.directions_run_rounded,
-                              color: Colors.white.withOpacity(0.9),
-                              size: 40,
+                            // 🏃‍♂️ Ícone Lottie random
+                            Lottie.asset(
+                              selectedLottie,
+                              height: 90,
+                              width: 90,
+                              fit: BoxFit.contain,
+                              repeat: true,
+                              animate: true,
                             ),
 
-                            // brilho pulsante ao redor
+                            // ✨ brilho pulsante
                             Positioned.fill(
                               child: AnimatedOpacity(
                                 duration: const Duration(seconds: 1),
@@ -3030,8 +3092,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       },
     );
   }
-
-
 
   void _showPlayerInfo(String name, String? photoUrl, {String? userId}) {
     final currentUser = FirebaseAuth.instance.currentUser!;
