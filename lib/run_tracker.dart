@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,11 +15,45 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
+import 'package:audioplayers/audioplayers.dart';
+
 
 import 'widgets/main_scaffold.dart';
 
 // Som (apenas Wear OS usará)
 import 'package:audioplayers/audioplayers.dart';
+
+// Lista de frases e áudios correspondentes
+final List<Map<String, String>> preRunPhrases = [
+  {
+    "text": "Você tem 15 segundos para se preparar 🏁",
+    "audio": "audio/pre_run_1.mp3"
+  },
+  {
+    "text": "Aquecimento rápido! Largada em até 15s ⏱️",
+    "audio": "audio/pre_run_2.mp3"
+  },
+  {
+    "text": "Prepare-se! Corrida começa em até 15 segundos 🔥",
+    "audio": "audio/pre_run_3.mp3"
+  },
+  {
+    "text": "Hora de alongar e focar — largada em até 15s 💪",
+    "audio": "audio/pre_run_4.mp3"
+  },
+  {
+    "text": "Respira fundo… corrida começa em 15 segundos!",
+    "audio": "audio/pre_run_5.mp3"
+  },
+  {
+    "text": "Você tem 15s pra se preparar. Vamos nessa! 🧡",
+    "audio": "audio/pre_run_6.mp3"
+  },
+  {
+    "text": "Aquecendo motores… largada em 15 segundos 🏁",
+    "audio": "audio/pre_run_7.mp3"
+  },
+];
 
 class Character3D extends StatelessWidget {
   final double bearing;
@@ -190,7 +225,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   bool _isOnline = true;
   StreamSubscription<Position>? _onlinePositionStream;
   LatLng? _lastSavedPositionOnline;
-  bool _isChallengePanelVisible = true;
+  bool _isChallengePanelVisible = false;
 
   bool _mapReady = false;
   bool _followUser = true; // 🔓 controla se o mapa deve seguir automaticamente
@@ -648,6 +683,178 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
+  Future<void> _showPreRunCountdown() async {
+    int secondsLeft = 15;
+    bool skipPressed = false;
+    bool showGo = false;
+    bool showFlash = false;
+    Timer? countdownTimer;
+
+    // 🎲 Sorteia frase e áudio
+    final random = Random();
+    final selected = preRunPhrases[random.nextInt(preRunPhrases.length)];
+    final phrase = selected["text"]!;
+    final audioPath = selected["audio"]!;
+
+    // 🎧 Prepara e toca o áudio
+    final player = AudioPlayer();
+    await player.play(AssetSource(audioPath));
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.white,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            countdownTimer ??= Timer.periodic(const Duration(seconds: 1), (timer) async {
+              if (skipPressed) {
+                timer.cancel();
+                return;
+              }
+
+              if (secondsLeft > 1) {
+                setState(() => secondsLeft--);
+              } else if (secondsLeft == 1) {
+                setState(() {
+                  secondsLeft = 0;
+                  showGo = true;
+                });
+
+                // 🔆 Flash + “GO!”
+                await Future.delayed(const Duration(milliseconds: 100));
+                setState(() => showFlash = true);
+                await Future.delayed(const Duration(milliseconds: 300));
+                setState(() => showFlash = false);
+
+                await Future.delayed(const Duration(milliseconds: 400));
+                Navigator.pop(context);
+                _startRun();
+
+                timer.cancel();
+              }
+            });
+
+            return Scaffold(
+              backgroundColor: Colors.white,
+              body: SafeArea(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // 🔢 Número da contagem regressiva centralizado corretamente
+                    if (!showGo)
+                      Align(
+                        alignment: Alignment.center,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 400),
+                          transitionBuilder: (child, anim) =>
+                              ScaleTransition(scale: anim, child: child),
+                          child: Text(
+                            "$secondsLeft",
+                            key: ValueKey(secondsLeft),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 160,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                              height: 1, // garante centralização vertical visual
+                            ),
+                          ),
+                        ),
+                      ),
+
+
+                    // 🏁 Frase motivacional
+                    Positioned(
+                      top: 100,
+                      left: 20,
+                      right: 20,
+                      child: Text(
+                        phrase,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+
+                    // ⏩ Botão “Iniciar agora”
+                    Positioned(
+                      bottom: 60,
+                      left: 40,
+                      right: 40,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          skipPressed = true;
+                          countdownTimer?.cancel();
+                          await player.stop();
+                          Navigator.pop(context);
+                          _startRun();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16, horizontal: 32),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: const Text(
+                          "INICIAR AGORA",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // ⚡ GO! no final — centralizado e com animação suave
+                    if (showGo)
+                      Center(
+                        child: AnimatedOpacity(
+                          opacity: showFlash ? 0 : 1,
+                          duration: const Duration(milliseconds: 300),
+                          child: const Text(
+                            "GO!",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 160,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.black,
+                              letterSpacing: -5,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+
+
+                    // ✨ Flash branco rápido
+                    if (showFlash)
+                      AnimatedOpacity(
+                        opacity: showFlash ? 1 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(color: Colors.white),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    countdownTimer?.cancel();
+    await player.stop();
+    await player.dispose();
+  }
 
   void _startRun() async {
     ScaffoldVisibilityController.hide();
@@ -1187,7 +1394,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                     _stopRun();
                     await _saveRun(wearMode: true);
                   }
-                      : _startRun,
+                      : _showPreRunCountdown,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
                     height: 90 * scale,
@@ -1242,7 +1449,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Widget _buildActiveChallengePanel(Map<String, dynamic> challenge, String challengeId) {
     final title = challenge['title'] ?? 'Desafio sem nome';
-    final distance = (challenge['distance'] ?? 0).toDouble();
+    final distanceTargetKm = (challenge['distance'] ?? 0).toDouble();
     final deadline = (challenge['deadline'] as Timestamp?)?.toDate();
     final now = DateTime.now();
 
@@ -1250,109 +1457,203 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     final daysLeft = timeLeft.inDays >= 0 ? timeLeft.inDays : 0;
 
     final userId = FirebaseAuth.instance.currentUser!.uid;
-    final userProgress =
-    (challenge['progress']?[userId]?['distance'] ?? 0).toDouble();
+    final userProgressMeters = (challenge['progress']?[userId]?['distance'] ?? 0).toDouble();
+    final userProgressKm = userProgressMeters / 1000.0;
 
-    final progress = distance > 0 ? (userProgress / distance).clamp(0.0, 1.0) : 0.0;
+    final progress = distanceTargetKm > 0 ? (userProgressKm / distanceTargetKm).clamp(0.0, 1.0) : 0.0;
     final progressPercent = (progress * 100).toStringAsFixed(0);
 
+    // 🔸 Verifica status do desafio (para ocultar se encerrado ou concluído)
+    final participants = (challenge['participants'] ?? []) as List;
+    final quitters = (challenge['quitters'] ?? []) as List? ?? [];
+    final participantStatus = (challenge['progress']?[userId]?['status'] ?? 'active').toString();
+
+    final isAuthor = challenge['authorId'] == userId;
+    final isParticipant = participants.contains(userId) && !quitters.contains(userId);
+    final isActive = (
+        participantStatus == 'active' ||
+            participantStatus == 'in_progress' ||
+            participantStatus.isEmpty
+    ) && daysLeft >= 0;
+
+
+    if (!isActive || !isParticipant) return const SizedBox(); // ✅ não exibe se encerrado, concluído ou não participante
+
     return Align(
-      alignment: Alignment.centerLeft,
+      alignment: Alignment.topCenter,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        margin: const EdgeInsets.only(left: 16, top: 12),
-        padding: const EdgeInsets.all(14),
-        width: 150,
+        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.all(16),
+        width: double.infinity,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white24, width: 1),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.blueAccent.withOpacity(0.3),
+              color: Colors.black.withOpacity(0.08),
               blurRadius: 10,
-              spreadRadius: 2,
+              offset: const Offset(0, 4),
             ),
           ],
+          border: Border.all(color: Colors.grey.shade200, width: 1),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔽 Cabeçalho com botão de recolher
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "🏁 $title",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+            // 🔹 Cabeçalho fixo (minimizado inicialmente)
+            GestureDetector(
+              onTap: () => setState(() {
+                _isChallengePanelVisible = !_isChallengePanelVisible;
+              }),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFF6D00),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.flag_rounded, color: Colors.white, size: 20),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      "Desafio ativo",
+                      style: GoogleFonts.poppins(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                  Icon(
                     _isChallengePanelVisible
                         ? Icons.keyboard_arrow_up_rounded
                         : Icons.keyboard_arrow_down_rounded,
-                    color: Colors.white70,
+                    color: Colors.black87,
                   ),
-                  onPressed: () {
-                    setState(() => _isChallengePanelVisible = !_isChallengePanelVisible);
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
 
-            // 🔹 Conteúdo recolhível
+            // 🔻 Conteúdo expansível
             AnimatedCrossFade(
-              duration: const Duration(milliseconds: 250),
+              duration: const Duration(milliseconds: 300),
               crossFadeState: _isChallengePanelVisible
                   ? CrossFadeState.showFirst
                   : CrossFadeState.showSecond,
-              firstChild: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 6),
-                  Text("Meta: ${distance.toStringAsFixed(1)} km",
-                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  if (daysLeft > 0)
-                    Text("Prazo: $daysLeft dias restantes",
-                        style: const TextStyle(color: Colors.white70, fontSize: 13))
-                  else
-                    const Text("⏰ Desafio encerrando hoje!",
-                        style: TextStyle(color: Colors.redAccent, fontSize: 13)),
-
-                  const SizedBox(height: 10),
-
-                  Stack(
-                    children: [
-                      Container(
-                        height: 8,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: Colors.redAccent.withOpacity(0.3),
-                        ),
+              firstChild: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "🏁 $title",
+                      style: GoogleFonts.poppins(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
                       ),
-                      Container(
-                        height: 8,
-                        width: (250 * progress).toDouble(),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF007AFF), Color(0xFF4A90E2)],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Meta: ${distanceTargetKm.toStringAsFixed(1)} km",
+                      style: GoogleFonts.poppins(
+                        color: Colors.black54,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      daysLeft > 0
+                          ? "Prazo: $daysLeft dias restantes"
+                          : "⏰ Desafio encerrando hoje!",
+                      style: GoogleFonts.poppins(
+                        color: daysLeft > 0 ? Colors.black54 : Colors.redAccent,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // 🔸 Barra de progresso com gradiente laranja
+                    Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        FractionallySizedBox(
+                          widthFactor: progress,
+                          child: Container(
+                            height: 8,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFFFF6D00),
+                                  Color(0xFFFFA726),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+
+                    // 📊 Progresso numérico
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "$progressPercent% concluído",
+                          style: GoogleFonts.poppins(
+                            color: Colors.black54,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          "${userProgressKm.toStringAsFixed(1)} / ${distanceTargetKm.toStringAsFixed(1)} km",
+                          style: GoogleFonts.poppins(
+                            color: const Color(0xFFFF6D00),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // ❌ Botão cancelar
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: () => _confirmCancelChallenge(challengeId),
+                        icon: const Icon(Icons.close_rounded, color: Colors.redAccent),
+                        label: Text(
+                          "Cancelar inscrição",
+                          style: GoogleFonts.poppins(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                          backgroundColor: Colors.redAccent.withOpacity(0.08),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text("$progressPercent% concluído",
-                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
-
-                  const SizedBox(height: 10),
-                  _buildCancelButton(challengeId),
-                ],
+                    ),
+                  ],
+                ),
               ),
               secondChild: const SizedBox.shrink(),
             ),
@@ -1361,6 +1662,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
     );
   }
+
+
 
 
   Widget _buildCancelButton(String challengeId) {
@@ -1495,6 +1798,33 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
+          // 🏁 Desafio ativo (card moderno)
+          if (_challengeStream != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 220,
+              left: 0,
+              right: 0,
+              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: _challengeStream,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+
+                  final data = snapshot.data!.data();
+                  if (data == null) return const SizedBox();
+
+                  final participants = (data['participants'] ?? []) as List;
+                  final userId = FirebaseAuth.instance.currentUser!.uid;
+                  final isAuthor = data['authorId'] == userId;
+
+                  // só mostra se o usuário participa do desafio ou é o criador
+                  if (!participants.contains(userId) && !isAuthor) return const SizedBox();
+
+                  return _buildActiveChallengePanel(data, snapshot.data!.id);
+                },
+              ),
+            ),
+
+
 
           // 🕒 Cronômetro e métricas superiores
           Positioned(
@@ -1525,6 +1855,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
+
           // ⚫ Botão central — preto com ícone play laranja
           Positioned(
             bottom: 40,
@@ -1537,7 +1868,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🔘 Botão recenter
           Positioned(
-            bottom: 110,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.75,
             right: 20,
             child: GestureDetector(
               onTap: _recenterMap,
@@ -1562,7 +1893,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🌐 Online/Offline — minimalista
           Positioned(
-            top: MediaQuery.of(context).padding.top + 230,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.70,
             right: 20,
             child: GestureDetector(
               onTap: _toggleOnlineStatus,
@@ -1610,7 +1941,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   // ▶️ Botão de início da corrida
   Widget _buildStartButton() {
     return GestureDetector(
-      onTap: _startRun,
+      onTap: _showPreRunCountdown,
       child: Container(
         height: 90,
         width: 90,
@@ -1634,107 +1965,110 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-  // ⏹️ Botão de deslize para parar
   Widget _buildSlideToStopButton() {
     final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
 
-    return GestureDetector(
-      onHorizontalDragUpdate: (details) {
-        setState(() {
-          _slideDragValue += details.primaryDelta ?? 0;
-          _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
-        });
-      },
-      onHorizontalDragEnd: (details) async {
-        if (_slideDragValue > 120) {
-          HapticFeedback.mediumImpact();
-          await _stopRun();
-          await _saveRun();
+    return SafeArea( // 🔒 protege contra sobreposição da navigation bar
+      minimum: const EdgeInsets.only(bottom: 24), // sobe o botão um pouco
+      child: GestureDetector(
+        onHorizontalDragUpdate: (details) {
           setState(() {
-            _slideDragValue = 0.0;
-            _isRunning = false;
+            _slideDragValue += details.primaryDelta ?? 0;
+            _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
           });
-        } else {
-          HapticFeedback.lightImpact();
-          setState(() => _slideDragValue = 0.0);
-        }
-      },
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          Container(
-            height: 65,
-            width: 240,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(40),
-              color: Colors.black,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-          ),
-
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 50),
-            height: 65,
-            width: (240 * progress).clamp(0, 240),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.horizontal(
-                left: const Radius.circular(40),
-                right: Radius.circular(progress > 0.98 ? 40 : 10),
-              ),
-              color: Colors.grey[300],
-            ),
-          ),
-
-          SizedBox(
-            height: 65,
-            width: 240,
-            child: Center(
-              child: Text(
-                progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
-                style: GoogleFonts.poppins(
-                  color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          ),
-
-          Positioned(
-            left: _slideDragValue.clamp(0, 175),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 100),
+        },
+        onHorizontalDragEnd: (details) async {
+          if (_slideDragValue > 120) {
+            HapticFeedback.mediumImpact();
+            await _stopRun();
+            await _saveRun();
+            setState(() {
+              _slideDragValue = 0.0;
+              _isRunning = false;
+            });
+          } else {
+            HapticFeedback.lightImpact();
+            setState(() => _slideDragValue = 0.0);
+          }
+        },
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            Container(
               height: 65,
-              width: 65,
+              width: 240,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
+                borderRadius: BorderRadius.circular(40),
+                color: Colors.black,
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black26,
                     blurRadius: 8,
-                    spreadRadius: 2,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
-              child: const Icon(
-                Icons.stop_rounded,
-                color: Colors.black,
-                size: 30,
+            ),
+
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 50),
+              height: 65,
+              width: (240 * progress).clamp(0, 240),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.horizontal(
+                  left: const Radius.circular(40),
+                  right: Radius.circular(progress > 0.98 ? 40 : 10),
+                ),
+                color: Colors.grey[300],
               ),
             ),
-          ),
-        ],
+
+            SizedBox(
+              height: 65,
+              width: 240,
+              child: Center(
+                child: Text(
+                  progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
+                  style: GoogleFonts.poppins(
+                    color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: _slideDragValue.clamp(0, 175),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                height: 65,
+                width: 65,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 8,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.stop_rounded,
+                  color: Colors.black,
+                  size: 30,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
 
 
   @override
@@ -1788,8 +2122,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     if (loading) return;
     setState(() => loading = true);
 
+    // 🔸 Mostra o loading visual
+    if (context.mounted) _showLoadingOverlay(context);
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      if (context.mounted) Navigator.pop(context);
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1801,7 +2139,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
     if (_totalDistance < 10) {
+      if (context.mounted) Navigator.pop(context);
       if (context.mounted && !wearMode) {
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Corrida muito curta para ser salva.")),
         );
@@ -1873,14 +2213,42 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           const SnackBar(content: Text('🏁 Corrida salva com sucesso!')),
         );
         await _applyRunDistanceToActiveChallenges(distanceMeters: distanceMeters);
+        // 🔥 Atualiza visualmente o card de desafio ativo instantaneamente
+        if (_activeChallengeId != null) {
+          final docRef = FirebaseFirestore.instance.collection('posts').doc(_activeChallengeId!);
+          final snapshot = await docRef.get();
+
+          if (snapshot.exists) {
+            final data = snapshot.data();
+            if (data != null && mounted) {
+              setState(() {
+                _activeChallengeData = data;
+                _challengeStream = docRef.snapshots();
+              });
+            }
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("🎯 Progresso do desafio atualizado!"),
+                duration: Duration(seconds: 2),
+                backgroundColor: Colors.deepOrangeAccent,
+              ),
+            );
+          }
+        }
+
       }
     } catch (e) {
       if (context.mounted && !wearMode) {
+        if (context.mounted) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Erro ao salvar corrida: $e")),
         );
       }
     } finally {
+      // ✅ fecha o loading assim que tudo termina
+      if (context.mounted) Navigator.pop(context);
       setState(() => loading = false);
 
       // 🔹 Reseta UI e variáveis
@@ -2566,46 +2934,103 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.4),
+      barrierColor: Colors.black.withOpacity(0.55), // fundo escurecido suave
       builder: (context) {
         return Center(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(25),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: Container(
-                height: 110,
-                width: 110,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
-                  borderRadius: BorderRadius.circular(25),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.blueAccent.withOpacity(0.3),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: SizedBox(
-                    height: 50,
-                    width: 50,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 4,
-                      valueColor:
-                      AlwaysStoppedAnimation<Color>(Color(0xFF4A90E2)),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 600),
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: 0.9 + 0.1 * value,
+                child: Opacity(
+                  opacity: value,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(30),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                      child: Container(
+                        height: 130,
+                        width: 130,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.black.withOpacity(0.85),
+                              Colors.black.withOpacity(0.6),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: Colors.deepOrangeAccent.withOpacity(0.3),
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.deepOrangeAccent.withOpacity(0.4),
+                              blurRadius: 25,
+                              spreadRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Anel de progresso laranja pulsante
+                            SizedBox(
+                              height: 70,
+                              width: 70,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 5,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.deepOrangeAccent,
+                                ),
+                                backgroundColor:
+                                Colors.white.withOpacity(0.08),
+                              ),
+                            ),
+
+                            // Ícone central animado
+                            Icon(
+                              Icons.directions_run_rounded,
+                              color: Colors.white.withOpacity(0.9),
+                              size: 40,
+                            ),
+
+                            // brilho pulsante ao redor
+                            Positioned.fill(
+                              child: AnimatedOpacity(
+                                duration: const Duration(seconds: 1),
+                                opacity: value > 0.5 ? 0.15 : 0.25,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: RadialGradient(
+                                      colors: [
+                                        Colors.deepOrangeAccent.withOpacity(0.5),
+                                        Colors.transparent,
+                                      ],
+                                      radius: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         );
       },
     );
   }
+
 
 
   void _showPlayerInfo(String name, String? photoUrl, {String? userId}) {
@@ -3493,40 +3918,50 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     final now = DateTime.now();
 
-    // Desafios ativos em que o usuário está inscrito
+    // 🔹 Busca desafios ativos dentro de "posts" do tipo "challenge"
     final qs = await FirebaseFirestore.instance
-        .collection('challenges')
-        .where('participantsIds', arrayContains: user.uid)
+        .collection('posts')
+        .where('type', isEqualTo: 'challenge')
+        .where('participants', arrayContains: user.uid)
         .where('deadline', isGreaterThan: Timestamp.fromDate(now))
         .get();
 
     for (final doc in qs.docs) {
-      final challenge = doc.data();
-      final targetKm = (challenge['targetKm'] ?? 0).toDouble();
+      final data = doc.data();
+
+      final targetKm = (data['distance'] ?? 0).toDouble();
       if (targetKm <= 0) continue;
 
-      final partRef = doc.reference.collection('participants').doc(user.uid);
-      final partSnap = await partRef.get();
+      // 🔹 Pega progresso atual do usuário dentro de "progress.<uid>.distance"
+      final progressMap = data['progress'] as Map<String, dynamic>? ?? {};
+      final userProgress = progressMap[user.uid] as Map<String, dynamic>? ?? {};
 
-      if (!partSnap.exists) continue;
-      final status = partSnap['status'] ?? 'active';
-      if (status != 'active') continue;
+      final currentMeters = (userProgress['distance'] ?? 0).toDouble();
+      final status = (userProgress['status'] ?? 'in_progress').toString();
 
-      final current = (partSnap['progressMeters'] ?? 0.0).toDouble();
-      double next = current + distanceMeters;
+      if (status != 'in_progress' && status != 'active') continue;
+
+      // 🔹 Soma a nova distância
+      final nextMeters = currentMeters + distanceMeters;
       final targetMeters = targetKm * 1000.0;
+      final completed = nextMeters >= targetMeters;
 
-      // atingiu meta?
-      final completed = next >= targetMeters;
-
-      await partRef.update({
-        'progressMeters': next,
-        'status': completed ? 'completed' : 'active',
-        if (completed) 'finishedAt': FieldValue.serverTimestamp(),
-        'lastUpdate': FieldValue.serverTimestamp(),
+      // 🔹 Atualiza diretamente no documento do desafio
+      await doc.reference.update({
+        'progress.${user.uid}.distance': nextMeters,
+        'progress.${user.uid}.status': completed ? 'completed' : 'in_progress',
+        if (completed)
+          'progress.${user.uid}.finishedAt': FieldValue.serverTimestamp(),
+        'progress.${user.uid}.lastUpdate': FieldValue.serverTimestamp(),
       });
+
+      print(
+        '✅ Progresso atualizado no desafio ${doc.id}: '
+            '${(nextMeters / 1000).toStringAsFixed(2)} / $targetKm km',
+      );
     }
   }
+
 
 
 

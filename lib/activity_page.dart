@@ -28,7 +28,7 @@ class _ActivityPageState extends State<ActivityPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: StreamBuilder<QuerySnapshot>(
         stream: _challengeStream,
         builder: (context, snapshot) {
@@ -59,11 +59,11 @@ class _ActivityPageState extends State<ActivityPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.flag_outlined, color: Colors.white38, size: 64),
+          const Icon(Icons.flag_outlined, color: Colors.deepOrange, size: 64),
           const SizedBox(height: 12),
           Text(
             "Nenhum desafio ativo no momento",
-            style: GoogleFonts.orbitron(color: Colors.white54, fontSize: 16),
+            style: GoogleFonts.poppins(color: Colors.black, fontSize: 16),
           ),
         ],
       ),
@@ -83,7 +83,8 @@ class _ActivityPageState extends State<ActivityPage> {
 
     final userProgressData =
         (data['progress'] ?? {})[user.uid] ?? {'distance': 0, 'status': 'active'};
-    final userDistance = (userProgressData['distance'] ?? 0).toDouble();
+    final userDistance = ((userProgressData['distance'] ?? 0).toDouble() / 1000);
+
     final status = userProgressData['status'] ?? 'active';
 
     final percent =
@@ -130,7 +131,7 @@ class _ActivityPageState extends State<ActivityPage> {
                       Text(
                         title,
                         style: GoogleFonts.russoOne(
-                          color: Colors.white,
+                          color: Colors.black,
                           fontSize: 18,
                           letterSpacing: 1.1,
                         ),
@@ -176,7 +177,7 @@ class _ActivityPageState extends State<ActivityPage> {
 
               Text(
                 "Criado por: $createdBy",
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+                style: const TextStyle(color: Colors.black, fontSize: 13),
               ),
 
               if (isCreatorQuitter)
@@ -227,11 +228,11 @@ class _ActivityPageState extends State<ActivityPage> {
                 children: [
                   Text(
                     "${userDistance.toStringAsFixed(2)} km percorridos",
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
                   ),
                   Text(
                     "Meta: ${distance.toStringAsFixed(1)} km",
-                    style: const TextStyle(color: Colors.white54, fontSize: 13),
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
                   ),
                 ],
               ),
@@ -240,7 +241,7 @@ class _ActivityPageState extends State<ActivityPage> {
               if (remainingDays > 0 && !isCancelled && !isCompleted)
                 Text(
                   "⏳ ${remainingDays} dias restantes",
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  style: const TextStyle(color: Colors.black38, fontSize: 13),
                 )
               else if (isCompleted)
                 const Text("🏁 Desafio concluído!",
@@ -260,11 +261,11 @@ class _ActivityPageState extends State<ActivityPage> {
                         ? null
                         : () => _showRanking(context, id, data),
                     icon: const Icon(Icons.leaderboard_rounded,
-                        color: Colors.white70, size: 20),
+                        color: Colors.black87, size: 20),
                     label: const Text(
                       "Ver Ranking",
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Colors.black,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
                       ),
@@ -356,10 +357,7 @@ class _ActivityPageState extends State<ActivityPage> {
     // 🔹 Mostra o ranking
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.black.withOpacity(0.85),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
+      backgroundColor: Colors.black12.withOpacity(0.85),
       builder: (context) {
         return Padding(
           padding: const EdgeInsets.all(22),
@@ -378,7 +376,7 @@ class _ActivityPageState extends State<ActivityPage> {
               const SizedBox(height: 12),
               Text(
                 "Ranking do Desafio",
-                style: GoogleFonts.russoOne(color: Colors.white, fontSize: 22),
+                style: GoogleFonts.russoOne(color: Colors.deepOrange, fontSize: 22),
               ),
               const SizedBox(height: 20),
 
@@ -428,7 +426,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         Text(
                           "${index + 1}",
                           style: const TextStyle(
-                            color: Colors.white70,
+                            color: Colors.black87,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -443,7 +441,7 @@ class _ActivityPageState extends State<ActivityPage> {
                         photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
                         child: photoUrl.isEmpty
                             ? const Icon(Icons.person,
-                            color: Colors.white54, size: 18)
+                            color: Colors.black87, size: 18)
                             : null,
                       ),
 
@@ -453,7 +451,7 @@ class _ActivityPageState extends State<ActivityPage> {
                           isMe ? "Você" : player['name'],
                           style: TextStyle(
                             color:
-                            isMe ? Colors.greenAccent : Colors.white70,
+                            isMe ? Colors.greenAccent : Colors.black87,
                             fontWeight:
                             isMe ? FontWeight.bold : FontWeight.normal,
                           ),

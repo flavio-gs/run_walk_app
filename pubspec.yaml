@@ -91,3 +91,10 @@ flutter:
     - assets/sounds/raio.mp3
     - assets/sounds/1.mp3
     - assets/videos/splash.mp4
+    - assets/audio/pre_run_1.mp3
+    - assets/audio/pre_run_2.mp3
+    - assets/audio/pre_run_3.mp3
+    - assets/audio/pre_run_4.mp3
+    - assets/audio/pre_run_5.mp3
+    - assets/audio/pre_run_6.mp3
+    - assets/audio/pre_run_7.mp3

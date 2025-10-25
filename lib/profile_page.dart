@@ -10,6 +10,8 @@ import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
 import 'detalhe_corrida_page.dart';
 import 'model/run_model.dart';
+import 'package:run_walk_app/activity_page.dart';
+
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
@@ -193,7 +195,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         backgroundColor: lightGray,
         body: loading
@@ -233,6 +235,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const _AchievementsTab(),
                 _HistoryTab(userId: _profileUserId),
+                const ActivityPage(),
               ],
             ),
           ),
@@ -362,6 +365,7 @@ class _ProfilePageState extends State<ProfilePage> {
             Tab(text: 'Estatísticas'),
             Tab(text: 'Conquistas'),
             Tab(text: 'Histórico'),
+            Tab(text: 'Desafios'),
           ],
         ),
       ),

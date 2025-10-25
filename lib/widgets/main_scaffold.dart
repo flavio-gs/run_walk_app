@@ -19,7 +19,7 @@ class ScaffoldVisibilityController {
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
 
-  const MainScaffold({super.key, this.initialIndex = 3});
+  const MainScaffold({super.key, this.initialIndex = 2});
 
   @override
   State<MainScaffold> createState() => _MainScaffoldState();
@@ -45,9 +45,7 @@ class _MainScaffoldState extends State<MainScaffold>
   final List<Widget> _pages = const [
     FeedPage(),
     CommunityPage(),
-    ActivityPage(),
     RunTrackingPage(),
-    HistoricoPage(),
     ProfilePage(),
     FeedbackPage(),
   ];
@@ -76,7 +74,7 @@ class _MainScaffoldState extends State<MainScaffold>
   void _onItemTapped(int index) async {
     if (index == _selectedIndex || _transitioning) return;
 
-    if (index == 3) {
+    if (index == 2) {
       Future.delayed(const Duration(milliseconds: 300), () {
         _audioPlayer.play(AssetSource('sounds/1.mp3'));
       });
@@ -157,11 +155,9 @@ class _MainScaffoldState extends State<MainScaffold>
               items: [
                 _navItem(Icons.dashboard_outlined, 0),
                 _navItem(Icons.people_outline, 1),
-                _navItem(Icons.bar_chart_outlined, 2),
-                _activityItem(Icons.bolt, 3),
-                _navItem(Icons.timeline_outlined, 4),
-                _navItem(Icons.person_outline, 5),
-                _navItem(Icons.chat_bubble_outline, 6),
+                _activityItem(Icons.bolt, 2),
+                _navItem(Icons.person_outline, 3),
+                _navItem(Icons.chat_bubble_outline, 4),
               ],
             ),
           );
