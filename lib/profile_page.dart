@@ -8,6 +8,7 @@ import 'package:run_walk_app/followers_page.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
+import 'package:run_walk_app/widgets/achievement_overlay.dart';
 import 'detalhe_corrida_page.dart';
 import 'model/run_model.dart';
 import 'package:run_walk_app/activity_page.dart';
@@ -26,6 +27,10 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   bool loading = true;
+  int? _previousLevel;
+  int? _lastLevelShown;
+  bool _isFirstSnapshot = true; // flag para ignorar o primeiro snapshot
+
 
   // Dados de level e XP
   int level = 0;
@@ -86,7 +91,7 @@ class _ProfilePageState extends State<ProfilePage> {
         .collection('users')
         .doc(user.uid)
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
       if (!snapshot.exists) return;
 
       final data = snapshot.data() ?? {};
@@ -94,17 +99,33 @@ class _ProfilePageState extends State<ProfilePage> {
       final int currentLevel = (data['level'] ?? 0).toInt();
 
       // 🔹 Cálculos derivados
-      final double progress = (totalXp % 500) / 500; // entre 0 e 1
-      final double currentXp = totalXp % 500;        // XP dentro do nível
-      final double xpToNext = 500 - currentXp;       // quanto falta
+      final double progress = (totalXp % 500) / 500;
+      final double currentXp = totalXp % 500;
+      final double xpToNext = 500 - currentXp;
 
-      setState(() {
-        level = currentLevel;
-        xp = progress;
-        userData ??= {};
-        userData!['currentXp'] = currentXp;
-        userData!['xpToNext'] = xpToNext;
-      });
+      // 🔥 Só mostra animação se o nível aumentou E ainda não foi mostrado
+      if (_lastLevelShown == null) {
+        _lastLevelShown = currentLevel; // primeira leitura
+      } else if (currentLevel > _lastLevelShown!) {
+        debugPrint("🚀 Subiu de nível: $_lastLevelShown → $currentLevel");
+        _lastLevelShown = currentLevel; // atualiza imediatamente antes da animação
+
+        if (context.mounted) {
+          // ✅ sem await, pra não travar o listener
+          showLevelUpAnimation(context, currentLevel);
+        }
+      }
+
+      // Atualiza UI normalmente
+      if (mounted) {
+        setState(() {
+          level = currentLevel;
+          xp = progress;
+          userData ??= {};
+          userData!['currentXp'] = currentXp;
+          userData!['xpToNext'] = xpToNext;
+        });
+      }
 
       debugPrint(
         "[XP Listener] XP total: $totalXp | Nível: $currentLevel | "

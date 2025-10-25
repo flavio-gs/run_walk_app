@@ -99,6 +99,5 @@ flutter:
     - assets/audio/pre_run_5.mp3
     - assets/audio/pre_run_6.mp3
     - assets/audio/pre_run_7.mp3
-    - assets/lottie/running1.json
-    - assets/lottie/running2.json
+    - assets/lottie/
     - assets/frames/

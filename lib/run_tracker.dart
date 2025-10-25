@@ -19,6 +19,8 @@ import 'package:audioplayers/audioplayers.dart';
 import 'dart:math';
 import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
+import 'package:run_walk_app/service/level_frame_manager.dart';
+import 'package:lottie/lottie.dart' hide Marker;
 
 
 import 'widgets/main_scaffold.dart';
@@ -3794,16 +3796,38 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           // 🔹 Avatar + nome + XP/Nível
                           Row(
                             children: [
-                              CircleAvatar(
-                                radius: 35,
-                                backgroundImage: stats['photoURL'] != null
-                                    ? NetworkImage(stats['photoURL'])
-                                    : null,
-                                backgroundColor: Colors.black12,
-                                child: stats['photoURL'] == null
-                                    ? const Icon(Icons.person, color: Colors.black, size: 35)
-                                    : null,
+                              Stack(
+                                alignment: Alignment.center,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // Avatar levemente menor
+                                  Positioned(
+                                    top: 5,
+                                    child: CircleAvatar(
+                                      radius: 33,
+                                      backgroundImage: stats['photoURL'] != null
+                                          ? NetworkImage(stats['photoURL'])
+                                          : null,
+                                      backgroundColor: Colors.white,
+                                      child: stats['photoURL'] == null
+                                          ? const Icon(Icons.person, color: Colors.black54, size: 35)
+                                          : null,
+                                    ),
+                                  ),
+
+                                  // Moldura animada (Lottie)
+                                  SizedBox(
+                                    height: 85,
+                                    width: 150,
+                                    child: Lottie.asset(
+                                      LevelFrameManager.getFrameForLevel(stats['level'] ?? 0),
+                                      repeat: true,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ],
                               ),
+
                               const SizedBox(width: 16),
                               Expanded(
                                 child: Column(

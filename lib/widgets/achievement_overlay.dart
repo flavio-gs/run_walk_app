@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
 import 'dart:math';
+import 'package:lottie/lottie.dart';
+import '../widgets/achievement_overlay.dart';
 
 class AchievementOverlay extends StatefulWidget {
   final String title;
@@ -107,3 +109,51 @@ Future<void> showAchievementPopup(BuildContext context, {required String title, 
     builder: (_) => AchievementOverlay(title: title, icon: icon),
   );
 }
+
+Future<void> showLevelUpAnimation(BuildContext context, int level) async {
+  showGeneralDialog(
+    context: context,
+    barrierColor: Colors.black54,
+    barrierDismissible: false, // impede fechar clicando fora
+    transitionDuration: const Duration(milliseconds: 300),
+    pageBuilder: (context, anim1, anim2) {
+      // Exibe o Lottie no centro
+      return Center(
+        child: Container(
+          height: 230,
+          width: 230,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Lottie.asset(
+                'assets/lottie/levelup.json',
+                repeat: false,
+                height: 150,
+              ),
+              Positioned(
+                bottom: 30,
+                child: Text(
+                  "Nível $level!",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(color: Colors.black54, blurRadius: 6),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  // 🕓 Fecha automaticamente após 2,5 segundos
+  await Future.delayed(const Duration(milliseconds: 2500));
+  if (context.mounted) Navigator.of(context).pop();
+}
+

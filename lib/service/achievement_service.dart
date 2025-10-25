@@ -373,14 +373,20 @@ class AchievementService {
     if (level > oldLevel) {
       await prefs.setInt('user_level_${user.uid}', level);
       if (context != null && context.mounted) {
+        // 🎬 Mostra animação de Level Up
+        await showLevelUpAnimation(context, level);
+
+        // Popup informativo (mantido para reforço visual)
         await showAchievementPopup(
           context,
           title: 'Nível $level alcançado!',
           icon: '🚀',
         );
+
         _showSnack(context, "🎉 Você subiu para o nível $level!");
       }
     }
+
 
     // 🔄 Salva XP no Firestore com metadados (origem e data)
     await _firestore.collection('users').doc(user.uid).set({
