@@ -39,6 +39,8 @@ dependencies:
   location: ^5.0.3
   geolocator: ^10.1.0
 
+  introduction_screen: ^3.1.12
+
   confetti: ^0.7.0
 
   # Google Maps
@@ -86,11 +88,8 @@ flutter:
     - assets/map_style.json
     - assets/map_style_day.json
     - assets/click.mp3
-    - assets/sounds/start.mp3
-    - assets/sounds/stop.mp3
+    - assets/sounds/
     - assets/icon/logo_principal.png
-    - assets/sounds/raio.mp3
-    - assets/sounds/1.mp3
     - assets/videos/splash.mp4
     - assets/audio/pre_run_1.mp3
     - assets/audio/pre_run_2.mp3
