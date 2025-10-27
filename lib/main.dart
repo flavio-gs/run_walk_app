@@ -15,6 +15,9 @@ import 'package:run_walk_app/service/background_tracking.dart';
 import 'package:run_walk_app/widgets/main_scaffold.dart';
 import 'package:run_walk_app/auth_gate.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:run_walk_app/tutorial_page.dart'; // 👈 importa aqui
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 
 // Serviço de gamificação
@@ -25,14 +28,12 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  // ✅ Pede permissão para mostrar notificações
+
   if (await Permission.notification.isDenied) {
     await Permission.notification.request();
   }
   await initializeBackgroundTracking();
 
-
-  // 🔹 Marca o usuário online assim que o app abrir (se já estiver logado)
   final user = FirebaseAuth.instance.currentUser;
   if (user != null) {
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
@@ -41,15 +42,26 @@ Future<void> main() async {
     }, SetOptions(merge: true));
   }
 
-  // Sincroniza pontos assim que o app abre
   await GamificationService().syncNow();
 
-  // Inicia o app
-  runApp(const MyApp());
+  // 🔹 Verifica se o tutorial já foi visto
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove('hasSeenTutorial'); // 🔥 força reexibir tutorial
+  final hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
+
+  // 🔹 Define qual tela será a inicial
+  final Widget initialPage = hasSeenTutorial
+      ? const AuthGate()        // se já viu tutorial → vai pro login principal
+      : const MapTutorialPage();   // se nunca viu → mostra o tutorial
+
+  runApp(MyApp(initialPage: initialPage));
 }
 
+
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  final Widget initialPage;
+  const MyApp({super.key, required this.initialPage});
+
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -63,11 +75,16 @@ class _MyAppState extends State<MyApp> {
     // 🛰️ Listener para sincronizar automaticamente quando a internet voltar
     Connectivity().onConnectivityChanged.listen((result) {
       if (result != ConnectivityResult.none) {
-        GamificationService().syncNow(context: context);
-        AchievementService().syncNow(context: context);
+        try {
+          GamificationService().syncNow();        // ✅ sem context
+          AchievementService().syncNow();         // ✅ sem context
+        } catch (e) {
+          debugPrint("Erro ao sincronizar automaticamente: $e");
+        }
       }
     });
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -78,8 +95,9 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Colors.grey[100],
       ),
-      home: const AuthGate(),
+      home: widget.initialPage,
       routes: {
+        '/tutorial': (context) => const MapTutorialPage(),
         '/main': (context) => const MainScaffold(),
         '/complete_profile': (context) => const CompleteProfilePage(),
         '/feed': (context) => const FeedPage(),
