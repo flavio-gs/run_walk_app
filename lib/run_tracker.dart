@@ -2685,34 +2685,83 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     if (isWearOS) return;
 
     try {
-      const double size = 60;
+      const double size = 80;
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
       final paint = Paint()..isAntiAlias = true;
 
-      // 🔹 Bolinha com gradiente azul
-      final gradient = ui.Gradient.radial(
-        Offset(size / 2, size / 2),
-        size / 2,
-        [
-          const Color(0xFF000000),
-          const Color(0xFFE66E0F),
-        ],
-      );
-      paint.shader = gradient;
-      canvas.drawCircle(Offset(size / 2, size / 2), size / 2, paint);
+      // 🔹 Fundo circular com borda de destaque
+      final center = Offset(size / 2, size / 2);
+      final radius = size / 2;
 
-      // 🔹 Borda branca translúcida
+      // Desenha um contorno (glow externo)
+      final glowPaint = Paint()
+        ..color = const Color(0xFFE66E0F).withOpacity(0.8)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10);
+      canvas.drawCircle(center, radius - 2, glowPaint);
+
+      // 🔹 Tenta carregar a imagem de perfil
+      ui.Image? profileImage;
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        try {
+          final imageData = await NetworkAssetBundle(Uri.parse(photoUrl)).load("");
+          final bytes = imageData.buffer.asUint8List();
+          profileImage = await decodeImageFromList(bytes);
+        } catch (e) {
+          debugPrint("⚠️ Erro ao carregar foto: $e");
+        }
+      }
+
+      // 🔹 Se não tiver foto, fundo cinza com inicial
+      if (profileImage == null) {
+        paint.color = Colors.grey.shade800;
+        canvas.drawCircle(center, radius - 4, paint);
+
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: userName.isNotEmpty ? userName[0].toUpperCase() : "?",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
+        );
+      } else {
+        // 🔹 Desenha imagem cortada em círculo
+        final clipPath = Path()..addOval(Rect.fromCircle(center: center, radius: radius - 4));
+        canvas.save();
+        canvas.clipPath(clipPath);
+        paint.shader = ImageShader(
+          profileImage,
+          TileMode.clamp,
+          TileMode.clamp,
+          Matrix4.identity()
+              .scaled(size / profileImage.width, size / profileImage.height)
+              .storage,
+        );
+        canvas.drawCircle(center, radius - 4, paint);
+        canvas.restore();
+      }
+
+      // 🔹 Borda branca
       paint
         ..shader = null
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3
-        ..color = Colors.white.withOpacity(0.8);
-      canvas.drawCircle(Offset(size / 2, size / 2), size / 2 - 1.5, paint);
+        ..color = Colors.white.withOpacity(0.9);
+      canvas.drawCircle(center, radius - 2, paint);
 
+      // 🔹 Finaliza imagem
       final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
-      final bytes =
-      (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
 
       final marker = Marker(
         markerId: MarkerId("runner_${position.latitude}_${position.longitude}"),
@@ -2723,7 +2772,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         onTap: () async {
           HapticFeedback.lightImpact();
           _showLoadingOverlay(context);
-
           await Future.delayed(const Duration(milliseconds: 700));
           if (!context.mounted) return;
 
@@ -2733,7 +2781,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             return;
           }
 
-          // ✅ Reabre o card no contexto atualizado
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (context.mounted) {
               Navigator.pop(context);
@@ -2741,24 +2788,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             }
           });
         },
-
-
-
-        onDragStart: (_) {
-          _longPressTimer?.cancel();
-        },
-        onDragEnd: (_) {},
         consumeTapEvents: false,
       );
 
       setState(() => _markers.add(marker));
-
-      // Armazena dados do marcador para gesto
       _markerGestures[position] = (userName, photoUrl, runData);
     } catch (e) {
-      debugPrint("❌ Erro ao criar marcador com gesto: $e");
+      debugPrint("❌ Erro ao criar marcador com foto: $e");
     }
   }
+
 
 // 🔹 Armazena dados dos marcadores
   final Map<LatLng, (String, String?, Map<String, dynamic>)> _markerGestures = {};
