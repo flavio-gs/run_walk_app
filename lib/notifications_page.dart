@@ -1,7 +1,15 @@
+// lib/notifications_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:run_walk_app/service/service/firestore_service.dart';
+import 'package:run_walk_app/widgets/follow_button.dart';
 import 'package:timeago/timeago.dart' as timeago;
+
+// ✅ 1. VERIFIQUE SE ESTE CAMINHO ESTÁ CORRETO
+// Se sua página de perfil tiver outro nome ou estiver em outra pasta, ajuste aqui.
+import 'profile_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -19,12 +27,71 @@ class _NotificationsPageState extends State<NotificationsPage> {
     timeago.setLocaleMessages('pt_BR', timeago.PtBrMessages());
   }
 
+  Future<void> _markAsRead(String notificationId) async {
+    if (!mounted) return;
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(_currentUserId)
+        .collection('notifications')
+        .doc(notificationId)
+        .update({'isRead': true});
+  }
+
+  // ✅ 2. AQUI ESTÁ A LÓGICA DE NAVEGAÇÃO
+  void _handleNotificationTap(Map<String, dynamic> data) {
+    final type = data['type'];
+    final senderId = data['senderId'];
+
+    // Se for uma notificação de 'follow' e tivermos o ID do remetente
+    if (type == 'follow' && senderId != null) {
+      // Navega para a página de perfil, passando o ID do usuário
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfilePage(userId: senderId),
+        ),
+      );
+    }
+    // Adicione aqui a lógica para outros tipos de notificação (curtidas, comentários)
+    // else if (type == 'like' && data['postId'] != null) {
+    //   Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailsPage(postId: data['postId'])));
+    // }
+  }
+
+  // (O resto do seu código permanece o mesmo)
+  RichText _buildNotificationText(Map<String, dynamic> data) {
+    final String senderName = data['senderName'] ?? 'Alguém';
+    String messageBody;
+    switch (data['type']) {
+      case 'follow':
+        messageBody = 'começou a seguir você.';
+        break;
+      case 'like':
+        messageBody = 'curtiu sua publicação.';
+        break;
+      default:
+        messageBody = 'enviou uma notificação.';
+        break;
+    }
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+        children: [
+          TextSpan(text: senderName, style: const TextStyle(fontWeight: FontWeight.bold)),
+          TextSpan(text: ' $messageBody'),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Notificações'),
+        title: const Text('Notificações', style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -32,63 +99,50 @@ class _NotificationsPageState extends State<NotificationsPage> {
             .doc(_currentUserId)
             .collection('notifications')
             .orderBy('timestamp', descending: true)
-            .limit(50)
             .snapshots(),
         builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return const Center(child: Text('Ocorreu um erro.', style: TextStyle(color: Colors.white70)));
-          }
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator(color: Colors.white));
           }
-          if (snapshot.data!.docs.isEmpty) {
-            return const Center(
-              child: Text(
-                'Nenhuma notificação ainda.',
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
-            );
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('Nenhuma notificação ainda.', style: TextStyle(color: Colors.white70)));
           }
 
           return ListView.builder(
             itemCount: snapshot.data!.docs.length,
             itemBuilder: (context, index) {
-              final notification = snapshot.data!.docs[index];
-              final data = notification.data() as Map<String, dynamic>;
+              final data = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+              final notificationId = snapshot.data!.docs[index].id;
+              final type = data['type'];
+              final senderId = data['senderId'] as String?;
+              final senderPhotoUrl = data['senderPhotoUrl'] as String?;
+              final isRead = data['isRead'] ?? false;
+              final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
-              final timestamp = (data['timestamp'] as Timestamp).toDate();
-              final formattedTime = timeago.format(timestamp, locale: 'pt_BR');
-
-              IconData icon;
-              Color iconColor = Theme.of(context).colorScheme.secondary; // Verde padrão
-              switch (data['type']) {
-                case 'follow':
-                  icon = Icons.person_add;
-                  iconColor = Theme.of(context).colorScheme.primary; // Laranja
-                  break;
-                case 'like':
-                  icon = Icons.favorite;
-                  // CORREÇÃO: Usa a cor primária do tema (Laranja)
-                  iconColor = Theme.of(context).colorScheme.primary;
-                  break;
-                case 'comment':
-                  icon = Icons.comment;
-                  iconColor = Theme.of(context).colorScheme.secondary; // Verde
-                  break;
-                default:
-                  icon = Icons.notifications;
+              Widget? trailingWidget;
+              if (type == 'follow' && senderId != null) {
+                trailingWidget = FollowButton(userId: senderId);
               }
-              
+
               return Card(
-                color: Colors.grey[900],
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: isRead ? Colors.grey[900] : const Color.fromARGB(255, 27, 39, 51),
+                margin: EdgeInsets.zero,
+                elevation: 0,
                 child: ListTile(
+                  // ✅ 3. ONTAP CHAMA A FUNÇÃO DE NAVEGAÇÃO
+                  onTap: () {
+                    if (!isRead) _markAsRead(notificationId);
+                    _handleNotificationTap(data); // <- A mágica acontece aqui!
+                  },
                   leading: CircleAvatar(
-                    backgroundColor: iconColor.withOpacity(0.15),
-                    child: Icon(icon, color: iconColor, size: 22),
+                    radius: 22,
+                    backgroundColor: Colors.grey.shade800,
+                    backgroundImage: senderPhotoUrl != null ? NetworkImage(senderPhotoUrl) : null,
+                    child: senderPhotoUrl == null ? const Icon(Icons.person, color: Colors.white70) : null,
                   ),
-                  title: Text(data['message'] ?? '', style: const TextStyle(color: Colors.white)),
-                  subtitle: Text(formattedTime, style: const TextStyle(color: Colors.white70)),
+                  title: _buildNotificationText(data),
+                  subtitle: Text(timeago.format(timestamp, locale: 'pt_BR'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  trailing: trailingWidget,
                 ),
               );
             },
