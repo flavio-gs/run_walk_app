@@ -84,7 +84,9 @@ class _SearchUsersPageState extends State<SearchUsersPage> {
         await targetUserRef.collection('notifications').add({
           'type': 'follow',
           'followerId': currentUser.uid,
-          'message': '${currentUser.displayName ?? 'Alguém'} começou a seguir você.',
+          'senderName': currentUser.displayName ?? 'Alguém',
+          'photoUrl': FirebaseAuth.instance.currentUser?.photoURL,
+          'message': 'começou a seguir você.',
           'timestamp': timestamp,
         });
       }

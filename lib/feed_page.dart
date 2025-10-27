@@ -297,6 +297,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             .collection('notifications')
             .add({
           'type': 'like',
+          'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
+          'photoUrl': FirebaseAuth.instance.currentUser?.photoURL,
           'message':
           '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
           'timestamp': FieldValue.serverTimestamp(),
