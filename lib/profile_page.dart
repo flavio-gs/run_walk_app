@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -26,6 +27,8 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  StreamSubscription<DocumentSnapshot>? _xpListener;
+
   bool loading = true;
   int? _previousLevel;
   int? _lastLevelShown;
@@ -84,12 +87,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
 
   void _loadLevelAndXP() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    _xpListener?.cancel(); // evita múltiplos listeners
 
     FirebaseFirestore.instance
         .collection('users')
-        .doc(user.uid)
+        .doc(_profileUserId) // ✅ usa o ID do perfil aberto
         .snapshots()
         .listen((snapshot) async {
       if (!snapshot.exists) return;
@@ -98,25 +100,22 @@ class _ProfilePageState extends State<ProfilePage> {
       final double totalXp = (data['xp'] ?? 0.0).toDouble();
       final int currentLevel = (data['level'] ?? 0).toInt();
 
-      // 🔹 Cálculos derivados
       final double progress = (totalXp % 500) / 500;
       final double currentXp = totalXp % 500;
       final double xpToNext = 500 - currentXp;
 
-      // 🔥 Só mostra animação se o nível aumentou E ainda não foi mostrado
-      if (_lastLevelShown == null) {
-        _lastLevelShown = currentLevel; // primeira leitura
-      } else if (currentLevel > _lastLevelShown!) {
-        debugPrint("🚀 Subiu de nível: $_lastLevelShown → $currentLevel");
-        _lastLevelShown = currentLevel; // atualiza imediatamente antes da animação
-
-        if (context.mounted) {
-          // ✅ sem await, pra não travar o listener
-          showLevelUpAnimation(context, currentLevel);
+      // Só mostra animação se for o perfil do próprio jogador
+      if (_isCurrentUserProfile) {
+        if (_lastLevelShown == null) {
+          _lastLevelShown = currentLevel;
+        } else if (currentLevel > _lastLevelShown!) {
+          _lastLevelShown = currentLevel;
+          if (context.mounted) {
+            showLevelUpAnimation(context, currentLevel);
+          }
         }
       }
 
-      // Atualiza UI normalmente
       if (mounted) {
         setState(() {
           level = currentLevel;
@@ -126,13 +125,13 @@ class _ProfilePageState extends State<ProfilePage> {
           userData!['xpToNext'] = xpToNext;
         });
       }
-
-      debugPrint(
-        "[XP Listener] XP total: $totalXp | Nível: $currentLevel | "
-            "Progresso ${(progress * 100).toStringAsFixed(1)}% | "
-            "Faltam ${xpToNext.toStringAsFixed(1)} XP",
-      );
     });
+  }
+
+  @override
+  void dispose() {
+    _xpListener?.cancel();
+    super.dispose();
   }
 
 
