@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:run_walk_app/followers_page.dart';
+import 'package:run_walk_app/points_details_page.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
@@ -140,8 +141,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadUserAndSocial() async {
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(_profileUserId)
@@ -161,14 +160,24 @@ class _ProfilePageState extends State<ProfilePage> {
           .collection('following')
           .get();
 
+      // 🔒 Helper para evitar string vazia
+      String? _nonnullOrBlankToNull(dynamic v) {
+        if (v == null) return null;
+        final s = v.toString().trim();
+        return s.isEmpty ? null : s;
+      }
+
       setState(() {
         userData = data;
-        photoURL = data['photoURL'] ?? currentUser?.photoURL;
-        coverPhotoURL = data['coverPhoto'];
+        // ✅ NUNCA usar a foto do current user como fallback aqui
+        photoURL     = _nonnullOrBlankToNull(data['photoURL']);
+        coverPhotoURL= _nonnullOrBlankToNull(data['coverPhoto']);
+
         memberSince = (data['createdAt'] is Timestamp)
             ? (data['createdAt'] as Timestamp).toDate()
             : null;
-        bio = (data['bio'] as String?)?.trim();
+
+        bio       = _nonnullOrBlankToNull(data['bio']);
         isPrivate = (data['isPrivate'] ?? false) as bool;
 
         followersCount = followersSnap.docs.length;
@@ -178,6 +187,7 @@ class _ProfilePageState extends State<ProfilePage> {
       debugPrint("Erro ao carregar usuário/social: $e");
     }
   }
+
 
   Future<void> _loadStatsLast30d() async {
     try {
@@ -213,12 +223,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadPoints() async {
     try {
-      totalPoints = await GamificationService().getTotalPoints();
+      // 🔸 Busca pontos do dono do perfil que está aberto, não do usuário logado
+      totalPoints = await GamificationService().getTotalPoints(userId: _profileUserId);
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint("Erro ao carregar pontos: $e");
     }
   }
+
 
   // -------- capa: upload e salvar url
   Future<void> _changeCoverPhoto() async {
@@ -662,6 +674,11 @@ class _StatsTabState extends State<_StatsTab> {
   @override
   Widget build(BuildContext context) {
     final isPro = (widget.userData?['isPro'] ?? false) as bool;
+    final displayName = (widget.userData?['displayName'] as String?)?.trim();
+    final nameOrUsuario = (displayName?.isEmpty ?? true) ? 'Usuário' : displayName!;
+    final pontosText = widget.isOwner
+        ? "Você acumulou ${widget.totalPoints} pontos"
+        : "$nameOrUsuario acumulou ${widget.totalPoints} pontos";
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -836,24 +853,41 @@ class _StatsTabState extends State<_StatsTab> {
           const SizedBox(height: 20),
 
           // --------- Pontos (total geral)
-          Container(
-            decoration: BoxDecoration(
-                color: Colors.white, borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    "Você acumulou ${widget.totalPoints} pontos",
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PointsDetailsPage(
+                    userId: widget.userId,
+                    displayName: nameOrUsuario,
+                    isOwner: widget.isOwner,
                   ),
                 ),
-              ],
+              );
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      pontosText,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.black45),
+                ],
+              ),
             ),
           ),
+
 
           const SizedBox(height: 40),
 
@@ -879,6 +913,7 @@ class _StatsTabState extends State<_StatsTab> {
             ),
           if (widget.isOwner) const SizedBox(height: 20),
           // 🔹 Botão de desativar conta
+          if (widget.isOwner)
           ElevatedButton.icon(
             icon: const Icon(Icons.person_off),
             label: const Text('Desativar Conta'),

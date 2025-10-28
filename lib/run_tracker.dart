@@ -2312,7 +2312,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         final totalXP = (baseXP * xpMultiplier).round();
 
-        await GamificationService().addPoints(totalXP, context: context);
+        await GamificationService().addPoints(
+          points: totalXP,
+          source: "Corrida",
+          description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em ${_timer} min",
+          meta: {
+            'distanciaKm': distanceKm,
+            'duracao': _timer,
+            'calorias': _caloriesBurned,
+          },
+          context: context,
+        );
+
+
         _showXPAnimation("+$totalXP XP");
         await _updateLeaderboard();
       } catch (e) {
@@ -2561,7 +2573,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     await FirebaseFirestore.instance.collection('corridas').add(runData);
 
     // ➕ adiciona XP ao perfil
-    await GamificationService().addPoints(totalXP, context: context);
+    await GamificationService().addPoints(
+      points: totalXP,
+      source: "Corrida",
+      description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em ${_timer} min",
+      meta: {
+        'distanciaKm': distanceKm,
+        'duracao': _timer,
+        'calorias': _caloriesBurned,
+      },
+      context: context,
+    );
+
 
     // 🏆 Conquistas/estatísticas
     await _updateUserRunStats();

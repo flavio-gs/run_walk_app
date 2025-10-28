@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -157,6 +158,25 @@ class AchievementService {
       'icon': '⚔️',
       'condition': (data) => (data['activeTerritories'] ?? 0) >= 3,
     },
+    // ---- Combo diário (streak) ----
+    {
+      'id': 'daily_streak_3',
+      'title': 'Trio Focado',
+      'icon': '🔥',
+      'condition': (data) => (data['streak'] ?? 0) >= 3,
+    },
+    {
+      'id': 'daily_streak_7',
+      'title': 'Semanal de Ouro',
+      'icon': '🏅',
+      'condition': (data) => (data['streak'] ?? 0) >= 7,
+    },
+    {
+      'id': 'daily_streak_30',
+      'title': 'Mês Lendário',
+      'icon': '👑',
+      'condition': (data) => (data['streak'] ?? 0) >= 30,
+    },
   ];
 
   // ============================================================
@@ -277,6 +297,20 @@ class AchievementService {
         await showAchievementPopup(context, title: ach['title'], icon: ach['icon']);
         _showSnack(context, "${ach['icon']} Nova conquista: ${ach['title']}!");
       }
+
+      // 💥 Dá pontos extras pela conquista desbloqueada
+      try {
+        await Future.delayed(const Duration(milliseconds: 300)); // evita sobreposição com popup
+        await GamificationService().addPoints(
+          points: 100, // 💰 cada conquista dá 100 pontos
+          source: 'achievement',
+          description: 'Desbloqueou a conquista ${ach['title']}',
+          context: context,
+        );
+      } catch (e) {
+        debugPrint("[Achievements] Erro ao dar pontos pela conquista: $e");
+      }
+
 
       await _postAchievementToFeed(
         user.uid,
