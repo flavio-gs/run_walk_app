@@ -27,6 +27,36 @@ class _LoginPageState extends State<LoginPage> {
     Navigator.pushReplacementNamed(context, '/main');
   }
 
+  Future<void> _reactivateIfNeeded(String uid) async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(uid);
+    final snap = await ref.get();
+
+    if (!snap.exists) {
+      // se for 1º login, garante o doc com isActive=true
+      await ref.set({
+        'isActive': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return;
+    }
+
+    final data = snap.data() ?? {};
+    final isActive = (data['isActive'] ?? true) as bool;
+
+    if (!isActive) {
+      await ref.update({
+        'isActive': true,
+        'reactivatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Conta reativada. Bem-vindo(a) de volta!')),
+        );
+      }
+    }
+  }
+
+
   // ------------------ 🔐 LOGIN / CADASTRO -------------------
   Future<void> handleAuthAction() async {
     if (emailController.text.trim().isEmpty ||
@@ -55,21 +85,25 @@ class _LoginPageState extends State<LoginPage> {
       final user = userCredential.user;
       if (user == null) return;
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(user.uid);
+// 🔹 Reativação automática caso esteja inativa
+      await _reactivateIfNeeded(user.uid);
+
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-      // 🔹 Cria doc se não existir
+// 🔹 Cria doc se não existir (já com isActive:true)
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
           'username': '',
+          'isActive': true, // ✅ garante ativo
           'createdAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
         userDoc = await userDocRef.get();
       }
+
 
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
@@ -120,13 +154,14 @@ class _LoginPageState extends State<LoginPage> {
         idToken: googleAuth.idToken,
       );
 
-      final userCred =
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user;
       if (user == null) return;
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(user.uid);
+// 🔹 Reativação automática
+      await _reactivateIfNeeded(user.uid);
+
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
       if (!userDoc.exists) {
@@ -135,9 +170,11 @@ class _LoginPageState extends State<LoginPage> {
           'email': user.email,
           'photoURL': user.photoURL ?? '',
           'username': '',
+          'isActive': true, // ✅ garante ativo
           'createdAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
       }
+
 
       navigateToRunTrackingPage();
     } catch (e) {

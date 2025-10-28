@@ -1980,8 +1980,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🔘 Botão recenter
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.75,
-            right: 20,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.67,
+            left: 20,
             child: GestureDetector(
               onTap: _recenterMap,
               child: Container(

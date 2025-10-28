@@ -46,7 +46,7 @@ Future<void> main() async {
 
   // 🔹 Verifica se o tutorial já foi visto
   final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('hasSeenTutorial'); // 🔥 força reexibir tutorial
+  //await prefs.remove('hasSeenTutorial'); // 🔥 força reexibir tutorial
   final hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
 
   // 🔹 Define qual tela será a inicial

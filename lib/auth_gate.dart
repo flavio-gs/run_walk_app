@@ -27,38 +27,92 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-class ProfileCompletionChecker extends StatelessWidget {
+class ProfileCompletionChecker extends StatefulWidget {
   final User user;
   const ProfileCompletionChecker({super.key, required this.user});
 
   @override
+  State<ProfileCompletionChecker> createState() => _ProfileCompletionCheckerState();
+}
+
+class _ProfileCompletionCheckerState extends State<ProfileCompletionChecker> {
+  late Future<DocumentSnapshot<Map<String, dynamic>>> _future;
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _loadAndEnsureActive() async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(widget.user.uid);
+    var snap = await ref.get();
+
+    // cria doc se não existir
+    if (!snap.exists) {
+      await ref.set({
+        'uid': widget.user.uid,
+        'email': widget.user.email,
+        'photoURL': widget.user.photoURL ?? '',
+        'username': '',
+        'isActive': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      snap = await ref.get();
+    }
+
+    final data = snap.data() ?? {};
+    if ((data['isActive'] ?? true) == false) {
+      await ref.update({
+        'isActive': true,
+        'reactivatedAt': FieldValue.serverTimestamp(),
+      });
+      snap = await ref.get();
+    }
+
+    return snap;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadAndEnsureActive();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return FutureBuilder<DocumentSnapshot>(
-      // Verifica se o documento do usuário existe na coleção 'users'
-      future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: _future,
       builder: (context, snapshot) {
-        // Enquanto está verificando, mostra um loader
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-
-        // Se deu erro na verificação
         if (snapshot.hasError) {
-          return const Scaffold(
-            body: Center(child: Text('Algo deu errado!')),
-          );
+          return const Scaffold(body: Center(child: Text('Algo deu errado!')));
         }
-
-        // Se o documento NÃO EXISTE, o perfil está incompleto.
-        if (!snapshot.hasData || !snapshot.data!.exists) {
+        final doc = snapshot.data!;
+        if (!doc.exists) {
           return const CompleteProfilePage();
         }
 
-        // Se o documento existe, o perfil está completo. Vá para a Tela de atividades.
+        // Checagem de perfil completo (mesma lógica que você já usa)
+        final data = doc.data() ?? {};
+        final camposObrigatorios = [
+          data['username'],
+          data['displayName'],
+          data['birthDate'],
+          data['gender'],
+          data['weight'],
+          data['height'],
+          data['cep'],
+        ];
+        final perfilIncompleto = camposObrigatorios.any(
+              (valor) =>
+          valor == null ||
+              (valor is String && valor.trim().isEmpty) ||
+              (valor is num && valor == 0),
+        );
+
+        if (perfilIncompleto) {
+          return const CompleteProfilePage();
+        }
         return const MainScaffold();
       },
     );
   }
 }
+

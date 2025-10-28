@@ -878,6 +878,70 @@ class _StatsTabState extends State<_StatsTab> {
               },
             ),
           if (widget.isOwner) const SizedBox(height: 20),
+          // 🔹 Botão de desativar conta
+          ElevatedButton.icon(
+            icon: const Icon(Icons.person_off),
+            label: const Text('Desativar Conta'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.grey.shade800,
+              minimumSize: const Size(double.infinity, 50),
+              side: const BorderSide(color: Colors.black26, width: 1),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Desativar conta'),
+                  content: const Text(
+                    'Tem certeza de que deseja desativar sua conta?\n\n'
+                        'Sua conta ficará invisível para outros usuários e você será desconectado. '
+                        'Você poderá reativá-la fazendo login novamente.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancelar'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Desativar'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirm != true) return;
+
+              try {
+                final uid = FirebaseAuth.instance.currentUser?.uid;
+                if (uid == null) return;
+
+                // 🔸 Marca o usuário como inativo no Firestore
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(uid)
+                    .update({'isActive': false});
+
+                await FirebaseAuth.instance.signOut();
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Conta desativada com sucesso.')),
+                  );
+                  Navigator.of(context).pushNamedAndRemoveUntil(
+                      '/login', (Route<dynamic> route) => false);
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Erro ao desativar conta: $e')),
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 20),
         ],
       ),
     );
