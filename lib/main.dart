@@ -1,67 +1,111 @@
 import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:run_walk_app/run_tracker_wear.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:run_walk_app/widgets/main_scaffold_wear.dart';
+import 'package:run_walk_app/login_wear_page.dart';
+import 'package:run_walk_app/service/wear_offline_sync_service.dart';
 
-// Suas páginas
+
+
+// 🔹 Serviços
+import 'package:run_walk_app/service/background_tracking.dart';
+import 'package:run_walk_app/service/service/gamification_service.dart';
+import 'package:run_walk_app/service/achievement_service.dart';
+
+// 🔹 Páginas
+import 'package:run_walk_app/auth_gate.dart';
+import 'package:run_walk_app/widgets/main_scaffold.dart';
+import 'package:run_walk_app/tutorial_page.dart';
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/complete_profile_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
-import 'package:run_walk_app/service/background_tracking.dart';
-import 'package:run_walk_app/widgets/main_scaffold.dart';
-import 'package:run_walk_app/auth_gate.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:run_walk_app/tutorial_page.dart'; // 👈 importa aqui
-import 'package:shared_preferences/shared_preferences.dart';
+
+// 🔹 Página leve do Wear OS (só texto)
+import 'package:run_walk_app/wear_tutorial_page.dart'; // você vai criar logo abaixo 👇
 
 
+// ------------------------------------------------------------
+// 🔹 DETECÇÃO DE WEAR OS
+// ------------------------------------------------------------
+Future<bool> isWearOS() async {
+  try {
+    if (!Platform.isAndroid) return false;
+    final info = await DeviceInfoPlugin().androidInfo;
+    return info.systemFeatures.contains('android.hardware.type.watch');
+  } catch (_) {
+    return false;
+  }
+}
 
-// Serviço de gamificação
-import 'package:run_walk_app/service/service/gamification_service.dart';
-import 'package:run_walk_app/service/achievement_service.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-
+// ------------------------------------------------------------
+// 🔹 MAIN
+// ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  final bool isWear = await isWearOS();
 
-  if (await Permission.notification.isDenied) {
-    await Permission.notification.request();
+  if (!isWear) {
+
+
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+
+    await initializeBackgroundTracking();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'isOnline': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await GamificationService().syncNow();
+  } else {
+    debugPrint("⌚ [Main] Wear OS detectado — inicialização leve.");
   }
-  await initializeBackgroundTracking();
 
-  final user = FirebaseAuth.instance.currentUser;
-  if (user != null) {
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'isOnline': true,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
-
-  await GamificationService().syncNow();
-
-  // 🔹 Verifica se o tutorial já foi visto
   final prefs = await SharedPreferences.getInstance();
-  //await prefs.remove('hasSeenTutorial'); // 🔥 força reexibir tutorial
   final hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
 
-  // 🔹 Define qual tela será a inicial
-  final Widget initialPage = hasSeenTutorial
-      ? const AuthGate()        // se já viu tutorial → vai pro login principal
-      : const MapTutorialPage();   // se nunca viu → mostra o tutorial
+  final Widget initialPage;
+  if (isWear) {
+    Connectivity().onConnectivityChanged.listen((result) async {
+      if (result != ConnectivityResult.none) {
+        debugPrint("⌚ [Sync] Wear OS online — sincronizando dados pendentes...");
+        await WearOfflineSyncService.syncPendingData();
+      }
+    });
+    initialPage = hasSeenTutorial
+        ? const LoginWearPage()
+        : const WearTextTutorialPage();
+  } else {
+    initialPage = hasSeenTutorial ? const AuthGate() : const MapTutorialPage();
+  }
+
+
 
   runApp(MyApp(initialPage: initialPage));
 }
 
-
+// ------------------------------------------------------------
+// 🔹 MyApp
+// ------------------------------------------------------------
 class MyApp extends StatefulWidget {
   final Widget initialPage;
   const MyApp({super.key, required this.initialPage});
-
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -72,12 +116,11 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
 
-    // 🛰️ Listener para sincronizar automaticamente quando a internet voltar
     Connectivity().onConnectivityChanged.listen((result) {
       if (result != ConnectivityResult.none) {
         try {
-          GamificationService().syncNow();        // ✅ sem context
-          AchievementService().syncNow();         // ✅ sem context
+          GamificationService().syncNow();
+          AchievementService().syncNow();
         } catch (e) {
           debugPrint("Erro ao sincronizar automaticamente: $e");
         }
@@ -85,53 +128,30 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Empire Of The Run',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        scaffoldBackgroundColor: Colors.grey[100],
+        primarySwatch: Colors.orange,
+        scaffoldBackgroundColor: Colors.black,
       ),
       home: widget.initialPage,
       routes: {
         '/tutorial': (context) => const MapTutorialPage(),
         '/main': (context) => const MainScaffold(),
+        '/main_wear': (context) => const MainScaffoldWear(),
         '/complete_profile': (context) => const CompleteProfilePage(),
         '/feed': (context) => const FeedPage(),
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
         '/perfil': (context) => const ProfilePage(),
+        '/tracker_wear': (context) => const RunTrackerWearPage(),
+        '/login_wear': (context) => const LoginWearPage(),
+
       },
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Corrida & Caminhada')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () => Navigator.pushNamed(context, '/tracker'),
-              child: const Text('Iniciar Rastreamento'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pushNamed(context, '/historico'),
-              child: const Text('Ver Histórico'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
