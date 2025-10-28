@@ -89,6 +89,16 @@ class Character3D extends StatelessWidget {
   }
 }
 
+class _Territory {
+  final String id;
+  final String ownerId;
+  final List<LatLng> points;
+  const _Territory({required this.id, required this.ownerId, required this.points});
+}
+
+final List<_Territory> _territories = [];
+
+
 class FuturisticChrono extends StatefulWidget {
   final int seconds;
   final double fontSize;
@@ -557,6 +567,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           .orderBy('createdAt', descending: true)
           .get();
 
+      // 🗺️ Carrega todos os territórios para saber quem é o dono atual
+      final territoriesSnap =
+      await FirebaseFirestore.instance.collection('territorios').get();
+
+      final territories = territoriesSnap.docs.map((d) {
+        final data = d.data();
+        final points = (data['points'] as List)
+            .map((p) => LatLng((p['lat'] as num).toDouble(),
+            (p['lng'] as num).toDouble()))
+            .toList();
+        return {
+          'id': d.id,
+          'ownerId': data['userId'],
+          'points': points,
+        };
+      }).toList();
+
       final colorPalette = [
         Colors.orangeAccent,
         Colors.cyanAccent,
@@ -576,51 +603,67 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         if (data['path'] == null || (data['path'] as List).isEmpty) continue;
 
-        // 🔹 Define uma cor para cada usuário (a sua sempre verde)
-        userColors.putIfAbsent(
-          userId,
-              () => colorPalette[colorIndex++ % colorPalette.length],
-        );
-
-        final color = userId == user.uid
-            ? const Color(0xFF00C853) // 💚 você
-            : userColors[userId]!;     // 🎨 outros
-
-        // 🔹 Caminho
+        // 🔹 Caminho da corrida
         final path = (data['path'] as List)
-            .map((p) => LatLng(p['lat'], p['lng']))
+            .map((p) => LatLng(
+          (p['lat'] as num).toDouble(),
+          (p['lng'] as num).toDouble(),
+        ))
             .toList();
 
-        // 🔹 Linha colorida
+        // 🔹 Descobre se o início da corrida está dentro de um território dominado
+        bool isDominated = false;
+        String? ownerId;
+        for (final t in territories) {
+          if (_pointInPolygon(path.first, t['points'] as List<LatLng>)) {
+            ownerId = t['ownerId'];
+            if (ownerId != null && ownerId != userId) {
+              isDominated = true;
+            }
+            break;
+          }
+        }
+
+        // 🔹 Define cor
+        final baseColor = userId == user.uid
+            ? const Color(0xFF00C853) // 💚 você
+            : (userColors[userId] ?? colorPalette[colorIndex++ % colorPalette.length]);
+
+        final color = isDominated
+            ? Colors.grey.withOpacity(0.3) // corrida de território perdido
+            : baseColor.withOpacity(0.85);
+
+        // 🔹 Desenha o traçado
         final polyline = Polyline(
           polylineId: PolylineId('run_${doc.id}'),
           points: path,
-          color: color.withOpacity(0.85),
-          width: 6,
+          color: color,
+          width: isDominated ? 3 : 6,
           jointType: JointType.round,
         );
         _polylines.add(polyline);
 
-        // 🔹 Pega nome e foto do jogador
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .get();
+        // 🔹 Só adiciona marcador se o corredor ainda for dono ou está fora de território
+        if (!isDominated) {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .get();
 
-        final userName =
-            userDoc.data()?['displayName'] ?? 'Jogador'; // <-- usa displayName
-        final photoUrl = userDoc.data()?['photoURL'];   // <-- foto do perfil
+          final userName = userDoc.data()?['displayName'] ?? 'Jogador';
+          final photoUrl = userDoc.data()?['photoURL'];
 
-        await _addRunMarker(
-          position: path.first,
-          userName: userId == user.uid ? 'Você' : userName,
-          photoUrl: photoUrl,
-          runData: data,
-        );
+          await _addRunMarker(
+            position: path.first,
+            userName: userId == user.uid ? 'Você' : userName,
+            photoUrl: photoUrl,
+            runData: data,
+          );
+        }
       }
 
-      await _loadTerritories(); // 🟩 Carrega territórios conquistados
 
+      await _loadTerritories(); // 🟩 Carrega territórios conquistados
 
       setState(() {});
     } catch (e) {
@@ -639,55 +682,56 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+
   Future<void> _loadTerritories() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+    FirebaseFirestore.instance.collection('territorios').snapshots().listen((snap) {
+      _territories
+        ..clear()
+        ..addAll(snap.docs.map((d) {
+          final data = d.data();
+          final pts = (data['points'] as List? ?? [])
+              .map((p) => LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()))
+              .toList();
+          return _Territory(id: d.id, ownerId: (data['userId'] ?? '') as String, points: pts);
+        }));
 
-      final snapshot = await FirebaseFirestore.instance
-          .collection('territorios')
-          .get();
+      // Se você também desenha polígonos:
+      _territoryPolygons
+        ..clear()
+        ..addAll(_territories.map((t) => Polygon(
+          polygonId: PolygonId('territorio_${t.id}'),
+          points: t.points,
+          fillColor: Colors.deepPurpleAccent.withOpacity(0.25),
+          strokeColor: Colors.deepPurpleAccent,
+          strokeWidth: 2,
+        )));
 
-      final colorPalette = [
-        Colors.deepPurpleAccent.withOpacity(0.4),
-        Colors.orangeAccent.withOpacity(0.4),
-        Colors.cyanAccent.withOpacity(0.4),
-        Colors.pinkAccent.withOpacity(0.4),
-        Colors.lightGreenAccent.withOpacity(0.4),
-        Colors.blueAccent.withOpacity(0.4),
-      ];
-
-      int colorIndex = 0;
-
-      _territoryPolygons.clear();
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final userId = data['userId'] ?? '';
-        final points = (data['points'] as List)
-            .map((p) => LatLng(p['lat'], p['lng']))
-            .toList();
-
-        final color = userId == user.uid
-            ? const Color(0xFF00C853).withOpacity(0.4) // 💚 Seu território
-            : colorPalette[colorIndex++ % colorPalette.length];
-
-        _territoryPolygons.add(
-          Polygon(
-            polygonId: PolygonId("territorio_${doc.id}"),
-            points: points,
-            fillColor: color,
-            strokeColor: color.withOpacity(0.7),
-            strokeWidth: 2,
-          ),
-        );
-      }
+      // Limpa marcadores que ficaram “ilegais” após uma troca de dono
+      _pruneLoserMarkers();
 
       setState(() {});
-    } catch (e) {
-      debugPrint("Erro ao carregar territórios: $e");
-    }
+    });
   }
+
+  bool _pointInPolygon(LatLng p, List<LatLng> polygon) {
+    bool inside = false;
+    for (int i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      final xi = polygon[i].longitude, yi = polygon[i].latitude;
+      final xj = polygon[j].longitude, yj = polygon[j].latitude;
+
+      final intersects = ((yi > p.latitude) != (yj > p.latitude)) &&
+          (p.longitude <
+              (xj - xi) *
+                  (p.latitude - yi) /
+                  (((yj - yi) == 0) ? 1e-12 : (yj - yi)) +
+                  xi);
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+
+
 
 
   Future<void> _showPreRunCountdown() async {
@@ -1155,6 +1199,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           .map((e) => Map<String, double>.from(e))
           .toList(),
     );
+
+    // 👇 Atualiza o mapa após dominar
+    await _loadTerritories(); // método que recarrega os polígonos do Firestore
+    setState(() {});
+
+    // 🧩 (NOVO) Após verificar domínio, atualiza conquistas territoriais
+    await AchievementService().checkAchievements(
+      runData: {
+        'distance': _totalDistance / 1000,
+        'pace': _averagePace,
+        'territoriesCaptured': 1, // aqui marcamos que houve 1 tentativa de domínio
+      },
+      context: context,
+    );
+
+    debugPrint("🏁 Corrida finalizada com ${_totalDistance.toStringAsFixed(1)} m e pace $_averagePace.");
 
   }
 
@@ -2345,7 +2405,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           .doc(user.uid)
           .get();
 
-      final xp = (userDoc.data()?['xp'] ?? 0) as int;
+      final xp = ((userDoc.data()?['xp'] ?? 0) as num).toDouble();
       final username = userDoc.data()?['displayName'] ?? user.email ?? 'Runner';
 
       // 🔹 Soma todas as distâncias válidas das corridas
@@ -2684,6 +2744,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }) async {
     if (isWearOS) return;
 
+    // ❗️ANTES de desenhar o marcador, valide o dono do território
+    final runUserId = (runData['userId'] ?? '') as String;
+
+    // Procura se a posição cai em algum território
+    final territory = _territories.firstWhere(
+          (t) => _pointInPolygon(position, t.points),
+      orElse: () => const _Territory(id: '', ownerId: '', points: []),
+    );
+
+    // Se está dentro de um território e o dono NÃO é o dono do marcador → NÃO adiciona
+    if (territory.id.isNotEmpty && territory.ownerId.isNotEmpty && territory.ownerId != runUserId) {
+      // Opcional: log
+      debugPrint("⛔ Marcador de $runUserId bloqueado dentro do território ${territory.id} do dono ${territory.ownerId}");
+      return;
+    }
+
     try {
       const double size = 80;
       final recorder = ui.PictureRecorder();
@@ -2797,6 +2873,40 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       debugPrint("❌ Erro ao criar marcador com foto: $e");
     }
   }
+
+  void _pruneLoserMarkers() {
+    final List<Marker> kept = [];
+    for (final m in _markers) {
+      // Tente recuperar o runData que você salvou em _markerGestures[position]
+      final tuple = _markerGestures[m.position]; // (userName, photoUrl, runData)
+      final runData = tuple?.$3; // adapte se for outro tipo
+      final runUserId = (runData?['userId'] ?? '') as String;
+
+      // Se não temos runData, mantém
+      if (runUserId.isEmpty) {
+        kept.add(m);
+        continue;
+      }
+
+      final t = _territories.firstWhere(
+            (tt) => _pointInPolygon(m.position, tt.points),
+        orElse: () => const _Territory(id: '', ownerId: '', points: []),
+      );
+
+      if (t.id.isEmpty || t.ownerId.isEmpty || t.ownerId == runUserId) {
+        // Fora de território OU dono correto → mantém
+        kept.add(m);
+      } else {
+        debugPrint("🧹 Removendo marcador de $runUserId dentro do território ${t.id} (dono: ${t.ownerId})");
+      }
+    }
+    setState(() {
+      _markers
+        ..clear()
+        ..addAll(kept);
+    });
+  }
+
 
 
 // 🔹 Armazena dados dos marcadores
@@ -3888,7 +3998,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                         const Icon(Icons.star, color: Colors.amber, size: 20),
                                         const SizedBox(width: 6),
                                         Text(
-                                          "${stats['xp']} XP • Nível ${stats['level']}",
+                                          "${(stats['xp'] as num).toStringAsFixed(0)} XP • Nível ${stats['level']}",
+
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.poppins(
                                             color: Colors.black87,
