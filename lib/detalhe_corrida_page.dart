@@ -1,9 +1,14 @@
 import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:run_walk_app/share_run.dart';
 import 'model/run_model.dart';
 import 'mais_detalhes_page.dart'; // Importa a nova tela
+import 'dart:convert';
+import 'package:flutter/services.dart' show rootBundle;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class DetalheCorridaPage extends StatefulWidget {
   final RunModel corrida;
@@ -77,12 +82,99 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.ios_share_outlined, color: Colors.black),
-            onPressed: () { /* TODO: Share */ },
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DetalheCorridaPageShare(corrida: corrida),
+                ),
+              );
+            },
           ),
-          IconButton(
+          PopupMenuButton<String>(
             icon: const Icon(Icons.more_horiz, color: Colors.black),
-            onPressed: () { /* TODO: More options */ },
-          ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onSelected: (value) async {
+              if (value == 'archive') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    title: const Text("Arquivar corrida"),
+                    content: const Text(
+                      "Deseja arquivar esta corrida?\n"
+                          "Ela será ocultada do seu feed e estatísticas públicas, "
+                          "mas permanecerá salva no seu histórico pessoal.",
+                    ),
+                    actions: [
+                      TextButton(
+                        child: const Text("Cancelar"),
+                        onPressed: () => Navigator.pop(context, false),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                        child: const Text("Arquivar"),
+                        onPressed: () => Navigator.pop(context, true),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirm == true) {
+                  try {
+                    // 🔹 Atualiza o documento correto (usa createdAt, não date)
+                    final query = await FirebaseFirestore.instance
+                        .collection('corridas')
+                        .where('userId', isEqualTo: widget.corrida.userId)
+                        .where('createdAt',
+                        isEqualTo: Timestamp.fromDate(widget.corrida.date))
+                        .get();
+
+                    if (query.docs.isEmpty) {
+                      throw Exception('Corrida não encontrada.');
+                    }
+
+                    for (var doc in query.docs) {
+                      await doc.reference.update({'isArchived': true});
+                    }
+
+                    if (context.mounted) {
+                      Navigator.pop(context); // Fecha a tela atual
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('📦 Corrida arquivada com sucesso!'),
+                          backgroundColor: Colors.blueGrey,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Erro ao arquivar: $e'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  }
+                }
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'archive',
+                child: Row(
+                  children: [
+                    Icon(Icons.archive_outlined, color: Colors.blueGrey),
+                    SizedBox(width: 8),
+                    Text("Arquivar corrida"),
+                  ],
+                ),
+              ),
+            ],
+          )
+
+
         ],
       ),
       body: SingleChildScrollView(
@@ -120,48 +212,111 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
   }
 
   Widget _mapPreview(RunModel corrida) {
-    String mapUrl = '';
-    if(corrida.route.isNotEmpty) {
-      final centerLat = corrida.route.map((p) => p['lat']!).reduce((a, b) => a + b) / corrida.route.length;
-      final centerLng = corrida.route.map((p) => p['lng']!).reduce((a, b) => a + b) / corrida.route.length;
-      mapUrl = "https://static-maps.yandex.ru/1.x/?ll=$centerLng,$centerLat&z=15&size=600,300&l=map";
-    }
-
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: Container(
-        clipBehavior: Clip.antiAlias,
+    if (corrida.route.isEmpty) {
+      return Container(
+        height: 200,
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: Colors.grey[200],
           borderRadius: BorderRadius.circular(12),
         ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if(mapUrl.isNotEmpty)
-              Image.network(mapUrl, fit: BoxFit.cover),
-            CustomPaint(
-              painter: _RoutePainter(corrida.route),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Container(
-                decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(6)
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.fullscreen, color: Colors.black),
-                  onPressed: () { /* TODO: Fullscreen map */ },
-                ),
-              ),
-            )
-          ],
+        child: Text(
+          "Sem dados de rota",
+          style: GoogleFonts.poppins(color: Colors.grey[600]),
         ),
-      ),
+      );
+    }
+
+    final List<LatLng> routePoints = corrida.route
+        .map((p) => LatLng(p['lat']!, p['lng']!))
+        .toList();
+
+    final LatLng start = routePoints.first;
+    final LatLng end = routePoints.last;
+
+    return FutureBuilder<String>(
+      future: rootBundle.loadString('assets/map_style.json'),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final mapStyle = snapshot.data!;
+        final bounds = _calculateBounds(routePoints);
+
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 250,
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: routePoints.isNotEmpty
+                    ? routePoints.first
+                    : const LatLng(0, 0),
+                zoom: 15,
+              ),
+              onMapCreated: (GoogleMapController controller) {
+                controller.setMapStyle(mapStyle);
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  controller.animateCamera(
+                    CameraUpdate.newLatLngBounds(bounds, 50),
+                  );
+                });
+              },
+              polylines: {
+                Polyline(
+                  polylineId: const PolylineId('rota_corrida'),
+                  color: Colors.blueAccent,
+                  width: 5,
+                  points: routePoints,
+                ),
+              },
+              markers: {
+                Marker(
+                  markerId: const MarkerId('inicio'),
+                  position: start,
+                  infoWindow: const InfoWindow(title: 'Início'),
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueGreen),
+                ),
+                Marker(
+                  markerId: const MarkerId('fim'),
+                  position: end,
+                  infoWindow: const InfoWindow(title: 'Fim'),
+                  icon: BitmapDescriptor.defaultMarkerWithHue(
+                      BitmapDescriptor.hueRed),
+                ),
+              },
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+            ),
+          ),
+        );
+      },
     );
   }
+
+  /// Calcula os limites (bounds) para ajustar a câmera à rota
+  LatLngBounds _calculateBounds(List<LatLng> points) {
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (var point in points) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+
 
   Widget _statsGrid(RunModel corrida) {
     return GridView.count(

@@ -72,10 +72,6 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> with SingleTickerPr
           style: GoogleFonts.poppins(color: Colors.black, fontWeight: FontWeight.w500, fontSize: 14),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(icon: const Icon(Icons.ios_share_outlined, color: Colors.black), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.more_horiz, color: Colors.black), onPressed: () {}),
-        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.black,
