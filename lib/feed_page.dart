@@ -12,6 +12,8 @@ import 'package:run_walk_app/notifications_page.dart';
 import 'package:run_walk_app/search_users_page.dart';
 import 'package:run_walk_app/create_challenge_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:run_walk_app/profile_page.dart';
+
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
@@ -1219,27 +1221,49 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
               children: [
                 // Cabeçalho
                 ListTile(
-                  leading: CircleAvatar(
-                    radius: 20,
-                    backgroundImage: (widget.photoUrl != null &&
-                        widget.photoUrl!.isNotEmpty)
-                        ? NetworkImage(widget.photoUrl!)
-                        : const AssetImage('assets/icon/logo_principal.png')
-                    as ImageProvider,
+                  leading: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProfilePage(userId: widget.authorId),
+                        ),
+                      );
+                    },
+                    child: CircleAvatar(
+                      radius: 20,
+                      backgroundImage: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
+                          ? NetworkImage(widget.photoUrl!)
+                          : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                    ),
                   ),
-                  title: Text(widget.authorName,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  title: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProfilePage(userId: widget.authorId),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      widget.authorName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
                   subtitle: Text(
                     timeago.format(widget.postTime, locale: 'pt_BR'),
-                    style:
-                    const TextStyle(color: Colors.black54, fontSize: 12),
+                    style: const TextStyle(color: Colors.black54, fontSize: 12),
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.more_vert),
                     onPressed: () => _showPostOptions(context),
                   ),
-
                 ),
+
 
                 // Imagem com double tap = curtir (like) + coração
                 if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty)
@@ -1787,34 +1811,58 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
             // 🔹 Cabeçalho: Criado por
             Row(
               children: [
-                CircleAvatar(
-                  radius: 22,
-                  backgroundImage: authorPhoto != null && authorPhoto.isNotEmpty
-                      ? NetworkImage(authorPhoto)
-                      : const AssetImage('assets/icon/logo_principal.png')
-                  as ImageProvider,
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfilePage(userId: widget.data['authorId']),
+                      ),
+                    );
+                  },
+                  child: CircleAvatar(
+                    radius: 22,
+                    backgroundImage: authorPhoto != null && authorPhoto.isNotEmpty
+                        ? NetworkImage(authorPhoto)
+                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Criado por $authorName',
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ProfilePage(userId: widget.data['authorId']),
+                        ),
+                      );
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Criado por $authorName',
                           style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 14)),
-                      Text(
-                        timeago.format(
-                            (d['timestamp'] as Timestamp?)?.toDate() ??
-                                DateTime.now(),
-                            locale: 'pt_BR'),
-                        style: const TextStyle(
-                            fontSize: 11, color: Colors.black54),
-                      ),
-                    ],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: Colors.black,
+                          ),
+                        ),
+                        Text(
+                          timeago.format(
+                            (d['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                            locale: 'pt_BR',
+                          ),
+                          style: const TextStyle(fontSize: 11, color: Colors.black54),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
+
 
             const Divider(height: 24, thickness: 1, color: Colors.black12),
 

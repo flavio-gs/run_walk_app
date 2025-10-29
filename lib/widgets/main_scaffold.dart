@@ -8,6 +8,8 @@ import 'package:run_walk_app/activity_page.dart';
 import 'package:run_walk_app/feedback_page.dart';
 import 'package:run_walk_app/community_page.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:run_walk_app/service/service/gamification_service.dart';
+
 
 // ✅ Controlador global para esconder/mostrar o Scaffold
 class ScaffoldVisibilityController {
@@ -62,7 +64,17 @@ class _MainScaffoldState extends State<MainScaffold>
       lowerBound: 0.8,
       upperBound: 1.1,
     )..repeat(reverse: true);
+
+    // 🏆 Registra bônus diário só uma vez por dia
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await GamificationService().registrarBonusDiario(context: context);
+      } catch (e) {
+        debugPrint("Erro ao registrar bônus diário: $e");
+      }
+    });
   }
+
 
   @override
   void dispose() {

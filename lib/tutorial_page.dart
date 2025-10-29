@@ -254,51 +254,307 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
 
   @override
   Widget build(BuildContext context) {
-    final locale = Localizations.localeOf(context).languageCode;
-    final bool isCompact = MediaQuery.of(context).size.width < 400;
+    final double width = MediaQuery.of(context).size.width;
+    final bool isCompact = width < 300; // Wear OS geralmente tem ~140–200px
 
-    final stepsPt = [ /* textos em português (seu conteúdo atual) */ ];
-    final stepsEn = [ /* textos em inglês (versão internacional) */ ];
-    final stepsCompact = [ /* versão curta para Wear OS */ ];
+    if (isCompact) {
+      // 🔹 Layout simplificado para Wear OS
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: _wearTutorial(),
+      );
+    }
 
-    final steps = locale == 'en'
-        ? stepsEn
-        : (isCompact ? stepsCompact : stepsPt);
+    // 🔹 Layout completo para mobile
     return Scaffold(
-      body: Stack(children: [
-        GoogleMap(
-          initialCameraPosition:
-          CameraPosition(target: playerRoute.first, zoom: 17),
-          onMapCreated: (c) {
-            _mapController = c;
-            _setMapStyle();
-          },
-          polylines: {
-            Polyline(
-              polylineId: const PolylineId('player'),
-              color: Colors.orangeAccent,
-              width: 6,
-              points: _playerPath,
-            ),
-            Polyline(
-              polylineId: const PolylineId('enemy'),
-              color: Colors.redAccent,
-              width: 5,
-              points: _enemyPath,
-            ),
-          },
-          polygons: _polygons,
-          zoomControlsEnabled: false,
-          myLocationButtonEnabled: false,
-          scrollGesturesEnabled: false,
-          rotateGesturesEnabled: false,
-          tiltGesturesEnabled: false,
-        ),
-        if (showXP) _buildXPBar(),
-        _overlay(),
-      ]),
+      body: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition:
+            CameraPosition(target: playerRoute.first, zoom: 17),
+            onMapCreated: (c) {
+              _mapController = c;
+              _setMapStyle();
+            },
+            polylines: {
+              Polyline(
+                polylineId: const PolylineId('player'),
+                color: Colors.orangeAccent,
+                width: 6,
+                points: _playerPath,
+              ),
+              Polyline(
+                polylineId: const PolylineId('enemy'),
+                color: Colors.redAccent,
+                width: 5,
+                points: _enemyPath,
+              ),
+            },
+            polygons: _polygons,
+            zoomControlsEnabled: false,
+            myLocationButtonEnabled: false,
+            scrollGesturesEnabled: false,
+            rotateGesturesEnabled: false,
+            tiltGesturesEnabled: false,
+          ),
+          if (showXP) _buildXPBar(),
+          _overlay(false),
+        ],
+      ),
     );
   }
+
+
+  Widget _overlay(bool isCompact) {
+    // Seleciona versão curta ou completa
+    final steps = isCompact
+        ? [
+      {'title': "🌎 Seu Império Começa!", 'text': "Corra e domine ruas!"},
+      {'title': "🏃 Crie trajeto", 'text': "Feche voltas e ganhe XP."},
+      {'title': "🔥 Território dominado!", 'text': "Suba de nível e evolua!"},
+      {'title': "⚔️ Rivais!", 'text': "Defenda sua área!"},
+      {'title': "🏅 Vitória!", 'text': "Conecte-se com outros corredores."},
+    ]
+        : [
+      {
+        'title': "🌎 Bem-vindo ao Empire of The Run!",
+        'text': "Transforme suas corridas em conquistas reais!..."
+      },
+      {
+        'title': "🏃 Criando seu trajeto...",
+        'text':
+        "Enquanto você corre, o app traça automaticamente seu percurso..."
+      },
+      {
+        'title': "🔥 Território conquistado!",
+        'text':
+        "Parabéns! Você acaba de dominar sua primeira área. Territórios rendem XP..."
+      },
+      {
+        'title': "⚔️ Invasão inimiga!",
+        'text':
+        "Outros corredores podem tentar roubar parte do seu território..."
+      },
+      {
+        'title': "🏅 Vitória e Conexões!",
+        'text':
+        "Explore a rede social, siga corredores e participe de desafios!"
+      },
+    ];
+
+    final double titleSize = isCompact ? 14 : 22;
+    final double textSize = isCompact ? 10 : 15;
+    final double spacing = isCompact ? 6 : 20;
+    final double padH = isCompact ? 8 : 24;
+    final double padV = isCompact ? 20 : 80;
+
+    return Container(
+      alignment: Alignment.bottomCenter,
+      padding: EdgeInsets.only(bottom: padV, left: padH, right: padH),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              steps[_step]['title']!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.orangeAccent,
+                fontSize: titleSize,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: spacing / 2),
+            Text(
+              steps[_step]['text']!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.black87,
+                fontSize: textSize,
+                height: 1.3,
+              ),
+            ),
+            SizedBox(height: spacing),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (_step > 0)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _step--;
+                      _enemyPath.clear();
+                      _playerPath.clear();
+                      _polygons.clear();
+                      showXP = false;
+                    }),
+                    child: Text(
+                      "◀ Voltar",
+                      style: TextStyle(
+                        color: Colors.orangeAccent,
+                        fontSize: textSize,
+                      ),
+                    ),
+                  ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (_step == 0) {
+                      await _runPlayerRoute();
+                      setState(() => _step = 1);
+                    } else if (_step == 1) {
+                      await _showTerritory();
+                      setState(() => _step = 2);
+                    } else if (_step == 2) {
+                      await _runEnemyRoute();
+                      setState(() => _step = 3);
+                    } else if (_step == 3) {
+                      _invadeTerritory();
+                      setState(() => _step = 4);
+                    } else if (_step == 4) {
+                      _finish();
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                    minimumSize:
+                    Size(isCompact ? 80 : 140, isCompact ? 32 : 48),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isCompact ? 8 : 32,
+                      vertical: isCompact ? 6 : 14,
+                    ),
+                  ),
+                  child: Text(
+                    _step == 4 ? "Ir" : "Avançar ▶",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: textSize,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _wearTutorial() {
+    final List<Map<String, String>> steps = [
+      {
+        'title': '🌎 Empire of The Run',
+        'text':
+        'Transforme suas corridas em conquistas reais! Cada trajeto vira território dominado no mapa.'
+      },
+      {
+        'title': '🏃 Crie seu trajeto',
+        'text':
+        'Enquanto corre, o app registra seu percurso. Feche voltas e conquiste áreas para ganhar XP.'
+      },
+      {
+        'title': '🔥 Suba de nível',
+        'text':
+        'Cada território rende XP e desbloqueia molduras exclusivas (Elos) que mostram sua evolução.'
+      },
+      {
+        'title': '⚔️ Defenda seu império',
+        'text':
+        'Outros corredores podem invadir suas áreas! Corra para reconquistar e proteger seu domínio.'
+      },
+      {
+        'title': '🏅 Explore e Conecte-se',
+        'text':
+        'Siga outros corredores, entre em clãs e participe de desafios globais para expandir seu império.'
+      },
+    ];
+
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        color: Colors.black,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    Text(
+                      steps[_step]['title']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.orangeAccent,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      steps[_step]['text']!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_step > 0)
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _step = (_step - 1).clamp(0, steps.length - 1)),
+                    child: const Text(
+                      "◀",
+                      style: TextStyle(color: Colors.orangeAccent, fontSize: 10),
+                    ),
+                  ),
+                const SizedBox(width: 6),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (_step < steps.length - 1) {
+                      setState(() => _step++);
+                    } else {
+                      await _finish();
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent,
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(
+                    _step == steps.length - 1 ? "Ir ▶" : "Avançar ▶",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
 
   Widget _buildXPBar() {
     return Positioned(
@@ -326,201 +582,4 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     );
   }
 
-  // 🔹 Overlay com botões de navegação
-  Widget _overlay() {
-    final steps = [
-      {
-        'title': "🌎 Bem-vindo ao Empire of The Run!",
-        'text': """
-Transforme suas corridas em conquistas reais!  
-Cada vez que você corre, o trajeto é registrado no mapa e se transforma em território dominado.  
-Avance pelas ruas, amplie seu império e suba no ranking entre milhares de corredores!  
-""",
-      },
-      {
-        'title': "🏃 Criando seu trajeto...",
-        'text': """
-Enquanto você corre, o app traça automaticamente seu percurso no mapa em tempo real.  
-Complete voltas fechadas para reivindicar áreas e transformar seu trajeto em território conquistado.  
-Quanto mais longo e preciso for seu trajeto, maior será sua conquista e seu ganho de XP!  
-""",
-      },
-      {
-        'title': "🔥 Território conquistado!",
-        'text': """
-Parabéns! Você acaba de dominar sua primeira área.  
-Territórios conquistados rendem XP e te ajudam a subir de nível.  
-Ao alcançar novos níveis, você desbloqueia **Elos**, molduras exclusivas que exibem seu status no mapa e no perfil.  
-Mostre que você é um corredor lendário!  
-""",
-      },
-      {
-        'title': "⚔️ Invasão inimiga!",
-        'text': """
-Mas cuidado... outros corredores também estão lutando por domínio!  
-Se um rival correr sobre parte do seu território, ele poderá tomar uma fração — ou até tudo!  
-Corra para defender sua área, reconquiste o que é seu e suba ainda mais nos Elos.  
-O mapa está vivo, e cada corrida é uma batalha por espaço!  
-""",
-      },
-      {
-        'title': "🏅 Vitória e Conexões!",
-        'text': """
-Você venceu e garantiu seu território!  
-Agora, explore a rede social dentro do Empire of The Run:  
-• Siga outros corredores e veja suas conquistas.  
-• Crie ou entre em clãs para competir juntos.  
-• Participe de desafios privados com amigos ou globais com jogadores do mundo todo.  
-
-Suba de nível, evolua seus Elos e mostre ao mundo o tamanho do seu império!  
-""",
-      },
-    ];
-
-    final stepsCompact = [
-      {
-        'title': "🌎 Seu Império Começa!",
-        'text': "Corra, trace seu caminho e transforme ruas em território dominado.",
-      },
-      {
-        'title': "🏃 Crie seu trajeto",
-        'text': "Feche voltas e capture áreas para ganhar XP e crescer seu império.",
-      },
-      {
-        'title': "🔥 Território dominado!",
-        'text': "Ganhe XP, suba de nível e desbloqueie molduras exclusivas (Elos).",
-      },
-      {
-        'title': "⚔️ Rivais à vista!",
-        'text': "Corra para defender o que é seu! Outros podem roubar parte da sua área.",
-      },
-      {
-        'title': "🏅 Vitória!",
-        'text': "Defenda, conquiste e conecte-se com outros corredores e clãs.",
-      },
-    ];
-
-    final stepsEn = [
-      {
-        'title': "🌎 Welcome to Empire of The Run!",
-        'text': """
-Turn your runs into real-world conquests!  
-Every step you take transforms streets into your territory.  
-Expand your empire, earn XP, and climb the global ranking of runners!  
-""",
-      },
-      {
-        'title': "🏃 Creating your route...",
-        'text': """
-As you run, your path is drawn live on the map.  
-Complete closed loops to claim new areas as your territory.  
-The farther and cleaner your route, the more XP you earn!  
-""",
-      },
-      {
-        'title': "🔥 Territory Captured!",
-        'text': """
-You’ve just conquered your first area!  
-Claimed territories reward XP and help you level up.  
-Reach new levels to unlock **Ranks**, exclusive profile frames that show your progress and power.  
-""",
-      },
-      {
-        'title': "⚔️ Enemy Invasion!",
-        'text': """
-Be careful — other runners are competing for domination too!  
-If a rival runs through your area, they can steal part — or all — of your territory.  
-Defend what’s yours and rise through the Ranks!  
-""",
-      },
-      {
-        'title': "🏅 Victory and Community!",
-        'text': """
-You defended your empire!  
-Now join the social side of Empire of The Run:  
-• Follow other runners and track their progress.  
-• Create or join clans to compete together.  
-• Join global or private challenges and rise to glory!  
-
-Level up, earn new Ranks, and show the world your running empire!  
-""",
-      },
-    ];
-
-
-
-    return Container(
-      color: Colors.black.withOpacity(0.10),
-      alignment: Alignment.bottomCenter,
-      padding: const EdgeInsets.only(bottom: 80, left: 24, right: 24),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(
-          steps[_step]['title']!,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-              color: Colors.orangeAccent,
-              fontSize: 22,
-              fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          steps[_step]['text']!,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.black87, fontSize: 15),
-        ),
-        const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (_step > 0)
-              TextButton(
-                onPressed: () => setState(() {
-                  _step--;
-                  _enemyPath.clear();
-                  _playerPath.clear();
-                  _polygons.clear();
-                  showXP = false;
-                }),
-                child: const Text("◀ Voltar",
-                    style: TextStyle(color: Colors.orangeAccent)),
-              ),
-            const SizedBox(width: 10),
-            ElevatedButton(
-              onPressed: () async {
-                if (_step == 0) {
-                  await _runPlayerRoute();
-                  setState(() => _step = 1);
-                } else if (_step == 1) {
-                  await _showTerritory();
-                  setState(() => _step = 2);
-                } else if (_step == 2) {
-                  await _runEnemyRoute();
-                  setState(() => _step = 3);
-                } else if (_step == 3) {
-                  _invadeTerritory();
-                  setState(() => _step = 4);
-                } else if (_step == 4) {
-                  _finish();
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orangeAccent,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-              ),
-              child: Text(
-                _step == 4 ? "Ir para o app" : "Avançar ▶",
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15),
-              ),
-            ),
-          ],
-        ),
-      ]),
-    );
-  }
 }
