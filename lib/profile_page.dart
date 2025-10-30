@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,6 +17,8 @@ import 'model/run_model.dart';
 import 'package:run_walk_app/activity_page.dart';
 import 'package:lottie/lottie.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
+import 'package:run_walk_app/challenge_details_page.dart';
+
 
 
 
@@ -319,7 +322,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const _AchievementsTab(),
                 _HistoryTab(userId: _profileUserId),
-                const ActivityPage(),
+                _ChallengesTab(userId: _profileUserId),
               ],
             ),
           ),
@@ -1241,6 +1244,301 @@ class _HistoryTabState extends State<_HistoryTab> {
   }
 }
 
+// ---------------------- ABA DESAFIOS ----------------------
+class _ChallengesTab extends StatefulWidget {
+  final String userId;
+  const _ChallengesTab({required this.userId});
+
+  @override
+  State<_ChallengesTab> createState() => _ChallengesTabState();
+}
+
+class _ChallengesTabState extends State<_ChallengesTab> {
+  String _filtro = 'ativos'; // 'ativos' | 'encerrados' | 'criados' | 'todos'
+
+  Query<Map<String, dynamic>> _baseQuery() {
+    final col = FirebaseFirestore.instance.collection('challenges');
+    switch (_filtro) {
+      case 'encerrados':
+        return col.where('participants', arrayContains: widget.userId)
+            .where('status', isEqualTo: 'closed')
+            .orderBy('startDate', descending: true);
+      case 'criados':
+        return col.where('createdBy', isEqualTo: widget.userId)
+            .orderBy('startDate', descending: true);
+      case 'todos':
+        return col.where('participants', arrayContains: widget.userId)
+            .orderBy('startDate', descending: true);
+      case 'ativos':
+      default:
+        return col.where('participants', arrayContains: widget.userId)
+            .where('status', isNull: true) // status ausente = ativo
+            .orderBy('startDate', descending: true);
+    }
+  }
+
+  double _normalizeKm(num? rawDistance) {
+    final d = (rawDistance ?? 0).toDouble();
+    // Se vier em metros (valores muito altos), normaliza para km
+    return d >= 1000 ? (d / 1000.0) : d;
+  }
+
+  double _computeRunXp({
+    required double km,
+    required double durationSec,
+    required double calories,
+  }) {
+    // mesma regra usada na tela de detalhes
+    double xp = (km * 12) + (durationSec / 2) + (calories * 0.5);
+    if (xp > 5000) xp = 5000; // evita XP exagerado por corrida
+    if (xp < 0) xp = 0;
+    return xp;
+  }
+
+  /// Soma as métricas do desafio (por TODES participantes) no período.
+  /// Retorna a média de progresso das metas (0..1).
+  Future<double> _computeChallengeProgress(Map<String, dynamic> ch) async {
+    final goals = List<Map<String, dynamic>>.from(ch['goals'] ?? const []);
+    if (goals.isEmpty) return 0.0;
+
+    final start = (ch['startDate'] as Timestamp?)?.toDate();
+    final end   = (ch['endDate'] as Timestamp?)?.toDate();
+    if (start == null || end == null) return 0.0;
+
+    final participants = List<String>.from(ch['participants'] ?? const []);
+    if (participants.isEmpty) return 0.0;
+
+    final startTs = Timestamp.fromDate(start);
+    final endTs   = Timestamp.fromDate(end);
+
+    // Acumuladores globais por métrica
+    double sumKm = 0.0;
+    double sumXp = 0.0;
+    double sumSteps = 0.0; // se você usar 'steps' em metas
+
+    // Faz em chunks de 10 (limite do whereIn)
+    const chunkSize = 10;
+    for (int i = 0; i < participants.length; i += chunkSize) {
+      final chunk = participants.sublist(i, min(i + chunkSize, participants.length));
+      final snap = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', whereIn: chunk)
+          .where('createdAt', isGreaterThanOrEqualTo: startTs)
+          .where('createdAt', isLessThanOrEqualTo: endTs)
+          .get();
+
+      for (final d in snap.docs) {
+        final m = d.data();
+        // distância pode vir em metros (distance) ou já em km (distanceKm)
+        final km = _normalizeKm(m['distance'] ?? m['distanceKm']);
+        final duration = (m['duration'] ?? 0).toDouble(); // s
+        final calories = (m['calories'] ?? 0).toDouble();
+
+        sumKm += km;
+        sumXp += _computeRunXp(km: km, durationSec: duration, calories: calories);
+        sumSteps += (duration * 2); // mesma aproximação da tela de detalhes
+      }
+    }
+
+    // Calcula progresso por meta e tira média
+    double progressSum = 0.0;
+    for (final g in goals) {
+      final metric = (g['metric'] ?? '').toString().toLowerCase();
+      final target = (g['target'] ?? 0).toDouble();
+      if (target <= 0) continue;
+
+      double current = 0.0;
+      if (metric == 'km') current = sumKm;
+      else if (metric == 'xp') current = sumXp;
+      else if (metric == 'steps') current = sumSteps;
+
+      final p = (current / target).clamp(0.0, 1.0);
+      progressSum += p;
+    }
+
+    final avgProgress = progressSum / goals.length;
+    return avgProgress.isNaN ? 0.0 : avgProgress;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Filtro
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: DropdownButtonFormField<String>(
+            value: _filtro,
+            decoration: InputDecoration(
+              labelText: 'Filtrar desafios',
+              labelStyle: const TextStyle(color: Colors.black54),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderSide: const BorderSide(color: Colors.black26),
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            dropdownColor: Colors.white,
+            items: const [
+              DropdownMenuItem(value: 'ativos', child: Text('Ativos')),
+              DropdownMenuItem(value: 'encerrados', child: Text('Encerrados')),
+              DropdownMenuItem(value: 'criados', child: Text('Criados por mim')),
+              DropdownMenuItem(value: 'todos', child: Text('Todos (participando)')),
+            ],
+            onChanged: (v) => setState(() => _filtro = v ?? 'ativos'),
+          ),
+        ),
+
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _baseQuery().snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Center(child: Text('Erro ao carregar desafios 😕'));
+              }
+              if (!snapshot.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFF6D00)),
+                );
+              }
+
+              final docs = snapshot.data!.docs;
+              if (docs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'Nenhum desafio encontrado.',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: docs.length,
+                itemBuilder: (context, i) {
+                  final data = docs[i].data() as Map<String, dynamic>;
+                  final title = data['title'] ?? 'Desafio sem título';
+                  final desc = data['description'] ?? '';
+                  final type = data['type'] ?? 'geral';
+                  final start = (data['startDate'] as Timestamp?)?.toDate();
+                  final end   = (data['endDate'] as Timestamp?)?.toDate();
+                  final status = (data['status'] ?? 'active').toString();
+
+                  return Card(
+                    color: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    elevation: 1,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChallengeDetailsPage(challengeId: docs[i].id),
+                          ),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Chip(
+                                  label: Text(
+                                    type.toUpperCase(),
+                                    style: const TextStyle(
+                                        color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
+                                  backgroundColor: type == 'grupo'
+                                      ? Colors.blueAccent
+                                      : type == 'oficial'
+                                      ? Colors.orange
+                                      : Colors.black87,
+                                ),
+                                const Spacer(),
+                                if (status == 'closed')
+                                  const Icon(Icons.flag, color: Colors.redAccent)
+                                else
+                                  const Icon(Icons.play_arrow_rounded, color: Colors.green),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              title,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            if (desc.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  desc,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 14, color: Colors.black54),
+                                ),
+                              ),
+                            if (start != null && end != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  "${start.day}/${start.month} → ${end.day}/${end.month}",
+                                  style: const TextStyle(fontSize: 13, color: Colors.black45),
+                                ),
+                              ),
+                            const SizedBox(height: 10),
+
+                            // 🔥 Progresso calculado corretamente (média das metas)
+                            FutureBuilder<double>(
+                              future: _computeChallengeProgress(data),
+                              builder: (context, snapProg) {
+                                final prog = (snapProg.data ?? 0.0).clamp(0.0, 1.0);
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: LinearProgressIndicator(
+                                        value: prog,
+                                        minHeight: 8,
+                                        backgroundColor: Colors.grey[300],
+                                        color: const Color(0xFFFF6D00),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '${(prog * 100).toStringAsFixed(0)}% concluído',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+
 class _RunCard extends StatelessWidget {
   final RunModel corrida;
   const _RunCard({required this.corrida});
@@ -1310,6 +1608,8 @@ class _RunCard extends StatelessWidget {
       ],
     );
   }
+
+
 }
 
 class _RoutePainter extends CustomPainter {
@@ -1359,4 +1659,5 @@ class _RoutePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RoutePainter oldDelegate) =>
       oldDelegate.route != route;
+
 }

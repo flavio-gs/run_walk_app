@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:run_walk_app/profile_page.dart';
+import 'package:run_walk_app/create_challenge_page.dart';
+
+import 'challenge_details_page.dart'; // 🔹 página de criação de desafios (já tens)
 
 class CommunityPage extends StatefulWidget {
   const CommunityPage({super.key});
@@ -41,11 +44,10 @@ class _CommunityPageState extends State<CommunityPage>
         elevation: 0,
         backgroundColor: Colors.white,
         centerTitle: true,
-        // 🔧 Garante respiro vertical suficiente
         toolbarHeight: 64,
-        title: Text(
+        title: const Text(
           'Comunidade',
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.black,
             fontWeight: FontWeight.w800,
             fontSize: 22,
@@ -56,7 +58,8 @@ class _CommunityPageState extends State<CommunityPage>
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: _SearchBar(
                   onChanged: (v) => _searchQuery.value = v,
                 ),
@@ -68,8 +71,8 @@ class _CommunityPageState extends State<CommunityPage>
                 unselectedLabelColor: Colors.black54,
                 tabs: const [
                   Tab(text: 'Descobrir'),
-                  Tab(text: 'Mapa'),
                   Tab(text: 'Ranking'),
+                  Tab(text: 'Desafios'),
                 ],
               ),
             ],
@@ -81,23 +84,16 @@ class _CommunityPageState extends State<CommunityPage>
         physics: const BouncingScrollPhysics(),
         children: [
           _DiscoverTab(
-            firestore: _firestore,
-            auth: _auth,
-            searchQuery: _searchQuery,
-          ),
-          _MapTab(
-            firestore: _firestore,
-            auth: _auth,
-            searchQuery: _searchQuery,
-          ),
+              firestore: _firestore, auth: _auth, searchQuery: _searchQuery),
           _ChallengesTab(firestore: _firestore, auth: _auth),
+          _CommunityChallengesTab(firestore: _firestore, auth: _auth),
         ],
       ),
     );
   }
 }
 
-/// 🔍 Barra de busca simples e limpa
+/// 🔍 Barra de busca
 class _SearchBar extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   const _SearchBar({this.onChanged});
@@ -108,45 +104,207 @@ class _SearchBar extends StatefulWidget {
 
 class _SearchBarState extends State<_SearchBar> {
   final _controller = TextEditingController();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, color: Colors.black54),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              onChanged: widget.onChanged,
+              style: const TextStyle(color: Colors.black87),
+              decoration: const InputDecoration(
+                hintText: 'Digite @ para usuário ou # para grupo...',
+                hintStyle: TextStyle(color: Colors.black45),
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          if (_controller.text.isNotEmpty)
+            IconButton(
+              onPressed: () {
+                _controller.clear();
+                widget.onChanged?.call('');
+              },
+              icon: const Icon(Icons.close, color: Colors.black45),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================
+// 🔥 NOVA ABA: DESAFIOS DA COMUNIDADE
+// =============================================================
+class _CommunityChallengesTab extends StatefulWidget {
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+  const _CommunityChallengesTab({
+    required this.firestore,
+    required this.auth,
+  });
+
+  @override
+  State<_CommunityChallengesTab> createState() =>
+      _CommunityChallengesTabState();
+}
+
+class _CommunityChallengesTabState extends State<_CommunityChallengesTab> {
+  String _filter = 'ativos'; // ativos | encerrados
+  bool _loading = false;
+  List<QueryDocumentSnapshot> _challenges = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChallenges();
+  }
+
+  Future<void> _loadChallenges() async {
+    setState(() => _loading = true);
+    try {
+      final now = DateTime.now();
+      Query query = widget.firestore.collection('challenges');
+
+      if (_filter == 'ativos') {
+        query = query.where('endDate', isGreaterThan: Timestamp.fromDate(now));
+      } else {
+        query = query.where('endDate', isLessThanOrEqualTo: Timestamp.fromDate(now));
+      }
+
+      final snap = await query.orderBy('startDate', descending: true).get();
+      setState(() => _challenges = snap.docs);
+    } catch (e) {
+      debugPrint('Erro ao carregar desafios: $e');
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black12),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.search, color: Colors.black54),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                onChanged: widget.onChanged, // 🔥 mantém o vínculo com _searchQuery
-                style: const TextStyle(color: Colors.black87),
-                decoration: const InputDecoration(
-                  hintText: 'Digite @ para usuário ou # para grupo...',
-                  hintStyle: TextStyle(color: Colors.black45),
-                  border: InputBorder.none,
+    return Scaffold(
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          final created = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CreateChallengePage()),
+          );
+
+          // 🔹 Se o usuário criou um desafio com sucesso, recarrega a lista
+          if (created == true && mounted) {
+            _loadChallenges();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Desafio criado com sucesso 🎯')),
+            );
+          }
+        },
+
+        backgroundColor: const Color(0xFFFF6D00),
+        icon: const Icon(Icons.add),
+        label: const Text('Criar desafio'),
+        foregroundColor: Colors.white,
+      ),
+      body: Container(
+        color: Colors.white,
+        child: SafeArea(
+          top: false,
+          child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '🏁 Desafios da Comunidade',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.filter_list, color: Colors.black54),
+                  onSelected: (v) {
+                    setState(() => _filter = v);
+                    _loadChallenges();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'ativos', child: Text('Ativos')),
+                    PopupMenuItem(value: 'encerrados', child: Text('Encerrados')),
+                  ],
+                ),
+                const SizedBox(height: 100),
+              ],
             ),
-            if (_controller.text.isNotEmpty)
-              IconButton(
-                onPressed: () {
-                  _controller.clear();
-                  widget.onChanged?.call('');
-                },
-                icon: const Icon(Icons.close, color: Colors.black45),
+            const SizedBox(height: 12),
+            if (_loading)
+              const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: CircularProgressIndicator(color: Colors.black),
+                  ))
+            else if (_challenges.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Center(
+                  child: Text(
+                    'Nenhum desafio encontrado 🚀',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: _challenges.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final title = data['title'] ?? 'Desafio sem título';
+                  final type = data['type'] ?? 'geral'; // geral | grupo | oficial
+                  final start = (data['startDate'] as Timestamp?)?.toDate();
+                  final end = (data['endDate'] as Timestamp?)?.toDate();
+
+                  return Card(
+                    elevation: 2,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: ListTile(
+                      title: Text(title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, color: Colors.black)),
+                      subtitle: Text(
+                        'Tipo: ${type.toUpperCase()} • ${start != null && end != null ? "${start.day}/${start.month} a ${end.day}/${end.month}" : "Sem data"}',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                      trailing: Icon(Icons.arrow_forward_ios,
+                          color: Colors.grey[600], size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChallengeDetailsPage(challengeId: doc.id),
+                          ),
+                        );
+                      },
+
+                    ),
+                  );
+                }).toList(),
               ),
           ],
         ),
       ),
+    ),
     );
   }
 }
@@ -417,258 +575,6 @@ class _DiscoverTabState extends State<_DiscoverTab> {
           );
         },
       ),
-    );
-  }
-}
-
-// =============================================================
-// 2️⃣ ABA "MAPA" — corredores e rotas populares
-// =============================================================
-class _MapTab extends StatefulWidget {
-  final FirebaseFirestore firestore;
-  final FirebaseAuth auth;
-  final ValueNotifier<String> searchQuery;
-
-  const _MapTab({
-    required this.firestore,
-    required this.auth,
-    required this.searchQuery,
-    Key? key,
-  }) : super(key: key);
-
-  @override
-  State<_MapTab> createState() => _MapTabState();
-}
-
-class _MapTabState extends State<_MapTab> {
-  GoogleMapController? _mapController;
-  LatLng _center = const LatLng(-22.978, -43.365);
-  final Set<Marker> _markers = {};
-  final Set<Polyline> _polylines = {};
-  bool _loadingLocation = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _ensureLocationPermission();
-    _loadRunnersAndRoutes();
-  }
-
-  Future<void> _ensureLocationPermission() async {
-    LocationPermission p = await Geolocator.checkPermission();
-    if (p == LocationPermission.denied || p == LocationPermission.deniedForever) {
-      await Geolocator.requestPermission();
-    }
-  }
-
-  Future<void> _loadRunnersAndRoutes() async {
-    try {
-      final routesSnap = await widget.firestore.collection('routes').limit(10).get();
-      final polylines = <Polyline>{};
-
-      for (final r in routesSnap.docs) {
-        final data = r.data();
-        final points = (data['points'] as List?)
-            ?.whereType<GeoPoint>()
-            .map((gp) => LatLng(gp.latitude, gp.longitude))
-            .toList();
-
-        if (points == null || points.isEmpty) continue;
-        polylines.add(
-          Polyline(
-            polylineId: PolylineId(r.id),
-            points: points,
-            width: 3,
-            color: const Color(0xFFFF6D00),
-          ),
-        );
-      }
-
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      final current = LatLng(pos.latitude, pos.longitude);
-
-      final runnersSnap = await widget.firestore
-          .collection('users')
-          .where('isOnline', isEqualTo: true)
-          .get();
-
-      final currentUserId = widget.auth.currentUser?.uid;
-
-      final markers = <Marker>{};
-      for (final d in runnersSnap.docs) {
-        final m = d.data();
-        final uid = (m['uid'] ?? m['userId'])?.toString();
-        if (uid == currentUserId) continue;
-
-        final lat = (m['lat'] ?? 0).toDouble();
-        final lng = (m['lng'] ?? 0).toDouble();
-
-        markers.add(
-          Marker(
-            markerId: MarkerId('runner_${d.id}'),
-            position: LatLng(lat, lng),
-            infoWindow: InfoWindow(
-              title: m['displayName'] ?? 'Corredor',
-              snippet: m['pace'] ?? '',
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
-            onTap: () => _openRunnerSheet(m),
-          ),
-        );
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _center = current;
-        _markers.clear();
-        _markers.addAll(markers);
-        _polylines.clear();
-        _polylines.addAll(polylines);
-      });
-    } catch (e) {
-      debugPrint("Erro ao carregar mapa: $e");
-    }
-  }
-
-  void _openRunnerSheet(Map<String, dynamic> runner) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      builder: (ctx) {
-        return Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const CircleAvatar(
-                    backgroundColor: Colors.black12,
-                    child: Icon(Icons.person, color: Colors.black87),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      runner['displayName'] ?? 'Corredor',
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.black54),
-                    onPressed: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Ritmo: ${runner['pace'] ?? '--'}',
-                style: const TextStyle(color: Colors.black87),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Cidade: ${runner['city'] ?? '---'}',
-                style: const TextStyle(color: Colors.black87),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    final targetUserId =
-                        (runner['uid'] ?? runner['userId'] ?? '') as String? ?? '';
-                    if (targetUserId.isEmpty) return;
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ProfilePage(userId: targetUserId),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('Ver perfil'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _centerOnUser() async {
-    try {
-      setState(() => _loadingLocation = true);
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      final here = LatLng(pos.latitude, pos.longitude);
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(here, 14));
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível obter sua localização')),
-      );
-    } finally {
-      setState(() => _loadingLocation = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        GoogleMap(
-          initialCameraPosition: CameraPosition(target: _center, zoom: 13.2),
-          onMapCreated: (c) => _mapController = c,
-          markers: _markers,
-          polylines: _polylines,
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-        ),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: Column(
-            children: [
-              FloatingActionButton(
-                heroTag: 'center_on_me',
-                backgroundColor: Colors.black,
-                onPressed: _loadingLocation ? null : _centerOnUser,
-                child: _loadingLocation
-                    ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-                    : const Icon(Icons.my_location, color: Colors.white),
-              ),
-              const SizedBox(height: 10),
-              FloatingActionButton.extended(
-                heroTag: 'reload',
-                backgroundColor: const Color(0xFFFF6D00),
-                onPressed: _loadRunnersAndRoutes,
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                label: const Text(
-                  'Atualizar',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
