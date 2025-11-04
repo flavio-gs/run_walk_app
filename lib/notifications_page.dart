@@ -3,12 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:run_walk_app/service/service/firestore_service.dart';
-import 'package:run_walk_app/widgets/follow_button.dart';
+import 'package:run_walk_app/service/service/firestore_service.dart'; // Mantido, mesmo que não usado na lógica
+import 'package:run_walk_app/widgets/follow_button.dart'; // Mantido
 import 'package:timeago/timeago.dart' as timeago;
 
-// ✅ 1. VERIFIQUE SE ESTE CAMINHO ESTÁ CORRETO
-// Se sua página de perfil tiver outro nome ou estiver em outra pasta, ajuste aqui.
+// ✅ Importe a página de perfil
 import 'profile_page.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -19,14 +18,17 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
+  // Garantia: Verifica se o usuário logado não é nulo antes de acessar .uid
   final _currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
   @override
   void initState() {
     super.initState();
+    // Configura a localização do timeago (já estava correto)
     timeago.setLocaleMessages('pt_BR', timeago.PtBrMessages());
   }
 
+  // Marca a notificação como lida no Firebase
   Future<void> _markAsRead(String notificationId) async {
     if (!mounted) return;
     await FirebaseFirestore.instance
@@ -37,28 +39,26 @@ class _NotificationsPageState extends State<NotificationsPage> {
         .update({'isRead': true});
   }
 
-  // ✅ 2. AQUI ESTÁ A LÓGICA DE NAVEGAÇÃO
+  // 🌟 LÓGICA DE NAVEGAÇÃO REVISADA 🌟
   void _handleNotificationTap(Map<String, dynamic> data) {
-    final type = data['type'];
-    final senderId = data['senderId'];
+    // Tenta obter o ID do remetente (pessoa que realizou a ação)
+    final senderId = data['followerId'] as String?;
 
-    // Se for uma notificação de 'follow' e tivermos o ID do remetente
-    if (type == 'follow' && senderId != null) {
-      // Navega para a página de perfil, passando o ID do usuário
+    if (senderId != null) {
+      // Se houver um ID de remetente, navega para o perfil dele.
       Navigator.push(
         context,
         MaterialPageRoute(
+          // O ProfilePage deve aceitar o 'userId' para carregar o perfil
           builder: (context) => ProfilePage(userId: senderId),
         ),
       );
     }
-    // Adicione aqui a lógica para outros tipos de notificação (curtidas, comentários)
-    // else if (type == 'like' && data['postId'] != null) {
-    //   Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailsPage(postId: data['postId'])));
-    // }
+    // Você pode adicionar outras lógicas aqui, como navegar para um PostDetailsPage
+    // se o type for 'like' ou 'comment' e houver um 'postId'.
   }
 
-  // (O resto do seu código permanece o mesmo)
+  // Cria o RichText para a mensagem de notificação (já estava correto)
   RichText _buildNotificationText(Map<String, dynamic> data) {
     final String senderName = data['senderName'] ?? 'Alguém';
     String messageBody;
@@ -120,19 +120,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
               final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
               Widget? trailingWidget;
+              // Mantém o botão de seguir no trailing se for notificação de follow
               if (type == 'follow' && senderId != null) {
+                // Assumindo que FollowButton recebe o userId alvo
                 trailingWidget = FollowButton(userId: senderId);
               }
 
               return Card(
+                // Usa uma cor mais escura se a notificação não foi lida
                 color: isRead ? Colors.grey[900] : const Color.fromARGB(255, 27, 39, 51),
                 margin: EdgeInsets.zero,
                 elevation: 0,
                 child: ListTile(
-                  // ✅ 3. ONTAP CHAMA A FUNÇÃO DE NAVEGAÇÃO
+                  // 🌟 ONTAP: Marca como lida e tenta navegar para o perfil
                   onTap: () {
                     if (!isRead) _markAsRead(notificationId);
-                    _handleNotificationTap(data); // <- A mágica acontece aqui!
+                    _handleNotificationTap(data);
                   },
                   leading: CircleAvatar(
                     radius: 22,
