@@ -178,6 +178,8 @@ class _FollowButton extends StatefulWidget {
   State<_FollowButton> createState() => _FollowButtonState();
 }
 
+// ... (Código da FollowersPage e _FollowersPageState intacto)
+
 class _FollowButtonState extends State<_FollowButton> {
   final user = FirebaseAuth.instance.currentUser!;
   bool _loading = true;
@@ -209,9 +211,12 @@ class _FollowButtonState extends State<_FollowButton> {
     FirebaseFirestore.instance.collection('users').doc(widget.targetId);
 
     if (_isFollowing) {
+      // 1. UNFOLLOW
       await myRef.collection('following').doc(widget.targetId).delete();
       await targetRef.collection('followers').doc(user.uid).delete();
+      // Não criamos notificação para unfollow
     } else {
+      // 2. FOLLOW
       await myRef
           .collection('following')
           .doc(widget.targetId)
@@ -220,6 +225,22 @@ class _FollowButtonState extends State<_FollowButton> {
           .collection('followers')
           .doc(user.uid)
           .set({'timestamp': FieldValue.serverTimestamp()});
+
+      // 🌟 LÓGICA DE NOTIFICAÇÃO ADICIONADA AQUI 🌟
+      if (user.uid != widget.targetId) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.targetId) // O ID da pessoa que está sendo seguida
+            .collection('notifications')
+            .add({
+          'type': 'follow',
+          'senderId': user.uid,
+          'senderName': user.displayName ?? 'Usuário',
+          'senderPhotoUrl': user.photoURL,
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false, // ESSENCIAL para o badge/bolinha aparecer!
+        });
+      }
     }
 
     setState(() {

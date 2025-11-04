@@ -29,11 +29,28 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   final _currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
+  // 🌟 NOVO: Stream para contar as notificações não lidas
+  late final Stream<int> _unreadNotificationsCountStream;
+
   @override
   void initState() {
     super.initState();
     timeago.setLocaleMessages('pt_BR', timeago.PtBrMessages());
     _setupFeedStream();
+
+    // 🌟 NOVO: Inicializa o Stream de contagem
+    _unreadNotificationsCountStream = _getUnreadNotificationsCountStream();
+  }
+
+  // 🌟 NOVO: Método para criar o Stream de contagem
+  Stream<int> _getUnreadNotificationsCountStream() {
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(_currentUserId)
+        .collection('notifications')
+        .where('isRead', isEqualTo: false) // Filtra apenas as não lidas
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length); // Mapeia o snapshot para o número de documentos
   }
 
   void _showCreateOptions(BuildContext context) {
@@ -293,6 +310,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         'timestamp': FieldValue.serverTimestamp(),
       });
       if (userId != authorId) {
+        // Adiciona notificação de curtida
         await FirebaseFirestore.instance
             .collection('users')
             .doc(authorId)
@@ -300,10 +318,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             .add({
           'type': 'like',
           'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
-          'photoUrl': FirebaseAuth.instance.currentUser?.photoURL,
+          'senderId': userId, // Adicionando senderId para navegação
+          'senderPhotoUrl': FirebaseAuth.instance.currentUser?.photoURL, // Renomeado para seguir o padrão
           'message':
           '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
           'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false, // Importante: Garante que a notificação é não lida
         });
       }
     } else {
@@ -345,15 +365,47 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             onPressed: () => _showCreateOptions(context),
           ),
 
-          IconButton(
-            icon: const Icon(Icons.favorite_border),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const NotificationsPage(),
-              ),
-            ),
+          // 🌟 IMPLEMENTAÇÃO DO BADGE AQUI 🌟
+          // 🌟 IMPLEMENTAÇÃO DO BADGE AQUI 🌟
+          StreamBuilder<int>(
+            stream: _unreadNotificationsCountStream,
+            builder: (context, snapshot) {
+              final unreadCount = snapshot.data ?? 0;
+
+              return Stack(
+                children: [
+                  // 1. O IconButton de Notificações
+                  IconButton(
+                    icon: const Icon(Icons.favorite_border),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const NotificationsPage(),
+                      ),
+                    ),
+                  ),
+
+                  // 2. O Badge (a Bolinha) - SÓ APARECE se unreadCount > 0
+                  if (unreadCount > 0)
+                    Positioned(
+                      // ⬇️ NOVOS AJUSTES PARA O CANTO INFERIOR ESQUERDO ⬇️
+                      left: 0,   // Ancorado à esquerda
+                      bottom: 0, // Ancorado ao fundo
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                      ),
+                    )
+                ],
+              );
+            },
           ),
+          // ------------------------------------
         ],
       ),
       body: _isLoading
