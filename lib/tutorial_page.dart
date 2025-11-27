@@ -243,10 +243,10 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasSeenTutorial', true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainScaffold()),
-    );
+
+    Navigator.of(context).pushReplacementNamed('/login');
   }
+
   Future<void> _setMapStyle() async {
     final style = await rootBundle.loadString('assets/map_style.json');
     _mapController?.setMapStyle(style);
