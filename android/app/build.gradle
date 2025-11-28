@@ -5,6 +5,13 @@ plugins {
     id "com.google.gms.google-services"
 }
 
+// 👇 keystore (ok deixar)
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.example.run_walk_app"
     compileSdk = flutter.compileSdkVersion
@@ -14,7 +21,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
         coreLibraryDesugaringEnabled true
-
     }
 
     kotlinOptions {
@@ -22,31 +28,50 @@ android {
     }
 
     defaultConfig {
-       
-        applicationId = "com.example.run_walk_app"
-       
+        applicationId = "com.nexusdev.runner_imperio"
         minSdkVersion flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
-    buildTypes {
+    signingConfigs {
         release {
-           
-            signingConfig = signingConfigs.debug
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
         }
     }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    // 👇 SE quiser muito mexer aqui, usa esse formato novo.
+    // Mas pra simplificar, pode remover o bloco packagingOptions inteiro.
+    // packagingOptions {
+    //     jniLibs {
+    //         useLegacyPackaging = true
+    //     }
+    // }
 }
+
+// ❌ REMOVE ISSO COMPLETAMENTE
+// tasks.whenTaskAdded { task ->
+//     if (task.name.contains("strip") || task.name.contains("Strip")) {
+//         task.enabled = false
+//     }
+// }
 
 flutter {
     source = "../.."
 }
 
 dependencies {
-    // ✅ Permite usar APIs modernas do Java em versões antigas do Android
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
-
-    // (mantém as outras dependências automáticas do Flutter)
 }
-

@@ -65,6 +65,67 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:423107963134:android:1175ff357c201d020e5daf",
+        "android_client_info": {
+          "package_name": "com.nexusdev.runner_imperio"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "423107963134-24suf9i0u3653podnlfaiqemj2qn2c1u.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "bb5aac73158b2e9ae060a021db08e3149a5c9368"
+          }
+        },
+        {
+          "client_id": "423107963134-apu9fgrrtvva166bsida3rsklq457kg8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "af8584c9478c83f0230293992268da5695ba7737"
+          }
+        },
+        {
+          "client_id": "423107963134-m6f3g3bd61oviblgovohej7pvm8bi90h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "e2df2e780a4a43c2dc9620f7bcc185456da96060"
+          }
+        },
+        {
+          "client_id": "423107963134-r6q2kcovbidkn8m3oc3vjrhd32571gej.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "f9a63fcffe586535152d4de8b65c8e7b6c9efa3a"
+          }
+        },
+        {
+          "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwz4sY5TgIKfAMlYsy4Du6PMgFfOH6bYE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
