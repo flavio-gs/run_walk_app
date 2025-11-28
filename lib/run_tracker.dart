@@ -447,7 +447,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void initState() {
-    _initLocationFlow();
+     _initLocationFlow();
 
     super.initState();
 
@@ -671,15 +671,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
     // 🔹 Ajuste automático do zoom
-    if (_markers.isNotEmpty && _googleMapController != null && _followUser) {
-      await Future.delayed(const Duration(milliseconds: 800));
-      _googleMapController?.animateCamera(
-        CameraUpdate.newLatLngBounds(
-          _calculateBounds(_markers.map((m) => m.position).toList()),
-          80,
-        ),
-      );
-    }
+    // if (_markers.isNotEmpty && _googleMapController != null && _followUser) {
+    //   await Future.delayed(const Duration(milliseconds: 800));
+    //   _googleMapController?.animateCamera(
+    //     CameraUpdate.newLatLngBounds(
+    //       _calculateBounds(_markers.map((m) => m.position).toList()),
+    //       80,
+    //     ),
+    //   );
+    // }
   }
 
 
