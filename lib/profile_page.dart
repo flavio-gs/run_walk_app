@@ -18,6 +18,10 @@ import 'package:run_walk_app/activity_page.dart';
 import 'package:lottie/lottie.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:run_walk_app/challenge_details_page.dart';
+import 'package:run_walk_app/edit_profile_page.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+
+
 
 
 
@@ -37,6 +41,10 @@ class _ProfilePageState extends State<ProfilePage> {
   int? _previousLevel;
   int? _lastLevelShown;
   bool _isFirstSnapshot = true; // flag para ignorar o primeiro snapshot
+  bool _isUploadingProfilePhoto = false;
+  bool _isUploadingCoverPhoto = false;
+
+
 
 
   // Dados de level e XP
@@ -247,9 +255,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Enviando nova imagem de capa...')),
-    );
+    setState(() => _isUploadingCoverPhoto = true);
 
     try {
       final ref = FirebaseStorage.instance.ref('users/$uid/cover.jpg');
@@ -270,8 +276,129 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao enviar imagem: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingCoverPhoto = false);
+      }
     }
   }
+
+
+  Future<void> _changeProfilePhoto() async {
+    if (!_isCurrentUserProfile) return;
+
+    final picker = ImagePicker();
+
+    // Escolher fonte (câmera ou galeria)
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Galeria'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Câmera'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (source == null) return;
+
+    final picked = await picker.pickImage(
+      source: source,
+      imageQuality: 90,
+    );
+    if (picked == null) return;
+
+    final file = File(picked.path);
+    final uid = _profileUserId; // mesmo user do perfil aberto
+
+    try {
+      setState(() => _isUploadingProfilePhoto = true);
+
+      // 🔹 compressão da imagem principal
+      final mainBytes = await FlutterImageCompress.compressWithFile(
+        file.path,
+        quality: 80,
+        minWidth: 600,
+        minHeight: 600,
+      );
+      if (mainBytes == null) throw 'Falha ao comprimir imagem';
+
+      // 🔹 thumbnail menor
+      final thumbBytes = await FlutterImageCompress.compressWithFile(
+        file.path,
+        quality: 60,
+        minWidth: 200,
+        minHeight: 200,
+      );
+      if (thumbBytes == null) throw 'Falha ao comprimir thumbnail';
+
+      final storage = FirebaseStorage.instance;
+
+      final mainRef =
+      storage.ref().child('users').child(uid).child('photo.jpg');
+      final thumbRef =
+      storage.ref().child('users').child(uid).child('photo_thumb.jpg');
+
+      await mainRef.putData(mainBytes, SettableMetadata(contentType: 'image/jpeg'));
+      final downloadURL = await mainRef.getDownloadURL();
+
+      await thumbRef.putData(thumbBytes, SettableMetadata(contentType: 'image/jpeg'));
+      final thumbUrl = await thumbRef.getDownloadURL();
+
+      // 🔹 Atualiza Auth (se for o user logado) e Firestore
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && currentUser.uid == uid) {
+        await currentUser.updatePhotoURL(downloadURL);
+        await currentUser.reload();
+      }
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set({
+        'photoURL': downloadURL,
+        'photoThumbURL': thumbUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        setState(() {
+          photoURL = downloadURL;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de perfil atualizada!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao atualizar foto: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingProfilePhoto = false);
+      }
+    }
+  }
+
 
   String _formatDate(DateTime? d) {
     if (d == null) return '';
@@ -366,12 +493,22 @@ class _ProfilePageState extends State<ProfilePage> {
                     shape: BoxShape.circle,
                   ),
                   child: IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.white),
-                    onPressed: _changeCoverPhoto,
+                    icon: _isUploadingCoverPhoto
+                        ? const SizedBox(
+                      height: 10,
+                      width: 10,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.edit, color: Colors.white),
+                    onPressed: _isUploadingCoverPhoto ? null : _changeCoverPhoto,
                     tooltip: 'Alterar imagem de capa',
                   ),
                 ),
               ),
+
             Align(
               alignment: Alignment.bottomLeft,
               child: Padding(
@@ -384,24 +521,36 @@ class _ProfilePageState extends State<ProfilePage> {
                       alignment: Alignment.center,
                       clipBehavior: Clip.none,
                       children: [
-                        // Avatar atrás da moldura
+                        // Avatar clicável
                         Positioned(
                           top: 10,
-                          child: CircleAvatar(
-                            radius: 42, // 🔹 ligeiramente menor que a moldura
-                            backgroundColor: Colors.white,
-                            backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
-                                ? NetworkImage(photoURL!)
-                                : null,
-                            child: (photoURL == null || photoURL!.isEmpty)
-                                ? const Icon(Icons.person, size: 40)
-                                : null,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              GestureDetector(
+                                onTap: _isCurrentUserProfile ? _changeProfilePhoto : null,
+                                child: CircleAvatar(
+                                  radius: 42,
+                                  backgroundColor: Colors.white,
+                                  backgroundImage: (photoURL != null && photoURL!.isNotEmpty)
+                                      ? NetworkImage(photoURL!)
+                                      : null,
+                                  child: (photoURL == null || photoURL!.isEmpty)
+                                      ? const Icon(Icons.person, size: 40)
+                                      : null,
+                                ),
+                              ),
+
+
+                            ],
                           ),
                         ),
 
                         // Moldura Lottie (por cima)
-                        SizedBox(
-                          height: 110, // 🔹 reduzido para alinhar visualmente
+                        IgnorePointer(
+                          ignoring: true,
+                          child: SizedBox(
+                          height: 110,
                           width: 200,
                           child: Lottie.asset(
                             LevelFrameManager.getFrameForLevel(level),
@@ -410,12 +559,38 @@ class _ProfilePageState extends State<ProfilePage> {
                             alignment: Alignment.center,
                           ),
                         ),
+                        ),
+                        // Ícone de câmera + loading
+                        if (_isCurrentUserProfile)
+                          Positioned(
+                            bottom: 5,
+                            right: 55,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.7),
+                                shape: BoxShape.circle,
+                              ),
+                              child: _isUploadingProfilePhoto
+                                  ? const SizedBox(
+                                height: 14,
+                                width: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                                  : const Icon(
+                                Icons.camera_alt,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
 
-
-
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 5),
                     Expanded(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -725,6 +900,46 @@ class _StatsTabState extends State<_StatsTab> {
                   ),
                 ),
                 const SizedBox(height: 12),
+
+                // --------- Botão Editar perfil (apenas dono)
+                if (widget.isOwner)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: const Text(
+                          'Editar perfil',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Color(0xFFFF6D00)),
+                          foregroundColor: const Color(0xFFFF6D00),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => EditProfilePage(userId: widget.userId),
+                            ),
+                          );
+                          // Atualiza infos depois de editar
+                          await widget.onRefreshSocial();
+                          setState(() {
+                            _bio = widget.bio; // força rebuild com dados novos
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+
+
+
                 // Seguidores | Seguindo
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

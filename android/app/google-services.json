@@ -14,38 +14,6 @@
       },
       "oauth_client": [
         {
-          "client_id": "423107963134-khg0m83r1ed1lkanf2mssf83fbd8hha9.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.run_walk_app",
-            "certificate_hash": "af8584c9478c83f0230293992268da5695ba7737"
-          }
-        },
-        {
-          "client_id": "423107963134-m9ckp80sgpo25brp1c7mlfasjhmgnqpu.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.run_walk_app",
-            "certificate_hash": "e2df2e780a4a43c2dc9620f7bcc185456da96060"
-          }
-        },
-        {
-          "client_id": "423107963134-qb7dmp0oessatvf3c7lfkvgnud7jrbs2.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.run_walk_app",
-            "certificate_hash": "f9a63fcffe586535152d4de8b65c8e7b6c9efa3a"
-          }
-        },
-        {
-          "client_id": "423107963134-s2cee2rbunh1frmhkh1fecgp1o0jl3o2.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.run_walk_app",
-            "certificate_hash": "bb5aac73158b2e9ae060a021db08e3149a5c9368"
-          }
-        },
-        {
           "client_id": "423107963134-vbnpvbtoal51cckclhr65vf0egc1bkvj.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -75,7 +43,31 @@
       },
       "oauth_client": [
         {
-          "client_id": "423107963134-24suf9i0u3653podnlfaiqemj2qn2c1u.apps.googleusercontent.com",
+          "client_id": "423107963134-3pcomv961fgvifnm8rp7d9iansostnid.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "f9a63fcffe586535152d4de8b65c8e7b6c9efa3a"
+          }
+        },
+        {
+          "client_id": "423107963134-b36etlc326ch9mfi1a2q5qmrjljcgsao.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "605c847c156abb83bdbfe118e5678e0efc9eada0"
+          }
+        },
+        {
+          "client_id": "423107963134-b9pjm45hv795pegpp6ucjsdefvh7avef.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nexusdev.runner_imperio",
+            "certificate_hash": "08125bd086b4530e822b150b4294d1c58675c65e"
+          }
+        },
+        {
+          "client_id": "423107963134-boua471u2s2vaecj2gob7sh1hppnov58.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nexusdev.runner_imperio",
@@ -83,15 +75,15 @@
           }
         },
         {
-          "client_id": "423107963134-apu9fgrrtvva166bsida3rsklq457kg8.apps.googleusercontent.com",
+          "client_id": "423107963134-gc74ckt78j41uq8cq2dnm465p1qvp071.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nexusdev.runner_imperio",
-            "certificate_hash": "af8584c9478c83f0230293992268da5695ba7737"
+            "certificate_hash": "aeae3499856b3cc52ac009dd4a7a4d9a3d68a21f"
           }
         },
         {
-          "client_id": "423107963134-m6f3g3bd61oviblgovohej7pvm8bi90h.apps.googleusercontent.com",
+          "client_id": "423107963134-m72finkfpf861mbv31l3fjcdfh36q8e4.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nexusdev.runner_imperio",
@@ -99,11 +91,11 @@
           }
         },
         {
-          "client_id": "423107963134-r6q2kcovbidkn8m3oc3vjrhd32571gej.apps.googleusercontent.com",
+          "client_id": "423107963134-ucvri1ncmd3hq3mtf18ag135p2v7ctv9.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nexusdev.runner_imperio",
-            "certificate_hash": "f9a63fcffe586535152d4de8b65c8e7b6c9efa3a"
+            "certificate_hash": "af8584c9478c83f0230293992268da5695ba7737"
           }
         },
         {

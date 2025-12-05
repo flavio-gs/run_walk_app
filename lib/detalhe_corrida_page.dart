@@ -192,7 +192,7 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
             const SizedBox(height: 24),
             _statsGrid(corrida),
             const SizedBox(height: 24),
-            _moreDetailsButton(),
+            //_moreDetailsButton(),
           ],
         ),
       ),
@@ -366,7 +366,7 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     );
   }
 
-  Widget _moreDetailsButton() {
+  /*Widget _moreDetailsButton() {
     return OutlinedButton(
       onPressed: () {
         Navigator.push(
@@ -392,7 +392,7 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
         ],
       ),
     );
-  }
+  }*/
 }
 
 class _StatTile extends StatelessWidget {

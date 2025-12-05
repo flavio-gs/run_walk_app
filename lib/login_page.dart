@@ -145,7 +145,10 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => loading = true);
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return;
+      if (googleUser == null) {
+        setState(() => loading = false);
+        return; // usuário cancelou
+      }
 
       final GoogleSignInAuthentication googleAuth =
       await googleUser.authentication;
@@ -154,35 +157,67 @@ class _LoginPageState extends State<LoginPage> {
         idToken: googleAuth.idToken,
       );
 
-      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCred =
+      await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user;
-      if (user == null) return;
+      if (user == null) {
+        setState(() => loading = false);
+        return;
+      }
 
-// 🔹 Reativação automática
+      // 🔹 Reativação automática
       await _reactivateIfNeeded(user.uid);
 
-      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
+      // 🔹 Se não existir cadastro, cria com dados básicos e força perfil incompleto
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '',
-          'isActive': true, // ✅ garante ativo
+          'username': '', // vazio pra forçar completar
+          'displayName': user.displayName ?? '',
+          'isActive': true,
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+
+        userDoc = await userDocRef.get();
       }
 
+      final data = userDoc.data() ?? {};
 
-      navigateToRunTrackingPage();
+      final camposObrigatorios = [
+        data['username'],
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+            (valor) =>
+        valor == null ||
+            (valor is String && valor.trim().isEmpty) ||
+            (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
+      } else {
+        navigateToRunTrackingPage();
+      }
     } catch (e) {
       setState(() => mensagemErro = 'Erro ao autenticar: $e');
     } finally {
       setState(() => loading = false);
     }
   }
+
 
   // ------------------ 🧱 CAMPOS -------------------
   Widget _buildTextField({

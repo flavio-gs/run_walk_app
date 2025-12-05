@@ -481,6 +481,8 @@ class _DiscoverTabState extends State<_DiscoverTab> {
 
 
   Widget _buildUserList(List<QueryDocumentSnapshot> docs) {
+    final currentUserId = widget.auth.currentUser?.uid;
+
     return SizedBox(
       height: 180,
       child: ListView.separated(
@@ -489,94 +491,156 @@ class _DiscoverTabState extends State<_DiscoverTab> {
         itemCount: docs.length,
         itemBuilder: (_, i) {
           final data = docs[i].data() as Map<String, dynamic>;
-          final targetUserId = (data['uid'] ?? data['userId'] ?? docs[i].id) as String? ?? '';
+          final targetUserId =
+          (data['uid'] ?? data['userId'] ?? docs[i].id).toString();
 
-          return Container(
-            width: 220,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  const CircleAvatar(
-                    backgroundColor: Colors.black12,
-                    child: Icon(Icons.person, color: Colors.black87),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      data['displayName'] ?? 'Corredor',
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 8),
-                Text(
-                  '@${data['username'] ?? 'sem_username'}',
-                  style: const TextStyle(color: Colors.black54, fontSize: 13),
+          return StreamBuilder<DocumentSnapshot>(
+            stream: widget.firestore
+                .collection('users')
+                .doc(currentUserId)
+                .collection('following')
+                .doc(targetUserId)
+                .snapshots(),
+            builder: (_, snapshot) {
+              final isFollowing =
+                  snapshot.hasData && snapshot.data!.exists;
+
+              return Container(
+                width: 220,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Cidade: ${data['city'] ?? '---'}',
-                  style: const TextStyle(color: Colors.black54),
-                ),
-                const Spacer(),
-                Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          await FirebaseFirestore.instance
-                              .collection('follows')
-                              .doc('${widget.auth.currentUser?.uid}_$targetUserId')
-                              .set({
-                            'followerId': widget.auth.currentUser?.uid,
-                            'followingId': targetUserId,
-                            'createdAt': FieldValue.serverTimestamp(),
-                          });
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Agora você segue este corredor 🎉')),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                    Row(children: [
+                      const CircleAvatar(
+                        backgroundColor: Colors.black12,
+                        child: Icon(Icons.person, color: Colors.black87),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          data['displayName'] ?? 'Corredor',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ]),
+                    const SizedBox(height: 8),
+                    Text(
+                      '@${data['username'] ?? 'sem_username'}',
+                      style: const TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Cidade: ${data['city'] ?? '---'}',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              if (currentUserId == null ||
+                                  currentUserId == targetUserId) return;
+
+                              if (isFollowing) {
+                                // 🔻 UNFOLLOW
+                                await widget.firestore
+                                    .collection('users')
+                                    .doc(currentUserId)
+                                    .collection('following')
+                                    .doc(targetUserId)
+                                    .delete();
+
+                                await widget.firestore
+                                    .collection('users')
+                                    .doc(targetUserId)
+                                    .collection('followers')
+                                    .doc(currentUserId)
+                                    .delete();
+                              } else {
+                                // 🔹 FOLLOW
+                                await widget.firestore
+                                    .collection('users')
+                                    .doc(currentUserId)
+                                    .collection('following')
+                                    .doc(targetUserId)
+                                    .set({
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                });
+
+                                await widget.firestore
+                                    .collection('users')
+                                    .doc(targetUserId)
+                                    .collection('followers')
+                                    .doc(currentUserId)
+                                    .set({
+                                  'timestamp': FieldValue.serverTimestamp(),
+                                });
+                              }
+
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(isFollowing
+                                      ? 'Você deixou de seguir'
+                                      : 'Agora você segue este corredor 🎉'),
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                              isFollowing ? Colors.white : Colors.black,
+                              foregroundColor:
+                              isFollowing ? Colors.black : Colors.white,
+                              side: isFollowing
+                                  ? const BorderSide(color: Colors.black26)
+                                  : BorderSide.none,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: Text(
+                              isFollowing ? 'Deixar de seguir' : 'Seguir',
+                            ),
                           ),
                         ),
-                        child: const Text('Seguir'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ProfilePage(userId: targetUserId),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ProfilePage(userId: targetUserId),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.info_outline,
+                            color: Color(0xFFFF6D00),
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.info_outline, color: Color(0xFFFF6D00)),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              );
+            },
           );
         },
       ),
     );
   }
+
+
 }
 
 // =============================================================

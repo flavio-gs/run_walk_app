@@ -21,8 +21,11 @@ import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:lottie/lottie.dart' hide Marker;
+import 'model/run_model.dart';
 
 
+
+import 'detalhe_corrida_page.dart';
 import 'widgets/main_scaffold.dart';
 
 // Som (apenas Wear OS usará)
@@ -297,6 +300,30 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+  Future<void> _startPassiveLocationTracking() async {
+    await _positionStream?.cancel();
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 8,
+      ),
+    ).listen((position) {
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+      });
+
+      _updateMarker();
+
+      if (!isWearOS && _followUser) {
+        _googleMapController?.animateCamera(
+          CameraUpdate.newLatLng(_currentPosition),
+        );
+      }
+    });
+  }
+
+
 
   Future<void> _setOfflineOnExit() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -390,6 +417,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   int _seconds = 0;
   bool _isRunning = false;
   bool _runEnded = false;
+  bool _isPaused = false;
   DateTime? _startTime;
   final Stopwatch _stopwatch = Stopwatch();
 
@@ -487,7 +515,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Future<void> _initLocationFlow() async {
     await _checkLocationPermissionAndSetInitialLocation();
-    await _startLocationTracking(); // atualiza posição mesmo sem iniciar corrida
+    await _startPassiveLocationTracking(); // atualiza posição mesmo sem iniciar corrida
   }
 
   Future<void> _checkLocationPermissionAndSetInitialLocation() async {
@@ -911,7 +939,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     ScaffoldVisibilityController.hide();
     FlutterBackgroundService().startService();
 
-
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       await Geolocator.openLocationSettings();
@@ -934,22 +961,37 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _seconds = 0;
     _caloriesBurned = 0;
     _averagePace = 0;
+    _sessionXP = 0;
+    _distanceSinceLastXP = 0;
+    _nextXPThreshold = 100;
 
     _stopwatch.reset();
     _stopwatch.start();
     _startTime = DateTime.now();
 
-    setState(() => _isRunning = true);
+    setState(() {
+      _isRunning = true;
+      _isPaused = false;
+    });
 
     await _playStart(); // som apenas no Wear
 
+    _startTimerTick();
+    _startPositionStream();
+  }
+
+  void _startTimerTick() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
         _seconds = _stopwatch.elapsed.inSeconds;
         _calculatePaceAndCalories();
       });
     });
+  }
 
+  void _startPositionStream() {
+    _positionStream?.cancel();
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
@@ -966,22 +1008,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           );
 
           if (d > 0.5) {
-            _totalDistance += d;         // ⬅️ soma em METROS
+            _totalDistance += d;         // metros
             _positions.add(latLngPos);
+
             // 🎯 Sistema de XP em tempo real
             _distanceSinceLastXP += d;
-            if (_distanceSinceLastXP >= 100) { // a cada 100 metros = +1 XP
+            if (_distanceSinceLastXP >= 100) { // a cada 100m = +1 XP
               _distanceSinceLastXP -= 100;
               _sessionXP += 1;
               _showXPGainEffect("+1 XP");
 
-              // Vibra e mostra se atingiu múltiplos de 100 XP
               if (_sessionXP >= _nextXPThreshold) {
                 _nextXPThreshold += 100;
                 HapticFeedback.mediumImpact();
                 _showXPLevelUp();
               }
             }
+
             if (!isWearOS) _updatePolyline();
           }
         } else {
@@ -997,10 +1040,40 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       if (!isWearOS && _followUser) {
         _googleMapController?.animateCamera(CameraUpdate.newLatLng(latLngPos));
       }
-
-      // não marcar _isProgrammaticCameraMove duas vezes aqui; uma animação basta
     });
   }
+
+  void _pauseRun() {
+    if (!_isRunning || _isPaused) return;
+
+    _timer?.cancel();
+    _stopwatch.stop();
+    _positionStream?.pause();
+
+    setState(() {
+      _isPaused = true;
+    });
+
+    debugPrint("⏸ Corrida pausada. Tempo: ${_stopwatch.elapsed.inSeconds}s");
+  }
+
+  void _resumeRun() {
+    if (!_isRunning || !_isPaused) return;
+
+    _stopwatch.start();
+    _startTimerTick();
+    _positionStream?.resume();
+
+    setState(() {
+      _isPaused = false;
+    });
+
+    debugPrint("▶️ Corrida retomada.");
+  }
+
+
+
+
 
   DateTime? _lastPointTime;
 
@@ -1155,8 +1228,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Future<void> _stopRun() async {
     _timer?.cancel();
+    await _positionStream?.cancel();
+    _positionStream = null;
+
     _stopwatch.stop();
-    setState(() => _isRunning = false);
+    setState(() {
+      _isRunning = false;
+      _isPaused = false;
+    });
+
     await _playStop(); // som apenas no Wear
     ScaffoldVisibilityController.show();
     FlutterBackgroundService().invoke('stopService');
@@ -1173,25 +1253,45 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     // 🔹 Garante que o pace e as calorias estão atualizados
     _calculatePaceAndCalories();
 
+    // 🔹 MONTA A ROTA A PARTIR DE _positions
+    final routeList = _positions
+        .map((p) => {
+      'lat': p.latitude,
+      'lng': p.longitude,
+    })
+        .toList();
+
     // 🔹 Monta os dados da corrida atual
     final runData = {
       'userId': user.uid,
       'distance': _totalDistance, // em metros
-      'pace': _averagePace,       // já calculado em min/km
-      'route': _recordedRoute
-          .map((p) => {'lat': p.latitude, 'lng': p.longitude})
-          .toList(),
+      'pace': _averagePace,       // min/km
+      'duration': _stopwatch.elapsed.inSeconds,
+      'calories': _caloriesBurned,
+      'date': DateTime.now(),
+      'route': routeList,
     };
 
-    // 🔹 Adiciona XP proporcional à distância
+    // ⭐ RunModel que a DetalheCorridaPage espera
+    final corridaModel = RunModel(
+      userId: user.uid,
+      distance: _totalDistance,
+      duration: _stopwatch.elapsed.inSeconds,
+      pace: _averagePace,
+      calories: _caloriesBurned,
+      date: DateTime.now(),
+      route: routeList,
+    );
+
+    // 🔹 XP proporcional
     await AchievementService().addXP(
-      _totalDistance * 0.1, // ex: 0.1 XP por metro = 100 XP por km
+      _totalDistance * 0.1, // 0.1 XP por metro = 100 XP por km
       context: context,
       source: 'run',
       description: 'Corrida concluída',
     );
 
-    // 🔹 Verifica se o jogador dominou algum território
+    // 🔹 Território
     await TerritoryService().checkTerritoryDominance(
       userId: user.uid,
       pace: _averagePace,
@@ -1200,24 +1300,31 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           .toList(),
     );
 
-    // 👇 Atualiza o mapa após dominar
-    await _loadTerritories(); // método que recarrega os polígonos do Firestore
+    await _loadTerritories();
     setState(() {});
 
-    // 🧩 (NOVO) Após verificar domínio, atualiza conquistas territoriais
+    // 🔹 Conquistas
     await AchievementService().checkAchievements(
       runData: {
         'distance': _totalDistance / 1000,
         'pace': _averagePace,
-        'territoriesCaptured': 1, // aqui marcamos que houve 1 tentativa de domínio
+        'territoriesCaptured': 1,
       },
       context: context,
     );
 
     debugPrint("🏁 Corrida finalizada com ${_totalDistance.toStringAsFixed(1)} m e pace $_averagePace.");
 
-  }
+    if (!mounted) return;
 
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetalheCorridaPage(
+          corrida: corridaModel,
+        ),
+      ),
+    );
+  }
 
 
   void _calculatePaceAndCalories() {
@@ -1968,15 +2075,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ),
 
 
-          // ⚫ Botão central — preto com ícone play laranja
+          // ⚫ Controles da corrida (start / pausar / retomar + slide para parar)
           Positioned(
-            bottom: 40,
             left: 0,
             right: 0,
-            child: Center(
-              child: _isRunning ? _buildSlideToStopButton() : _buildStartButton(),
-            ),
+            bottom: 0,
+            child: _buildBottomRunControls(),
           ),
+
 
           // 🔘 Botão recenter
           Positioned(
@@ -2080,37 +2186,156 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Widget _buildSlideToStopButton() {
     final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
 
-    return SafeArea( // 🔒 protege contra sobreposição da navigation bar
-      minimum: const EdgeInsets.only(bottom: 24), // sobe o botão um pouco
-      child: GestureDetector(
-        onHorizontalDragUpdate: (details) {
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        setState(() {
+          _slideDragValue += details.primaryDelta ?? 0;
+          _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
+        });
+      },
+      onHorizontalDragEnd: (details) async {
+        if (_slideDragValue > 120) {
+          HapticFeedback.mediumImpact();
+
+          // 👉 encerra a corrida
+          await _stopRun();
+          await _saveRun();
+
           setState(() {
-            _slideDragValue += details.primaryDelta ?? 0;
-            _slideDragValue = _slideDragValue.clamp(0.0, 180.0);
+            _slideDragValue = 0.0;
+            // _isRunning = false;  // se o _stopRun já seta, nem precisa aqui
           });
-        },
-        onHorizontalDragEnd: (details) async {
-          if (_slideDragValue > 120) {
-            HapticFeedback.mediumImpact();
-            await _stopRun();
-            await _saveRun();
-            setState(() {
-              _slideDragValue = 0.0;
-              _isRunning = false;
-            });
-          } else {
-            HapticFeedback.lightImpact();
-            setState(() => _slideDragValue = 0.0);
-          }
-        },
-        child: Stack(
-          alignment: Alignment.centerLeft,
-          children: [
-            Container(
+        } else {
+          HapticFeedback.lightImpact();
+          setState(() => _slideDragValue = 0.0);
+        }
+      },
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Container(
+            height: 65,
+            width: 240,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(40),
+              color: Colors.black,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+          ),
+
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 50),
+            height: 65,
+            width: (240 * progress).clamp(0, 240),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.horizontal(
+                left: const Radius.circular(40),
+                right: Radius.circular(progress > 0.98 ? 40 : 10),
+              ),
+              color: Colors.grey[300],
+            ),
+          ),
+
+          SizedBox(
+            height: 65,
+            width: 240,
+            child: Center(
+              child: Text(
+                progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
+                style: GoogleFonts.poppins(
+                  color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.8,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ),
+
+          Positioned(
+            left: _slideDragValue.clamp(0, 175),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 100),
               height: 65,
-              width: 240,
+              width: 65,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(40),
+                shape: BoxShape.circle,
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.stop_rounded,
+                color: Colors.black,
+                size: 30,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomRunControls() {
+    // 👉 Quando não está em corrida, você pode mostrar o botão de INICIAR
+    if (!_isRunning) {
+      return SafeArea(
+        minimum: const EdgeInsets.only(bottom: 24),
+        child: Center(
+          child: GestureDetector(
+            onTap: _showPreRunCountdown,
+            child: Container(
+              height: 90,
+              width: 90,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.play_arrow_rounded,
+                color: Color(0xFFFF6D00),
+                size: 48,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+
+
+    // 👉 Quando está em corrida (rodando ou pausada)
+    return SafeArea(
+      minimum: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 🔘 Botão redondo de pausar/retomar
+          GestureDetector(
+            onTap: _isPaused ? _resumeRun : _pauseRun,
+            child: Container(
+              height: 70,
+              width: 70,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
                 color: Colors.black,
                 boxShadow: [
                   BoxShadow(
@@ -2120,63 +2345,27 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   ),
                 ],
               ),
-            ),
-
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 50),
-              height: 65,
-              width: (240 * progress).clamp(0, 240),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.horizontal(
-                  left: const Radius.circular(40),
-                  right: Radius.circular(progress > 0.98 ? 40 : 10),
-                ),
-                color: Colors.grey[300],
+              child: Icon(
+                _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                color: Colors.white,
+                size: 36,
               ),
             ),
-
-            SizedBox(
-              height: 65,
-              width: 240,
-              child: Center(
-                child: Text(
-                  progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
-                  style: GoogleFonts.poppins(
-                    color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isPaused ? "Retomar" : "Pausar",
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: Colors.white70,
+              fontWeight: FontWeight.w500,
             ),
+          ),
+          const SizedBox(height: 16),
 
-            Positioned(
-              left: _slideDragValue.clamp(0, 175),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 100),
-                height: 65,
-                width: 65,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 8,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.stop_rounded,
-                  color: Colors.black,
-                  size: 30,
-                ),
-              ),
-            ),
-          ],
-        ),
+          // 🏁 Slide para encerrar corrida
+          _buildSlideToStopButton(),
+        ],
       ),
     );
   }

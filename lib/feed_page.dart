@@ -13,7 +13,7 @@ import 'package:run_walk_app/search_users_page.dart';
 import 'package:run_walk_app/create_challenge_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:run_walk_app/profile_page.dart';
-
+import 'package:video_player/video_player.dart';
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
@@ -29,7 +29,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   final _currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
-  // 🌟 NOVO: Stream para contar as notificações não lidas
+  // 🌟 Stream para contar as notificações não lidas
   late final Stream<int> _unreadNotificationsCountStream;
 
   @override
@@ -38,19 +38,17 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     timeago.setLocaleMessages('pt_BR', timeago.PtBrMessages());
     _setupFeedStream();
 
-    // 🌟 NOVO: Inicializa o Stream de contagem
     _unreadNotificationsCountStream = _getUnreadNotificationsCountStream();
   }
 
-  // 🌟 NOVO: Método para criar o Stream de contagem
   Stream<int> _getUnreadNotificationsCountStream() {
     return FirebaseFirestore.instance
         .collection('users')
         .doc(_currentUserId)
         .collection('notifications')
-        .where('isRead', isEqualTo: false) // Filtra apenas as não lidas
+        .where('isRead', isEqualTo: false)
         .snapshots()
-        .map((snapshot) => snapshot.docs.length); // Mapeia o snapshot para o número de documentos
+        .map((snapshot) => snapshot.docs.length);
   }
 
   void _showCreateOptions(BuildContext context) {
@@ -93,55 +91,11 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const CreatePostPage()),
+                    MaterialPageRoute(
+                        builder: (context) => const CreatePostPage()),
                   );
                 },
               ),
-              _buildCreateOption(
-                icon: Icons.flag_rounded,
-                color: Colors.orangeAccent,
-                title: 'Comece um Desafio',
-                subtitle: 'Crie um desafio público e motive seus amigos!',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const CreateChallengePage()),
-                  );
-                },
-
-              ),
-              _buildCreateOption(
-                icon: Icons.directions_run_rounded,
-                color: Colors.greenAccent.shade700,
-                title: 'Registrar Corrida',
-                subtitle: 'Inicie agora um treino e registre seu percurso',
-                onTap: () {
-                  Navigator.pop(context);
-                  _startRunSession();
-                },
-              ),
-              _buildCreateOption(
-                icon: Icons.emoji_events_rounded,
-                color: Colors.amberAccent.shade700,
-                title: 'Publicar Conquista',
-                subtitle: 'Mostre uma nova medalha ou tempo recorde!',
-                onTap: () {
-                  Navigator.pop(context);
-                  _publishAchievement();
-                },
-              ),
-              _buildCreateOption(
-                icon: Icons.explore_rounded,
-                color: Colors.lightBlueAccent.shade700,
-                title: 'Explorar Rotas',
-                subtitle: 'Descubra percursos e pontos de corrida próximos',
-                onTap: () {
-                  Navigator.pop(context);
-                  _exploreRoutes();
-                },
-              ),
-              const SizedBox(height: 10),
             ],
           ),
         );
@@ -173,7 +127,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
   Widget _buildCreateOption({
     required IconData icon,
     required Color color,
@@ -199,7 +152,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
   Widget _buildFeedToggleButton(String label, String mode) {
     final bool isSelected = _selectedFeed == mode;
     return GestureDetector(
@@ -207,7 +159,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         if (_selectedFeed != mode) {
           setState(() {
             _selectedFeed = mode;
-            _setupFeedStream(); // recarrega posts
+            _setupFeedStream();
           });
         }
       },
@@ -242,38 +194,32 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
   Future<void> _setupFeedStream() async {
     final userRef =
     FirebaseFirestore.instance.collection('users').doc(_currentUserId);
     final followingSnapshot = await userRef.collection('following').get();
 
-    List<String> followingIds = followingSnapshot.docs.map((doc) => doc.id).toList();
+    List<String> followingIds =
+    followingSnapshot.docs.map((doc) => doc.id).toList();
 
     Query query = FirebaseFirestore.instance.collection('posts');
 
     if (_selectedFeed == 'following') {
-      // ✅ Mostra posts das pessoas que o usuário segue e também dele mesmo.
       if (followingIds.isEmpty) {
-        // Caso não siga ninguém → mostra apenas os próprios posts
         query = query.where('authorId', isEqualTo: _currentUserId);
       } else {
         followingIds.add(_currentUserId);
         query = query.where('authorId', whereIn: followingIds);
       }
     } else {
-      // ✅ Modo Global: mostra todos os posts (sem filtro) ou exclui quem sigo, se houver.
       if (followingIds.isEmpty) {
-        // Se não segue ninguém, mostra tudo
         query = FirebaseFirestore.instance.collection('posts');
       } else {
-        // Firestore limita whereNotIn a 10 elementos → tratamos isso
         final excluded = [...followingIds, _currentUserId];
         query = query.where(
           'authorId',
-          whereNotIn: excluded.length > 10
-              ? excluded.take(10).toList()
-              : excluded,
+          whereNotIn:
+          excluded.length > 10 ? excluded.take(10).toList() : excluded,
         );
       }
     }
@@ -285,9 +231,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       });
     }
   }
-
-
-
 
   Future<void> _toggleLike(
       String postId,
@@ -301,7 +244,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         .collection('reactions')
         .doc(userId);
 
-    // Tap simples: curtir (like) se não tiver reação; remover se já for like
     if (currentReactionOfMe == 'like') {
       await reactionRef.delete();
     } else if (currentReactionOfMe == null) {
@@ -310,24 +252,23 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         'timestamp': FieldValue.serverTimestamp(),
       });
       if (userId != authorId) {
-        // Adiciona notificação de curtida
         await FirebaseFirestore.instance
             .collection('users')
             .doc(authorId)
             .collection('notifications')
             .add({
           'type': 'like',
-          'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
-          'senderId': userId, // Adicionando senderId para navegação
-          'senderPhotoUrl': FirebaseAuth.instance.currentUser?.photoURL, // Renomeado para seguir o padrão
+          'senderName':
+          FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
+          'senderId': userId,
+          'senderPhotoUrl': FirebaseAuth.instance.currentUser?.photoURL,
           'message':
           '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
           'timestamp': FieldValue.serverTimestamp(),
-          'isRead': false, // Importante: Garante que a notificação é não lida
+          'isRead': false,
         });
       }
     } else {
-      // tinha outra reação (ex: love/haha/strong) → vira like
       await reactionRef.update({
         'type': 'like',
         'timestamp': FieldValue.serverTimestamp(),
@@ -364,9 +305,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             icon: const Icon(Icons.add_box_outlined),
             onPressed: () => _showCreateOptions(context),
           ),
-
-          // 🌟 IMPLEMENTAÇÃO DO BADGE AQUI 🌟
-          // 🌟 IMPLEMENTAÇÃO DO BADGE AQUI 🌟
           StreamBuilder<int>(
             stream: _unreadNotificationsCountStream,
             builder: (context, snapshot) {
@@ -374,7 +312,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
               return Stack(
                 children: [
-                  // 1. O IconButton de Notificações
                   IconButton(
                     icon: const Icon(Icons.favorite_border),
                     onPressed: () => Navigator.push(
@@ -384,13 +321,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                       ),
                     ),
                   ),
-
-                  // 2. O Badge (a Bolinha) - SÓ APARECE se unreadCount > 0
                   if (unreadCount > 0)
                     Positioned(
-                      // ⬇️ NOVOS AJUSTES PARA O CANTO INFERIOR ESQUERDO ⬇️
-                      left: 0,   // Ancorado à esquerda
-                      bottom: 0, // Ancorado ao fundo
+                      left: 0,
+                      bottom: 0,
                       child: Container(
                         width: 10,
                         height: 10,
@@ -405,7 +339,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               );
             },
           ),
-          // ------------------------------------
         ],
       ),
       body: _isLoading
@@ -417,10 +350,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   Widget _buildFeedBody() {
     return Column(
       children: [
-        // 🔹 Stories sempre visíveis
-        //_buildStoriesSection(),
-
-        // 🔹 Botões "Seguindo" e "Global" sempre visíveis
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
@@ -433,8 +362,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           ),
         ),
         const Divider(height: 1, color: Colors.black26),
-
-        // 🔹 Lista de posts (ou mensagem de vazio)
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _postsStream,
@@ -459,8 +386,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
-  // STORIES
+  // STORIES (mantidos para uso futuro, se quiser ativar)
   Widget _buildStoriesSection() {
     return SizedBox(
       height: 110,
@@ -641,8 +567,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 },
               ),
               ListTile(
-                leading:
-                const Icon(Icons.photo_library_rounded, color: Colors.green),
+                leading: const Icon(Icons.photo_library_rounded,
+                    color: Colors.green),
                 title: const Text('Escolher da galeria'),
                 subtitle: const Text('Selecione uma imagem existente'),
                 onTap: () {
@@ -767,7 +693,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   // ITEM DO FEED
   Widget _buildPostItem(DocumentSnapshot post) {
-
     final data = post.data() as Map<String, dynamic>;
     final type = data['type'] ?? 'post';
 
@@ -777,10 +702,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(authorId)
-          .snapshots(),
+      stream:
+      FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
       builder: (context, userSnapshot) {
         final userData = userSnapshot.data?.data() as Map<String, dynamic>?;
         final authorName =
@@ -798,9 +721,52 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           return _AchievementPostCard(data: data);
         }
 
+        // 🎯 Mídia
+        final mediaType = data['mediaType'] as String?;
+        final mediaUrl = data['mediaUrl'] as String?;
+        final imageUrl = data['imageUrl'] as String?;
+        final videoUrl = data['videoUrl'] as String?;
 
+        final resolvedType = mediaType ??
+            (videoUrl != null && videoUrl.isNotEmpty
+                ? 'video'
+                : (imageUrl != null && imageUrl.isNotEmpty ? 'image' : 'none'));
 
+        final resolvedUrl = resolvedType == 'video'
+            ? (mediaUrl ?? videoUrl)
+            : (mediaUrl ?? imageUrl);
 
+        // 🏃‍♂️ resumo da corrida (opcional)
+        final hasRun = data['hasRun'] == true;
+        final runSummaryRaw =
+        data['runSummary'] as Map<String, dynamic>?; // pode ser null
+
+        double? distanceKm;
+        int? durationSec;
+        double? pace;
+
+        if (hasRun && runSummaryRaw != null) {
+          final d = runSummaryRaw['distanceKm'];
+          final t = runSummaryRaw['durationSec'];
+          final p = runSummaryRaw['pace'];
+
+          if (d is num) distanceKm = d.toDouble();
+          if (t is num) durationSec = t.toInt();
+          if (p is num) pace = p.toDouble();
+        }
+
+        // 📍 localização (opcional)
+        final hasLocation = data['hasLocation'] == true;
+        final locRaw = data['location'] as Map<String, dynamic>?;
+
+        double? locLat;
+        double? locLng;
+        if (hasLocation && locRaw != null) {
+          final lt = locRaw['lat'];
+          final lg = locRaw['lng'];
+          if (lt is num) locLat = lt.toDouble();
+          if (lg is num) locLng = lg.toDouble();
+        }
 
         return _AnimatedPostCard(
           postId: postId,
@@ -808,10 +774,24 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           photoUrl: photoUrl,
           authorName: authorName,
           postTime: postTime,
-          imageUrl: data['imageUrl'],
+          imageUrl: imageUrl,
+          mediaType: resolvedType,
+          mediaUrl: resolvedUrl,
           caption: data['text'],
+
+          // corrida
+          hasRun: hasRun,
+          distanceKm: distanceKm,
+          durationSec: durationSec,
+          pace: pace,
+
+          // localização
+          hasLocation: hasLocation,
+          locLat: locLat,
+          locLng: locLng,
+
           onLikeTap: (myReaction) =>
-              _toggleLike(postId, authorId, myReaction), // tap simples
+              _toggleLike(postId, authorId, myReaction),
           onComment: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -823,8 +803,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       },
     );
   }
-
-
 
   Widget _emptyFeedMessage() {
     return Center(
@@ -862,51 +840,77 @@ class _AchievementPostCard extends StatelessWidget {
     final icon = data['icon'] ?? '🏆';
     final title = data['title'] ?? 'Conquista Desconhecida';
     final userName = data['authorName'] ?? 'Jogador';
-    final userPhoto = data['authorPhoto'];
     final timestamp =
         (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
-    return
-      Card(
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        color: Colors.white,
-        elevation: 3,
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.amber.shade50, Colors.white],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(18),
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      color: Colors.white,
+      elevation: 3,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.amber.shade50, Colors.white],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 36)),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("$userName conquistou:", style: const TextStyle(fontSize: 13, color: Colors.black54)),
-                    Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    Text(
-                      timeago.format(timestamp, locale: 'pt_BR'),
-                      style: const TextStyle(fontSize: 11, color: Colors.black45),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          borderRadius: BorderRadius.circular(18),
         ),
-      );
-
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 36)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("$userName conquistou:",
+                      style:
+                      const TextStyle(fontSize: 13, color: Colors.black54)),
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(
+                    timeago.format(timestamp, locale: 'pt_BR'),
+                    style: const TextStyle(
+                        fontSize: 11, color: Colors.black45),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
+class _RunStat extends StatelessWidget {
+  final String label;
+  final String value;
+  const _RunStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(fontSize: 11, color: Colors.black54)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 // =======================
 // CARD DO POST + REAÇÕES
@@ -918,9 +922,22 @@ class _AnimatedPostCard extends StatefulWidget {
   final String authorName;
   final DateTime postTime;
   final String? imageUrl;
+  final String? mediaType; // 'image' | 'video' | 'none'
+  final String? mediaUrl;
   final String? caption;
   final Future<void> Function(String? myCurrentReaction) onLikeTap;
   final VoidCallback onComment;
+
+  // 🏃‍♂️ corrida
+  final bool hasRun;
+  final double? distanceKm;
+  final int? durationSec;
+  final double? pace;
+
+  // 📍 localização
+  final bool hasLocation;
+  final double? locLat;
+  final double? locLng;
 
   const _AnimatedPostCard({
     required this.postId,
@@ -932,6 +949,15 @@ class _AnimatedPostCard extends StatefulWidget {
     required this.caption,
     required this.onLikeTap,
     required this.onComment,
+    this.mediaType,
+    this.mediaUrl,
+    this.hasRun = false,
+    this.distanceKm,
+    this.durationSec,
+    this.pace,
+    this.hasLocation = false,
+    this.locLat,
+    this.locLng,
     super.key,
   });
 
@@ -941,15 +967,17 @@ class _AnimatedPostCard extends StatefulWidget {
 
 class _AnimatedPostCardState extends State<_AnimatedPostCard>
     with TickerProviderStateMixin {
-  // coração no double tap
   bool showHeart = false;
+  VideoPlayerController? _videoController;
+  bool _isVideoInitialized = false;
+  bool _isVideoPlaying = false;
+
   late final AnimationController _heartController =
   AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
   late final Animation<double> _heartScale = Tween<double>(begin: 0.7, end: 1.3)
       .chain(CurveTween(curve: Curves.easeOutBack))
       .animate(_heartController);
 
-  // overlay de reações
   bool showOverlay = false;
   late final AnimationController _overlayController = AnimationController(
     vsync: this,
@@ -961,9 +989,143 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   Tween<double>(begin: 0.0, end: 1.0).animate(_overlayController);
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.mediaType == 'video' && widget.mediaUrl != null) {
+      _initVideoController();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedPostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldIsVideo =
+        oldWidget.mediaType == 'video' && oldWidget.mediaUrl != null;
+    final newIsVideo =
+        widget.mediaType == 'video' && widget.mediaUrl != null;
+
+    if (newIsVideo && (!oldIsVideo || oldWidget.mediaUrl != widget.mediaUrl)) {
+      _initVideoController();
+    } else if (!newIsVideo && oldIsVideo) {
+      _disposeVideoController();
+    }
+  }
+
+  String _formatDuration(int totalSeconds) {
+    final d = Duration(seconds: totalSeconds);
+    String two(int n) => n.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
+
+  Widget _buildRunAndLocationCard() {
+    final hasRunData = widget.hasRun &&
+        widget.distanceKm != null &&
+        widget.durationSec != null &&
+        widget.pace != null;
+
+    final hasLocData =
+        widget.hasLocation && widget.locLat != null && widget.locLng != null;
+
+    if (!hasRunData && !hasLocData) {
+      return const SizedBox.shrink();
+    }
+
+    Widget metric(String label, String value) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF6F6F6),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0F5E9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.directions_run,
+                  color: Colors.green, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (hasRunData)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        metric('Distância',
+                            '${widget.distanceKm!.toStringAsFixed(2)} km'),
+                        metric('Tempo', _formatDuration(widget.durationSec!)),
+                        metric('Pace',
+                            '${widget.pace!.toStringAsFixed(2)} min/km'),
+                      ],
+                    ),
+                  if (hasRunData && hasLocData) const SizedBox(height: 6),
+                  if (hasLocData)
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on,
+                            size: 16, color: Colors.redAccent),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            'Perto de (${widget.locLat!.toStringAsFixed(4)}, '
+                                '${widget.locLng!.toStringAsFixed(4)})',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   void dispose() {
     _heartController.dispose();
     _overlayController.dispose();
+    _disposeVideoController();
     super.dispose();
   }
 
@@ -992,11 +1154,67 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     }
   }
 
+  Future<void> _initVideoController() async {
+    if (widget.mediaType != 'video' || widget.mediaUrl == null) return;
+
+    _videoController?.dispose();
+    _videoController = VideoPlayerController.networkUrl(
+      Uri.parse(widget.mediaUrl!),
+    )..setLooping(true);
+
+    try {
+      await _videoController!.initialize();
+      if (!mounted) return;
+      setState(() {
+        _isVideoInitialized = true;
+      });
+    } catch (e) {
+      debugPrint('Erro ao inicializar vídeo: $e');
+    }
+  }
+
+  void _disposeVideoController() {
+    _videoController?.dispose();
+    _videoController = null;
+    _isVideoInitialized = false;
+    _isVideoPlaying = false;
+  }
+
+  Widget _buildVideoPlayer() {
+    if (_videoController == null) {
+      return Container(
+        height: 260,
+        color: Colors.black12,
+        child: const Center(
+          child: Icon(Icons.videocam_off, size: 40, color: Colors.black45),
+        ),
+      );
+    }
+
+    if (!_isVideoInitialized) {
+      return Container(
+        height: 260,
+        color: Colors.black12,
+        child: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final aspect = _videoController!.value.aspectRatio == 0
+        ? 16 / 9
+        : _videoController!.value.aspectRatio;
+
+    return AspectRatio(
+      aspectRatio: aspect,
+      child: VideoPlayer(_videoController!),
+    );
+  }
+
   void _showPostOptions(BuildContext context) async {
     final currentUserId = FirebaseAuth.instance.currentUser!.uid;
     final isOwner = widget.authorId == currentUserId;
 
-    // Verifica se o usuário atual segue o autor
     final followingRef = FirebaseFirestore.instance
         .collection('users')
         .doc(currentUserId)
@@ -1025,7 +1243,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-
               if (isOwner) ...[
                 ListTile(
                   leading: const Icon(Icons.edit, color: Colors.blueAccent),
@@ -1061,14 +1278,15 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content: Text('✅ Agora você está seguindo este jogador!')),
+                          content:
+                          Text('✅ Agora você está seguindo este jogador!')),
                     );
                   },
                 ),
               ] else ...[
                 ListTile(
-                  leading:
-                  const Icon(Icons.person_remove_alt_1, color: Colors.orange),
+                  leading: const Icon(Icons.person_remove_alt_1,
+                      color: Colors.orange),
                   title: const Text('Deixar de seguir jogador'),
                   onTap: () async {
                     Navigator.pop(context);
@@ -1081,7 +1299,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content: Text('👋 Você deixou de seguir este jogador.')),
+                          content:
+                          Text('👋 Você deixou de seguir este jogador.')),
                     );
                   },
                 ),
@@ -1092,7 +1311,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
       },
     );
   }
-
 
   Future<void> _confirmDeletePost(BuildContext context) async {
     showDialog(
@@ -1117,12 +1335,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                   .doc(widget.postId)
                   .delete();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('🗑️ Publicação excluída com sucesso!')),
+                const SnackBar(
+                    content: Text('🗑️ Publicação excluída com sucesso!')),
               );
             },
             icon: const Icon(Icons.delete, color: Colors.white),
             label: const Text('Excluir'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style:
+            ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
           ),
         ],
       ),
@@ -1164,7 +1384,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       ),
                     ),
                     const SizedBox(height: 20),
-
                     TextField(
                       controller: captionController,
                       maxLines: null,
@@ -1176,7 +1395,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       ),
                     ),
                     const SizedBox(height: 20),
-
                     ElevatedButton.icon(
                       onPressed: isUpdating
                           ? null
@@ -1195,8 +1413,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                                content:
-                                Text('✅ Publicação atualizada com sucesso!')),
+                                content: Text(
+                                    '✅ Publicação atualizada com sucesso!')),
                           );
                         }
                       },
@@ -1227,9 +1445,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     );
   }
 
-
-
-  // Mapa de emojis/labels
   static const Map<String, String> _emoji = {
     'love': '❤️',
     'haha': '😂',
@@ -1251,8 +1466,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
         .doc(widget.postId)
         .collection('reactions');
 
-    final myDoc = reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
+    final myDoc =
+    reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
     final allDocs = reactionsCol.snapshots();
+
+    final hasImage =
+        widget.imageUrl != null && widget.imageUrl!.isNotEmpty;
+    final isVideo =
+        widget.mediaType == 'video' && widget.mediaUrl != null;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -1278,15 +1499,19 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ProfilePage(userId: widget.authorId),
+                          builder: (_) =>
+                              ProfilePage(userId: widget.authorId),
                         ),
                       );
                     },
                     child: CircleAvatar(
                       radius: 20,
-                      backgroundImage: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
+                      backgroundImage: (widget.photoUrl != null &&
+                          widget.photoUrl!.isNotEmpty)
                           ? NetworkImage(widget.photoUrl!)
-                          : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                          : const AssetImage(
+                          'assets/icon/logo_principal.png')
+                      as ImageProvider,
                     ),
                   ),
                   title: GestureDetector(
@@ -1294,7 +1519,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ProfilePage(userId: widget.authorId),
+                          builder: (_) =>
+                              ProfilePage(userId: widget.authorId),
                         ),
                       );
                     },
@@ -1308,7 +1534,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                   ),
                   subtitle: Text(
                     timeago.format(widget.postTime, locale: 'pt_BR'),
-                    style: const TextStyle(color: Colors.black54, fontSize: 12),
+                    style: const TextStyle(
+                        color: Colors.black54, fontSize: 12),
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.more_vert),
@@ -1316,18 +1543,36 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                   ),
                 ),
 
+                // 🏃‍♂️ / 📍 Card de corrida + localização
+                _buildRunAndLocationCard(),
 
-                // Imagem com double tap = curtir (like) + coração
-                if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty)
+                // Mídia (foto ou vídeo)
+                if (hasImage || isVideo)
                   StreamBuilder<DocumentSnapshot>(
                     stream: myDoc,
                     builder: (context, mySnap) {
                       final myReaction =
                       (mySnap.data?.data() as Map<String, dynamic>?)?['type']
                       as String?;
+
                       return GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () {
+                          if (isVideo &&
+                              _videoController != null &&
+                              _isVideoInitialized) {
+                            setState(() {
+                              if (_videoController!.value.isPlaying) {
+                                _videoController!.pause();
+                                _isVideoPlaying = false;
+                              } else {
+                                _videoController!.play();
+                                _isVideoPlaying = true;
+                              }
+                            });
+                          }
+                        },
                         onDoubleTap: () async {
-                          // double tap faz "like" (ou remove se já for like)
                           await widget.onLikeTap(myReaction);
                           _triggerHeart();
                           HapticFeedback.lightImpact();
@@ -1335,11 +1580,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            Image.network(
-                              widget.imageUrl!,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                            ),
+                            if (isVideo)
+                              _buildVideoPlayer()
+                            else
+                              Image.network(
+                                widget.imageUrl!,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
                             if (showHeart)
                               ScaleTransition(
                                 scale: _heartScale,
@@ -1349,8 +1597,26 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                                   size: 110,
                                   shadows: [
                                     Shadow(
-                                        color: Colors.black54, blurRadius: 12)
+                                        color: Colors.black54,
+                                        blurRadius: 12),
                                   ],
+                                ),
+                              ),
+                            if (isVideo &&
+                                _videoController != null &&
+                                _isVideoInitialized)
+                              Positioned(
+                                bottom: 12,
+                                right: 12,
+                                child: CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: Colors.black54,
+                                  child: Icon(
+                                    _videoController!.value.isPlaying
+                                        ? Icons.pause
+                                        : Icons.play_arrow,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                           ],
@@ -1369,13 +1635,17 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         stream: myDoc,
                         builder: (context, mySnap) {
                           final myType =
-                          (mySnap.data?.data() as Map<String, dynamic>?)?['type']
+                          (mySnap.data?.data()
+                          as Map<String, dynamic>?)?['type']
                           as String?;
                           final isActive = myType != null;
-                          final text = _label[myType ?? 'like'] ?? 'Curtir';
+                          final text =
+                              _label[myType ?? 'like'] ?? 'Curtir';
                           final color = myType == 'love'
                               ? Colors.redAccent
-                              : (isActive ? Colors.blueAccent : Colors.black87);
+                              : (isActive
+                              ? Colors.blueAccent
+                              : Colors.black87);
                           final icon = myType == 'love'
                               ? Icons.favorite_rounded
                               : Icons.thumb_up_alt_rounded;
@@ -1388,17 +1658,19 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               HapticFeedback.selectionClick();
                             },
                             child: Padding(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 6.0),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0),
                               child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 150),
+                                duration:
+                                const Duration(milliseconds: 150),
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 10, vertical: 6),
                                 decoration: BoxDecoration(
                                   color: isActive
                                       ? color.withOpacity(0.08)
                                       : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(18),
+                                  borderRadius:
+                                  BorderRadius.circular(18),
                                 ),
                                 child: Row(
                                   children: [
@@ -1418,7 +1690,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           );
                         },
                       ),
-
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('posts')
@@ -1426,15 +1697,19 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                             .collection('comments')
                             .snapshots(),
                         builder: (context, snapshot) {
-                          final count = snapshot.data?.docs.length ?? 0;
+                          final count =
+                              snapshot.data?.docs.length ?? 0;
                           return GestureDetector(
                             onTap: widget.onComment,
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6.0, vertical: 4),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.chat_bubble_outline, color: Colors.black87),
+                                  const Icon(
+                                      Icons.chat_bubble_outline,
+                                      color: Colors.black87),
                                   const SizedBox(width: 4),
                                   Text(
                                     count.toString(),
@@ -1450,7 +1725,6 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           );
                         },
                       ),
-
                       const Spacer(),
                       IconButton(
                         icon: const Icon(Icons.share_outlined,
@@ -1475,16 +1749,19 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       'like': 0,
                     };
                     for (final d in snap.data!.docs) {
-                      final type = (d.data() as Map<String, dynamic>)['type'];
+                      final type =
+                      (d.data() as Map<String, dynamic>)['type'];
                       if (counts.containsKey(type)) {
                         counts[type] = counts[type]! + 1;
                       }
                     }
-                    final total = counts.values.fold<int>(0, (a, b) => a + b);
+                    final total =
+                    counts.values.fold<int>(0, (a, b) => a + b);
                     final nonZero = counts.entries
                         .where((e) => e.value > 0)
                         .toList()
-                      ..sort((a, b) => b.value.compareTo(a.value)); // ranking
+                      ..sort((a, b) =>
+                          b.value.compareTo(a.value));
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(
@@ -1493,22 +1770,28 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           ? const SizedBox.shrink()
                           : Row(
                         children: [
-                          // Emojis com contagem
                           Flexible(
                             child: Wrap(
                               spacing: 10,
                               runSpacing: 6,
                               children: nonZero.map((e) {
-                                final emoji = _emoji[e.key] ?? '';
+                                final emoji =
+                                    _emoji[e.key] ?? '';
                                 return Row(
-                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisSize:
+                                  MainAxisSize.min,
                                   children: [
-                                    Text(emoji, style: const TextStyle(fontSize: 16)),
+                                    Text(emoji,
+                                        style:
+                                        const TextStyle(
+                                            fontSize:
+                                            16)),
                                     const SizedBox(width: 4),
                                     Text(
                                       e.value.toString(),
                                       style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
+                                        fontWeight:
+                                        FontWeight.bold,
                                         color: Colors.black,
                                       ),
                                     ),
@@ -1532,17 +1815,19 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 ),
 
                 // Legenda
-                if (widget.caption != null && widget.caption!.isNotEmpty)
+                if (widget.caption != null &&
+                    widget.caption!.isNotEmpty)
                   Padding(
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 6),
                     child: RichText(
                       text: TextSpan(
                         style: const TextStyle(color: Colors.black),
                         children: [
                           TextSpan(
                             text: '${widget.authorName} ',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold),
                           ),
                           TextSpan(text: widget.caption!),
                         ],
@@ -1557,7 +1842,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
             if (showOverlay)
               Positioned(
                 left: 12,
-                bottom: 72, // sobe acima da linha de botões
+                bottom: 72,
                 child: FadeTransition(
                   opacity: _overlayFade,
                   child: ScaleTransition(
@@ -1601,7 +1886,8 @@ class _ReactionsOverlay extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding:
+        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(28),
@@ -1643,7 +1929,8 @@ class _ReactionBubble extends StatefulWidget {
   });
 
   @override
-  State<_ReactionBubble> createState() => _ReactionBubbleState();
+  State<_ReactionBubble> createState() =>
+      _ReactionBubbleState();
 }
 
 class _ReactionBubbleState extends State<_ReactionBubble>
@@ -1681,13 +1968,15 @@ class _ReactionBubbleState extends State<_ReactionBubble>
                 child: CircleAvatar(
                   backgroundColor: Colors.white,
                   radius: 22,
-                  child: Text(widget.emoji, style: const TextStyle(fontSize: 22)),
+                  child: Text(widget.emoji,
+                      style: const TextStyle(fontSize: 22)),
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 widget.label,
-                style: const TextStyle(fontSize: 11, color: Colors.black87),
+                style: const TextStyle(
+                    fontSize: 11, color: Colors.black87),
               ),
             ],
           ),
@@ -1697,6 +1986,9 @@ class _ReactionBubbleState extends State<_ReactionBubble>
   }
 }
 
+// ====================================
+// ChallengePostCard (desafios)
+// ====================================
 class ChallengePostCard extends StatefulWidget {
   final String postId;
   final Map<String, dynamic> data;
@@ -1710,7 +2002,8 @@ class ChallengePostCard extends StatefulWidget {
   });
 
   @override
-  State<ChallengePostCard> createState() => _ChallengePostCardState();
+  State<ChallengePostCard> createState() =>
+      _ChallengePostCardState();
 }
 
 class _ChallengePostCardState extends State<ChallengePostCard> {
@@ -1737,10 +2030,12 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
 
   Future<void> _acceptChallenge() async {
     setState(() => _loading = true);
-    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    final ref =
+    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
     await ref.update({
-      'participants': FieldValue.arrayUnion([widget.currentUserId]),
+      'participants':
+      FieldValue.arrayUnion([widget.currentUserId]),
       'progress.${widget.currentUserId}': {
         'distance': 0.0,
         'status': 'in_progress',
@@ -1750,7 +2045,8 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     setState(() => _loading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🔥 Você entrou no desafio! Boa sorte!')),
+      const SnackBar(
+          content: Text('🔥 Você entrou no desafio! Boa sorte!')),
     );
   }
 
@@ -1761,20 +2057,22 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
+      transitionBuilder:
+          (context, animation, secondaryAnimation, child) {
         final curvedValue =
-            Curves.easeOutBack.transform(animation.value) - 1.0; // anima o shake
+            Curves.easeOutBack.transform(animation.value) - 1.0;
 
         return Transform.translate(
-          offset: Offset(curvedValue * 20, 0), // movimento horizontal sutil
+          offset: Offset(curvedValue * 20, 0),
           child: Opacity(
             opacity: animation.value,
             child: AlertDialog(
-              shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
               title: Row(
                 children: const [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                  Icon(Icons.warning_amber_rounded,
+                      color: Colors.orange, size: 28),
                   SizedBox(width: 8),
                   Text(
                     'Tem certeza?',
@@ -1788,10 +2086,12 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, height: 1.4),
               ),
-              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actionsAlignment:
+              MainAxisAlignment.spaceBetween,
               actions: [
                 TextButton.icon(
-                  icon: const Icon(Icons.sports_motorsports_rounded,
+                  icon: const Icon(
+                      Icons.sports_motorsports_rounded,
                       color: Colors.green),
                   label: const Text(
                     'Continuar no desafio',
@@ -1800,7 +2100,8 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                   onPressed: () => Navigator.pop(context),
                 ),
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.exit_to_app_rounded, color: Colors.white),
+                  icon: const Icon(Icons.exit_to_app_rounded,
+                      color: Colors.white),
                   label: const Text('Desistir'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
@@ -1820,22 +2121,24 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 
-
-
   Future<void> _cancelChallenge() async {
     setState(() => _loading = true);
-    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    final ref =
+    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
     await ref.update({
-      'participants': FieldValue.arrayRemove([widget.currentUserId]),
-      'quitters': FieldValue.arrayUnion([widget.currentUserId]),
+      'participants':
+      FieldValue.arrayRemove([widget.currentUserId]),
+      'quitters':
+      FieldValue.arrayUnion([widget.currentUserId]),
       'progress.${widget.currentUserId}.status': 'cancelled',
     });
 
     setState(() => _loading = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('❌ Você cancelou sua inscrição neste desafio.')),
+      const SnackBar(
+          content: Text('❌ Você cancelou sua inscrição neste desafio.')),
     );
   }
 
@@ -1845,22 +2148,27 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     final participants = List<String>.from(d['participants'] ?? []);
     final quitters = List<String>.from(d['quitters'] ?? []);
     final progress = Map<String, dynamic>.from(d['progress'] ?? {});
-    final joined = participants.contains(widget.currentUserId);
+    final joined =
+    participants.contains(widget.currentUserId);
     final totalKm = (d['distance'] ?? 0.0).toDouble();
 
-    final authorName = _authorData?['displayName'] ?? d['authorName'] ?? 'Jogador';
+    final authorName = _authorData?['displayName'] ??
+        d['authorName'] ??
+        'Jogador';
     final authorPhoto = _authorData?['photoURL'];
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.symmetric(
+          vertical: 8, horizontal: 12),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16)),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+          CrossAxisAlignment.start,
           children: [
-            // 🔹 Cabeçalho: Criado por
             Row(
               children: [
                 GestureDetector(
@@ -1868,15 +2176,19 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => ProfilePage(userId: widget.data['authorId']),
+                        builder: (_) => ProfilePage(
+                            userId: widget.data['authorId']),
                       ),
                     );
                   },
                   child: CircleAvatar(
                     radius: 22,
-                    backgroundImage: authorPhoto != null && authorPhoto.isNotEmpty
+                    backgroundImage: authorPhoto != null &&
+                        authorPhoto.isNotEmpty
                         ? NetworkImage(authorPhoto)
-                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                        : const AssetImage(
+                        'assets/icon/logo_principal.png')
+                    as ImageProvider,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1886,12 +2198,14 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => ProfilePage(userId: widget.data['authorId']),
+                          builder: (_) => ProfilePage(
+                              userId: widget.data['authorId']),
                         ),
                       );
                     },
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                      CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Criado por $authorName',
@@ -1903,10 +2217,14 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                         ),
                         Text(
                           timeago.format(
-                            (d['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                            (d['timestamp'] as Timestamp?)
+                                ?.toDate() ??
+                                DateTime.now(),
                             locale: 'pt_BR',
                           ),
-                          style: const TextStyle(fontSize: 11, color: Colors.black54),
+                          style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black54),
                         ),
                       ],
                     ),
@@ -1914,65 +2232,76 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 ),
               ],
             ),
+            const Divider(
+                height: 24,
+                thickness: 1,
+                color: Colors.black12),
 
-
-            const Divider(height: 24, thickness: 1, color: Colors.black12),
-
-            // 🔹 Info do desafio
             Text('🏁 ${d['title'] ?? 'Desafio de Corrida'}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18)),
             const SizedBox(height: 8),
             Text('Distância: ${d['distance']} km',
-                style: const TextStyle(color: Colors.black87)),
+                style: const TextStyle(
+                    color: Colors.black87)),
             Text(
               'Prazo: ${d['deadline'].toDate().day}/${d['deadline'].toDate().month}/${d['deadline'].toDate().year}',
-              style: const TextStyle(color: Colors.black54),
+              style: const TextStyle(
+                  color: Colors.black54),
             ),
             const SizedBox(height: 16),
 
-            // 🔹 Botão de ação
-            // 🔹 Botão de ação
             if (joined)
               ElevatedButton.icon(
-                onPressed: _loading ? null : _confirmCancelChallenge,
-                icon: const Icon(Icons.cancel, color: Colors.white),
+                onPressed:
+                _loading ? null : _confirmCancelChallenge,
+                icon: const Icon(Icons.cancel,
+                    color: Colors.white),
                 label: _loading
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const CircularProgressIndicator(
+                    color: Colors.white)
                     : const Text('Cancelar inscrição'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  minimumSize: const Size(double.infinity, 45),
+                  backgroundColor:
+                  Colors.redAccent,
+                  minimumSize:
+                  const Size(double.infinity, 45),
                 ),
               )
-            else if (quitters.contains(widget.currentUserId))
+            else if (quitters
+                .contains(widget.currentUserId))
               ElevatedButton.icon(
                 onPressed: null,
                 icon: const Icon(Icons.block),
-                label: const Text('Você desistiu deste desafio 😬'),
+                label: const Text(
+                    'Você desistiu deste desafio 😬'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey,
-                  minimumSize: const Size(double.infinity, 45),
+                  minimumSize:
+                  const Size(double.infinity, 45),
                 ),
               )
             else
               ElevatedButton.icon(
-                onPressed: _loading ? null : _acceptChallenge,
+                onPressed:
+                _loading ? null : _acceptChallenge,
                 icon: const Icon(Icons.flag),
                 label: _loading
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const CircularProgressIndicator(
+                    color: Colors.white)
                     : const Text('Aceito o Desafio'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
-                  minimumSize: const Size(double.infinity, 45),
+                  minimumSize:
+                  const Size(double.infinity, 45),
                 ),
               ),
-
-
             const SizedBox(height: 20),
 
-            // 🔹 Lista de inscritos
             const Text('Jogadores inscritos:',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+                style: TextStyle(
+                    fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             if (participants.isEmpty)
               const Text('Ainda ninguém se inscreveu 😅')
@@ -1981,18 +2310,19 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 spacing: 10,
                 runSpacing: 10,
                 children: participants.map((uid) {
-                  return _buildPlayerAvatar(uid, progress, totalKm);
+                  return _buildPlayerAvatar(
+                      uid, progress, totalKm);
                 }).toList(),
               ),
-
             const SizedBox(height: 16),
 
-            // 🔹 Jogadores desistentes
             if (quitters.isNotEmpty) ...[
               const Divider(),
               const SizedBox(height: 6),
               const Text('Jogadores desistentes:',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red)),
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 10,
@@ -2005,25 +2335,34 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                         .get(),
                     builder: (context, snapshot) {
                       final user =
-                      snapshot.data?.data() as Map<String, dynamic>?;
-                      final name = user?['displayName'] ?? 'Jogador';
-                      final photo = user?['photoURL'];
+                      snapshot.data?.data()
+                      as Map<String, dynamic>?;
+                      final name =
+                          user?['displayName'] ?? 'Jogador';
+                      final photo =
+                      user?['photoURL'];
                       return Column(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisSize:
+                        MainAxisSize.min,
                         children: [
                           CircleAvatar(
                             radius: 22,
-                            backgroundImage: photo != null
+                            backgroundImage: photo !=
+                                null
                                 ? NetworkImage(photo)
-                                : const AssetImage('assets/icon/logo_principal.png')
+                                : const AssetImage(
+                                'assets/icon/logo_principal.png')
                             as ImageProvider,
-                            backgroundColor: Colors.red.shade100,
+                            backgroundColor:
+                            Colors.red.shade100,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             name.split(' ').first,
                             style: const TextStyle(
-                                fontSize: 11, color: Colors.redAccent),
+                                fontSize: 11,
+                                color:
+                                Colors.redAccent),
                           ),
                         ],
                       );
@@ -2032,24 +2371,26 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 }).toList(),
               ),
             ],
-
             const SizedBox(height: 20),
 
-            // 🔹 Botão de Ranking
             if (participants.isNotEmpty)
               Center(
                 child: OutlinedButton.icon(
-                  onPressed: () => _showRanking(context, progress, totalKm),
-                  icon: const Icon(Icons.bar_chart_rounded,
+                  onPressed: () => _showRanking(
+                      context, progress, totalKm),
+                  icon: const Icon(
+                      Icons.bar_chart_rounded,
                       color: Colors.blueAccent),
                   label: const Text(
                     "Ver Ranking",
                     style: TextStyle(
                         color: Colors.blueAccent,
-                        fontWeight: FontWeight.bold),
+                        fontWeight:
+                        FontWeight.bold),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.blueAccent),
+                    side: const BorderSide(
+                        color: Colors.blueAccent),
                   ),
                 ),
               ),
@@ -2059,15 +2400,25 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 
-  Widget _buildPlayerAvatar(String uid, Map<String, dynamic> progress, double totalKm) {
+  Widget _buildPlayerAvatar(String uid,
+      Map<String, dynamic> progress, double totalKm) {
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+      future: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get(),
       builder: (context, snapshot) {
-        final user = snapshot.data?.data() as Map<String, dynamic>?;
-        final name = user?['displayName'] ?? 'Jogador';
-        final photo = user?['photoURL'];
-        final playerProgress = (progress[uid]?['distance'] ?? 0.0).toDouble();
-        final status = progress[uid]?['status'] ?? 'in_progress';
+        final user =
+        snapshot.data?.data() as Map<String, dynamic>?;
+        final name =
+            user?['displayName'] ?? 'Jogador';
+        final photo =
+        user?['photoURL'];
+        final playerProgress =
+        (progress[uid]?['distance'] ?? 0.0)
+            .toDouble();
+        final status =
+            progress[uid]?['status'] ?? 'in_progress';
 
         return GestureDetector(
           onTap: () => _showPlayerProgress(
@@ -2079,17 +2430,21 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
             status,
           ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize:
+            MainAxisSize.min,
             children: [
               CircleAvatar(
                 radius: 25,
                 backgroundImage: photo != null
                     ? NetworkImage(photo)
-                    : const AssetImage('assets/icon/logo_principal.png')
+                    : const AssetImage(
+                    'assets/icon/logo_principal.png')
                 as ImageProvider,
               ),
               const SizedBox(height: 4),
-              Text(name.split(' ').first, style: const TextStyle(fontSize: 11)),
+              Text(name.split(' ').first,
+                  style: const TextStyle(
+                      fontSize: 11)),
             ],
           ),
         );
@@ -2097,21 +2452,24 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 
-  void _showPlayerProgress(BuildContext context,
+  void _showPlayerProgress(
+      BuildContext context,
       String name,
       String? photoUrl,
       double currentKm,
       double totalKm,
-      String status,) {
-    final percent = (currentKm / totalKm).clamp(0.0, 1.0);
+      String status,
+      ) {
+    final percent =
+    (currentKm / totalKm).clamp(0.0, 1.0);
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      // 👈 permite altura dinâmica
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius:
+        BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
         return SafeArea(
@@ -2120,51 +2478,66 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
             padding: EdgeInsets.only(
               left: 24,
               right: 24,
-              bottom: MediaQuery
-                  .of(context)
+              bottom: MediaQuery.of(context)
                   .viewInsets
-                  .bottom + 20, // 👈 evita corte
+                  .bottom +
+                  20,
               top: 24,
             ),
             child: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize:
+                MainAxisSize.min,
                 children: [
                   CircleAvatar(
                     radius: 35,
                     backgroundImage: photoUrl != null
                         ? NetworkImage(photoUrl)
-                        : const AssetImage('assets/icon/logo_principal.png')
+                        : const AssetImage(
+                        'assets/icon/logo_principal.png')
                     as ImageProvider,
                   ),
                   const SizedBox(height: 12),
                   Text(name,
                       style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                          fontSize: 18,
+                          fontWeight:
+                          FontWeight.bold)),
                   const SizedBox(height: 10),
                   LinearProgressIndicator(
                     value: percent,
-                    backgroundColor: Colors.grey[300],
-                    color: status == 'completed' ? Colors.green : Colors.orange,
+                    backgroundColor:
+                    Colors.grey[300],
+                    color: status ==
+                        'completed'
+                        ? Colors.green
+                        : status ==
+                        'cancelled'
+                        ? Colors.red
+                        : Colors.orange,
                     minHeight: 10,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${currentKm.toStringAsFixed(2)} km / ${totalKm
-                        .toStringAsFixed(2)} km',
-                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    '${currentKm.toStringAsFixed(2)} km / ${totalKm.toStringAsFixed(2)} km',
+                    style: const TextStyle(
+                        fontWeight:
+                        FontWeight.w500),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     status == 'completed'
                         ? '✅ Desafio concluído!'
-                        : status == 'cancelled'
+                        : status ==
+                        'cancelled'
                         ? '❌ Desafio cancelado'
                         : '🏃 Em andamento...',
                     style: TextStyle(
-                      color: status == 'completed'
+                      color: status ==
+                          'completed'
                           ? Colors.green
-                          : status == 'cancelled'
+                          : status ==
+                          'cancelled'
                           ? Colors.red
                           : Colors.orange,
                     ),
@@ -2178,10 +2551,11 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 
-
-  void _showRanking(BuildContext context,
+  void _showRanking(
+      BuildContext context,
       Map<String, dynamic> progress,
-      double totalKm,) {
+      double totalKm,
+      ) {
     final ranking = progress.entries.toList()
       ..sort((a, b) =>
           (b.value['distance'] ?? 0).compareTo(a.value['distance'] ?? 0));
@@ -2189,10 +2563,10 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      // 👈 permite ajustar altura total
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius:
+        BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
         return SafeArea(
@@ -2201,38 +2575,47 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
             padding: EdgeInsets.only(
               left: 20,
               right: 20,
-              bottom: MediaQuery
-                  .of(context)
+              bottom: MediaQuery.of(context)
                   .viewInsets
-                  .bottom + 20, // 👈 margem segura
+                  .bottom +
+                  20,
               top: 20,
             ),
             child: SingleChildScrollView(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize:
+                MainAxisSize.min,
                 children: [
                   const Text(
                     '🏆 Ranking do Desafio',
                     style: TextStyle(
                       fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                      fontWeight:
+                      FontWeight.bold,
                       color: Colors.blueAccent,
                     ),
                   ),
                   const SizedBox(height: 20),
                   if (ranking.isEmpty)
-                    const Text('Nenhum progresso registrado ainda 😅')
+                    const Text(
+                        'Nenhum progresso registrado ainda 😅')
                   else
                     ListView.builder(
                       shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
+                      physics:
+                      const NeverScrollableScrollPhysics(),
                       itemCount: ranking.length,
-                      itemBuilder: (context, index) {
-                        final uid = ranking[index].key;
+                      itemBuilder:
+                          (context, index) {
+                        final uid =
+                            ranking[index].key;
                         final dist =
-                        (ranking[index].value['distance'] ?? 0.0).toDouble();
+                        (ranking[index].value['distance'] ??
+                            0.0)
+                            .toDouble();
                         final status =
-                            ranking[index].value['status'] ?? 'in_progress';
+                            ranking[index].value['status'] ??
+                                'in_progress';
                         final medal = index == 0
                             ? '🥇'
                             : index == 1
@@ -2240,23 +2623,36 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                             : index == 2
                             ? '🥉'
                             : '🏃';
-                        final percent = (dist / totalKm).clamp(0.0, 1.0);
+                        final percent =
+                        (dist / totalKm)
+                            .clamp(0.0, 1.0);
 
-                        return FutureBuilder<DocumentSnapshot>(
-                          future: FirebaseFirestore.instance
+                        return FutureBuilder<
+                            DocumentSnapshot>(
+                          future: FirebaseFirestore
+                              .instance
                               .collection('users')
                               .doc(uid)
                               .get(),
-                          builder: (context, snapshot) {
-                            final user =
-                            snapshot.data?.data() as Map<String, dynamic>?;
-                            final name = user?['displayName'] ?? 'Jogador';
-                            final photo = user?['photoURL'];
+                          builder:
+                              (context, snapshot) {
+                            final user = snapshot
+                                .data
+                                ?.data()
+                            as Map<String,
+                                dynamic>?;
+                            final name =
+                                user?['displayName'] ??
+                                    'Jogador';
+                            final photo =
+                            user?['photoURL'];
 
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundImage: photo != null
-                                    ? NetworkImage(photo)
+                                backgroundImage:
+                                photo != null
+                                    ? NetworkImage(
+                                    photo)
                                     : const AssetImage(
                                     'assets/icon/logo_principal.png')
                                 as ImageProvider,
@@ -2264,21 +2660,31 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                               title: Text(
                                 '$medal $name',
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
+                                    fontWeight:
+                                    FontWeight
+                                        .bold),
                               ),
-                              subtitle: LinearProgressIndicator(
+                              subtitle:
+                              LinearProgressIndicator(
                                 value: percent,
-                                backgroundColor: Colors.grey[300],
-                                color: status == 'completed'
-                                    ? Colors.green
-                                    : Colors.orange,
+                                backgroundColor:
+                                Colors.grey[300],
+                                color: status ==
+                                    'completed'
+                                    ? Colors
+                                    .green
+                                    : Colors
+                                    .orange,
                                 minHeight: 6,
                               ),
                               trailing: Text(
                                 '${dist.toStringAsFixed(2)} km',
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87),
+                                    fontWeight:
+                                    FontWeight
+                                        .w600,
+                                    color: Colors
+                                        .black87),
                               ),
                             );
                           },
@@ -2294,4 +2700,3 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 }
-
