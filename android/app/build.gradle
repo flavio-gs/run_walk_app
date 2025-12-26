@@ -13,26 +13,26 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.run_walk_app"
+    namespace = "com.nexusdev.runner_imperio"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    defaultConfig {
+        applicationId = "com.nexusdev.runner_imperio"
+        minSdkVersion 23
+        targetSdkVersion flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
         coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
         jvmTarget = "17"
-    }
-
-    defaultConfig {
-        applicationId = "com.nexusdev.runner_imperio"
-        minSdkVersion flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
     }
 
     signingConfigs {

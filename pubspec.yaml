@@ -42,6 +42,7 @@ dependencies:
   flutter_background_service_android: ^6.0.4
   path_provider: ^2.1.4
 
+  firebase_messaging: ^15.0.0
   flutter_local_notifications: ^17.2.1
   permission_handler: ^11.0.1
 

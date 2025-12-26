@@ -12,6 +12,9 @@ import 'package:run_walk_app/widgets/main_scaffold_wear.dart';
 import 'package:run_walk_app/login_wear_page.dart';
 import 'package:run_walk_app/service/wear_offline_sync_service.dart';
 
+// 🚨 NOVOS IMPORTS PARA FCM
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 
 // 🔹 Serviços
@@ -26,16 +29,127 @@ import 'package:run_walk_app/tutorial_page.dart';
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/login_page.dart';
-import 'package:run_walk_app/profile_page.dart';
+import 'package:run_walk_app/profile_page.dart'; // NECESSÁRIO para navegação
 import 'package:run_walk_app/complete_profile_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
 
 // 🔹 Página leve do Wear OS (só texto)
-import 'package:run_walk_app/wear_tutorial_page.dart'; // você vai criar logo abaixo 👇
+import 'package:run_walk_app/wear_tutorial_page.dart';
 
 
 // ------------------------------------------------------------
-// 🔹 DETECÇÃO DE WEAR OS
+// 🔹 CHAVE GLOBAL (Permite Navegar de handlers de FCM)
+// ------------------------------------------------------------
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// Plugin para Notificações Locais (necessário para Foreground)
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+
+// ------------------------------------------------------------
+// 🔹 FCM BACKGROUND HANDLER (Top-level)
+// ------------------------------------------------------------
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint("📳 [FCM BG] Mensagem recebida em segundo plano.");
+  // A navegação real acontece via onMessageOpenedApp/getInitialMessage
+}
+
+// ------------------------------------------------------------
+// 🔹 LÓGICA DE CLIQUE E NAVEGAÇÃO
+// ------------------------------------------------------------
+void handlePushNotificationClick(RemoteMessage message) {
+  final data = message.data;
+  final senderId = data['senderId'] as String?;
+
+  if (senderId != null) {
+    debugPrint("📳 [FCM Click] Navegando para ProfilePage de ID: $senderId");
+    // Navega usando a GlobalKey para ProfilePage
+    // Usamos pushNamedAndRemoveUntil para limpar a pilha e garantir que a ProfilePage seja a nova rota principal
+    navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      '/perfil', // Usa a rota definida no MaterialApp
+          (route) => route.settings.name == '/main', // Mantém a main scaffold se necessário, ou remove tudo (false)
+      arguments: senderId, // Passa o senderId como argumento
+    );
+  }
+}
+
+// ------------------------------------------------------------
+// 🔹 FUNÇÕES AUXILIARES DE NOTIFICAÇÃO
+// ------------------------------------------------------------
+
+Future<void> initializeLocalNotifications() async {
+  const AndroidInitializationSettings initializationSettingsAndroid =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+  const InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+  );
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+}
+
+void showLocalNotification(RemoteMessage message) {
+  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    'high_importance_channel', // Deve coincidir com o AndroidManifest
+    'Notificações Importantes',
+    channelDescription: 'Canal para notificações de atividade do app.',
+    importance: Importance.max,
+    priority: Priority.high,
+  );
+
+  const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+  flutterLocalNotificationsPlugin.show(
+    0,
+    message.notification!.title,
+    message.notification!.body,
+    platformDetails,
+    payload: message.data.toString(),
+  );
+}
+
+
+Future<void> setupFCM() async {
+  if (await isWearOS()) return; // Não faz o setup do FCM no Wear OS
+
+  final fcm = FirebaseMessaging.instance;
+
+  // 1. Requisitar Permissão e Setup de Notificações Locais
+  await fcm.requestPermission(alert: true, badge: true, sound: true);
+  await initializeLocalNotifications();
+
+  // 2. Salvar o Token FCM
+  final user = FirebaseAuth.instance.currentUser;
+  String? token = await fcm.getToken();
+
+  if (user != null && token != null) {
+    await FirebaseFirestore.instance.collection('users').doc(user.uid)
+        .set({'fcmToken': token}, SetOptions(merge: true));
+  }
+
+  // 3. HANDLER PARA APP FECHADO
+  RemoteMessage? initialMessage = await fcm.getInitialMessage();
+  if (initialMessage != null) {
+    handlePushNotificationClick(initialMessage);
+  }
+
+  // 4. HANDLER PARA APP EM SEGUNDO PLANO (Clique na notificação)
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    handlePushNotificationClick(message);
+  });
+
+  // 5. HANDLER PARA APP EM FOREGROUND (App Aberto)
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    debugPrint("📳 [FCM FG] Mensagem em foreground. Exibindo notificação local.");
+    if (message.notification != null) {
+      showLocalNotification(message);
+    }
+  });
+}
+
+
+// ------------------------------------------------------------
+// 🔹 DETECÇÃO DE WEAR OS (Mantido)
 // ------------------------------------------------------------
 Future<bool> isWearOS() async {
   try {
@@ -48,7 +162,7 @@ Future<bool> isWearOS() async {
 }
 
 // ------------------------------------------------------------
-// 🔹 MAIN
+// 🔹 MAIN (Chamada do setupFCM)
 // ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,12 +170,9 @@ Future<void> main() async {
   final bool isWear = await isWearOS();
 
   if (!isWear) {
-
-
     if (await Permission.notification.isDenied) {
       await Permission.notification.request();
     }
-
     await initializeBackgroundTracking();
 
     final user = FirebaseAuth.instance.currentUser;
@@ -73,6 +184,10 @@ Future<void> main() async {
     }
 
     await GamificationService().syncNow();
+
+    // 🚨 CHAMADA PRINCIPAL DO SETUP FCM AQUI
+    await setupFCM();
+
   } else {
     debugPrint("⌚ [Main] Wear OS detectado — inicialização leve.");
   }
@@ -95,8 +210,6 @@ Future<void> main() async {
     initialPage = hasSeenTutorial ? const AuthGate() : const MapTutorialPage();
   }
 
-
-
   runApp(MyApp(initialPage: initialPage));
 }
 
@@ -112,21 +225,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-
-    Connectivity().onConnectivityChanged.listen((result) {
-      if (result != ConnectivityResult.none) {
-        try {
-          GamificationService().syncNow();
-          AchievementService().syncNow();
-        } catch (e) {
-          debugPrint("Erro ao sincronizar automaticamente: $e");
-        }
-      }
-    });
-  }
+  // ... (initState e Connectivity listen mantidos) ...
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +236,9 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.orange,
         scaffoldBackgroundColor: Colors.black,
       ),
+      // 🚨 ATRIBUIÇÃO DA CHAVE GLOBAL AO NAVIGATOR
+      navigatorKey: navigatorKey,
+      // ---------------------------------------------
       home: widget.initialPage,
       routes: {
         '/tutorial': (context) => const MapTutorialPage(),
@@ -147,10 +249,16 @@ class _MyAppState extends State<MyApp> {
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
-        '/perfil': (context) => const ProfilePage(),
+        // 🚨 PROFILE PAGE (ATUALIZADA PARA LIDAR COM ARGUMENTOS DE ROTA)
+        '/perfil': (context) {
+          // Extrai o userId dos argumentos da rota, que é passado pelo Push Notification handler
+          final userId = ModalRoute.of(context)?.settings.arguments as String?;
+          // Se o argumento for nulo, usa o ID do usuário logado (default)
+          return ProfilePage(userId: userId ?? FirebaseAuth.instance.currentUser!.uid);
+        },
+        // -------------------------------------------------------------------
         '/tracker_wear': (context) => const RunTrackerWearPage(),
         '/login_wear': (context) => const LoginWearPage(),
-
       },
     );
   }

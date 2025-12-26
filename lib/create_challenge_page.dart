@@ -20,6 +20,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
   DateTime? _startDate;
   DateTime? _endDate;
   String _type = 'geral'; // geral | grupo | oficial
+  bool _isPublic = true; // 🔹 Nova variável de privacidade
   bool _loading = false;
 
   List<Map<String, dynamic>> _goals = []; // 🔹 metas
@@ -148,15 +149,16 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
         'title': _titleController.text.trim(),
         'description': _descController.text.trim(),
         'type': _type,
+        'isPublic': _isPublic, // 🔹 Salva a privacidade
         'createdBy': uid,
         'startDate': Timestamp.fromDate(_startDate!),
         'endDate': Timestamp.fromDate(_endDate!),
         'createdAt': Timestamp.fromDate(now),
-        'participants': [],
+        'participants': [uid], // 🔹 Criador já entra como participante
         'goals': _goals,
         if (_type == 'grupo')
           'teams': {
-            'timeA': {'name': _teamAController.text.trim(), 'members': []},
+            'timeA': {'name': _teamAController.text.trim(), 'members': [uid]},
             'timeB': {'name': _teamBController.text.trim(), 'members': []},
           },
       };
@@ -231,8 +233,21 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
               children: [
                 _typeChip('Geral', 'geral'),
                 _typeChip('Grupo x Grupo', 'grupo'),
-                //_typeChip('Oficial', 'oficial'),
               ],
+            ),
+            const SizedBox(height: 20),
+
+            // 🔹 Seletor de Privacidade
+            const Text('Privacidade:', style: TextStyle(fontWeight: FontWeight.bold)),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: Text(_isPublic ? 'Público' : 'Apenas Seguidores'),
+              subtitle: Text(_isPublic 
+                ? 'Qualquer usuário poderá ver e participar.' 
+                : 'Apenas seus seguidores aprovados poderão participar.'),
+              value: _isPublic,
+              onChanged: (v) => setState(() => _isPublic = v),
+              activeColor: const Color(0xFFFF6D00),
             ),
             const SizedBox(height: 16),
 

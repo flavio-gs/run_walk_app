@@ -64,6 +64,7 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final corrida = widget.corrida;
+    final bool isOwner = user?.uid == corrida.userId;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -75,106 +76,105 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          user?.displayName?.toUpperCase() ?? 'CORRIDA',
+          isOwner ? (user?.displayName?.toUpperCase() ?? 'MINHA CORRIDA') : 'CORRIDA',
           style: GoogleFonts.poppins(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16),
         ),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.ios_share_outlined, color: Colors.black),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DetalheCorridaPageShare(corrida: corrida),
-                ),
-              );
-            },
-          ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_horiz, color: Colors.black),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            onSelected: (value) async {
-              if (value == 'archive') {
-                final confirm = await showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    title: const Text("Arquivar corrida"),
-                    content: const Text(
-                      "Deseja arquivar esta corrida?\n"
-                          "Ela será ocultada do seu feed e estatísticas públicas, "
-                          "mas permanecerá salva no seu histórico pessoal.",
-                    ),
-                    actions: [
-                      TextButton(
-                        child: const Text("Cancelar"),
-                        onPressed: () => Navigator.pop(context, false),
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
-                        child: const Text("Arquivar"),
-                        onPressed: () => Navigator.pop(context, true),
-                      ),
-                    ],
+          if (isOwner)
+            IconButton(
+              icon: const Icon(Icons.ios_share_outlined, color: Colors.black),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DetalheCorridaPageShare(corrida: corrida),
                   ),
                 );
-
-                if (confirm == true) {
-                  try {
-                    // 🔹 Atualiza o documento correto (usa createdAt, não date)
-                    final query = await FirebaseFirestore.instance
-                        .collection('corridas')
-                        .where('userId', isEqualTo: widget.corrida.userId)
-                        .where('createdAt',
-                        isEqualTo: Timestamp.fromDate(widget.corrida.date))
-                        .get();
-
-                    if (query.docs.isEmpty) {
-                      throw Exception('Corrida não encontrada.');
-                    }
-
-                    for (var doc in query.docs) {
-                      await doc.reference.update({'isArchived': true});
-                    }
-
-                    if (context.mounted) {
-                      Navigator.pop(context); // Fecha a tela atual
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('📦 Corrida arquivada com sucesso!'),
-                          backgroundColor: Colors.blueGrey,
+              },
+            ),
+          if (isOwner)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_horiz, color: Colors.black),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onSelected: (value) async {
+                if (value == 'archive') {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      title: const Text("Arquivar corrida"),
+                      content: const Text(
+                        "Deseja arquivar esta corrida?\n"
+                            "Ela será ocultada do seu feed e estatísticas públicas, "
+                            "mas permanecerá salva no seu histórico pessoal.",
+                      ),
+                      actions: [
+                        TextButton(
+                          child: const Text("Cancelar"),
+                          onPressed: () => Navigator.pop(context, false),
                         ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Erro ao arquivar: $e'),
-                          backgroundColor: Colors.redAccent,
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                          child: const Text("Arquivar"),
+                          onPressed: () => Navigator.pop(context, true),
                         ),
-                      );
+                      ],
+                    ),
+                  );
+
+                  if (confirm == true) {
+                    try {
+                      final query = await FirebaseFirestore.instance
+                          .collection('corridas')
+                          .where('userId', isEqualTo: widget.corrida.userId)
+                          .where('createdAt',
+                          isEqualTo: Timestamp.fromDate(widget.corrida.date))
+                          .get();
+
+                      if (query.docs.isEmpty) {
+                        throw Exception('Corrida não encontrada.');
+                      }
+
+                      for (var doc in query.docs) {
+                        await doc.reference.update({'isArchived': true});
+                      }
+
+                      if (context.mounted) {
+                        Navigator.pop(context); // Fecha a tela atual
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('📦 Corrida arquivada com sucesso!'),
+                            backgroundColor: Colors.blueGrey,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Erro ao arquivar: $e'),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                      }
                     }
                   }
                 }
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'archive',
-                child: Row(
-                  children: [
-                    Icon(Icons.archive_outlined, color: Colors.blueGrey),
-                    SizedBox(width: 8),
-                    Text("Arquivar corrida"),
-                  ],
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'archive',
+                  child: Row(
+                    children: [
+                      Icon(Icons.archive_outlined, color: Colors.blueGrey),
+                      SizedBox(width: 8),
+                      Text("Arquivar corrida"),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          )
-
-
+              ],
+            )
         ],
       ),
       body: SingleChildScrollView(
@@ -192,7 +192,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
             const SizedBox(height: 24),
             _statsGrid(corrida),
             const SizedBox(height: 24),
-            //_moreDetailsButton(),
           ],
         ),
       ),
@@ -297,7 +296,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
     );
   }
 
-  /// Calcula os limites (bounds) para ajustar a câmera à rota
   LatLngBounds _calculateBounds(List<LatLng> points) {
     double minLat = points.first.latitude;
     double maxLat = points.first.latitude;
@@ -365,34 +363,6 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
       ],
     );
   }
-
-  /*Widget _moreDetailsButton() {
-    return OutlinedButton(
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => MaisDetalhesPage(corrida: widget.corrida),
-          ),
-        );
-      },
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
-        side: BorderSide(color: Colors.grey[300]!),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            'MAIS DETALHES',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 14),
-          ),
-          const Icon(Icons.arrow_forward, color: Colors.black),
-        ],
-      ),
-    );
-  }*/
 }
 
 class _StatTile extends StatelessWidget {
@@ -430,61 +400,4 @@ class _StatTile extends StatelessWidget {
       ],
     );
   }
-}
-
-class _RoutePainter extends CustomPainter {
-  final List<Map<String, double>> route;
-  _RoutePainter(this.route);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (route.length < 2) return;
-
-    final paint = Paint()
-      ..color = Colors.black
-      ..strokeWidth = 4.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    double minLat = double.infinity, maxLat = double.negativeInfinity;
-    double minLng = double.infinity, maxLng = double.negativeInfinity;
-    for (final p in route) {
-      if (p['lat'] == null || p['lng'] == null) continue;
-      minLat = min(minLat, p['lat']!);
-      maxLat = max(maxLat, p['lat']!);
-      minLng = min(minLng, p['lng']!);
-      maxLng = max(maxLng, p['lng']!);
-    }
-
-    if (minLat == double.infinity) return;
-
-    final latPad = (maxLat - minLat) * 0.1;
-    final lngPad = (maxLng - minLng) * 0.1;
-    minLat -= latPad;
-    maxLat += latPad;
-    minLng -= lngPad;
-    maxLng += lngPad;
-
-    final latRange = (maxLat - minLat).abs() < 1e-9 ? 0.001 : maxLat - minLat;
-    final lngRange = (maxLng - minLng).abs() < 1e-9 ? 0.001 : maxLng - minLng;
-
-    final path = Path();
-    for (int i = 0; i < route.length; i++) {
-      final p = route[i];
-      if (p['lat'] == null || p['lng'] == null) continue;
-
-      final dx = ((p['lng']! - minLng) / lngRange) * size.width;
-      final dy = (1 - ((p['lat']! - minLat) / latRange)) * size.height;
-
-      if (i == 0) {
-        path.moveTo(dx, dy);
-      } else {
-        path.lineTo(dx, dy);
-      }
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
