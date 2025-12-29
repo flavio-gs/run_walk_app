@@ -24,11 +24,10 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
   bool _loading = true;
   bool _participating = false;
   bool _isCreator = false;
-  bool _canJoin = true; // 🔹 Nova variável para controle de acesso
+  bool _canJoin = true; 
 
   late final TabController _tabController;
 
-  // Dados auxiliares
   Map<String, Map<String, dynamic>> _userMap = {}; 
   List<String> _participants = [];
   List<Map<String, dynamic>> _goals = [];
@@ -53,12 +52,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
 
       final doc = await _firestore.collection('challenges').doc(widget.challengeId).get();
       if (!doc.exists) {
-        if (mounted) {
-          setState(() {
-            _challenge = null;
-            _loading = false;
-          });
-        }
+        if (mounted) setState(() { _challenge = null; _loading = false; });
         return;
       }
 
@@ -69,7 +63,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
       final start = (data['startDate'] as Timestamp?)?.toDate();
       final end = (data['endDate'] as Timestamp?)?.toDate();
       final createdBy = data['createdBy'] as String?;
-      final isPublic = data['isPublic'] ?? true; // 🔹 Verifica se é público
+      final isPublic = data['isPublic'] ?? true;
 
       final now = DateTime.now();
       if (end != null && end.isBefore(now) && (data['status'] ?? 'active') != 'closed') {
@@ -88,10 +82,8 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
       _participating = uid != null && participants.contains(uid);
       _isCreator = uid != null && createdBy == uid;
 
-      // 🔹 Lógica de permissão de entrada
       if (uid != null && !_isCreator && !isPublic) {
-        final isFollowing = await FirestoreService().isFollowing(createdBy!);
-        _canJoin = isFollowing;
+        _canJoin = await FirestoreService().isFollowing(createdBy!);
       } else {
         _canJoin = true;
       }
@@ -113,10 +105,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
     const chunkSize = 10;
     for (int i = 0; i < uids.length; i += chunkSize) {
       final chunk = uids.sublist(i, min(i + chunkSize, uids.length));
-      final snap = await _firestore
-          .collection('users')
-          .where(FieldPath.documentId, whereIn: chunk)
-          .get();
+      final snap = await _firestore.collection('users').where(FieldPath.documentId, whereIn: chunk).get();
       for (final d in snap.docs) {
         final m = d.data();
         _userMap[d.id] = {
@@ -124,13 +113,6 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
           'photoURL': m['photoURL'] ?? m['photoUrl'] ?? null,
           'level': m['level'] ?? 0,
         };
-      }
-      for (final id in chunk) {
-        _userMap.putIfAbsent(id, () => {
-          'displayName': 'Runner ${id.substring(0, 6)}',
-          'photoURL': null,
-          'level': 0,
-        });
       }
     }
   }
@@ -149,14 +131,13 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
         final m = d.data() as Map<String, dynamic>;
         final uid = m['userId'] as String?;
         if (uid == null) continue;
-        final km = (m['distance'] ?? m['distanceKm'] ?? 0).toDouble();
+        final km = (m['distance'] ?? m['distanceKm'] ?? 0).toDouble() / 1000.0;
         final duration = (m['duration'] ?? 0).toDouble();
         final calories = (m['calories'] ?? 0).toDouble();
         double xp = (km * 10) + (calories * 0.2) + (duration / 60);
-        if (xp > 1000) xp = 1000;
         final bucket = _stats[uid]!;
         bucket['km'] = (bucket['km'] as num) + km;
-        bucket['xp'] = ((bucket['xp'] as num) + xp).clamp(0, 999999);
+        bucket['xp'] = (bucket['xp'] as num) + xp;
         bucket['runs'] = (bucket['runs'] as num) + 1;
         bucket['steps'] = (bucket['steps'] as num) + (km * 1300);
       }
@@ -169,14 +150,13 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
         for (final goal in goals) {
           final metric = (goal['metric'] ?? '').toLowerCase();
           final target = (goal['target'] ?? 0).toDouble();
-          final label = goal['label'] ?? metric.toUpperCase();
           double current = 0.0;
           if (metric == 'km') current = userStats['km'] as double;
           else if (metric == 'xp') current = userStats['xp'] as double;
           else if (metric == 'steps') current = userStats['steps'] as double;
           final progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
           metas.add({
-            'label': label,
+            'label': goal['label'],
             'metric': metric,
             'target': target,
             'current': current,
@@ -221,99 +201,89 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
   Future<void> _toggleParticipation() async {
     final uid = _auth.currentUser?.uid;
     if (uid == null || _challenge == null) return;
-
     if (!_canJoin && !_participating) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Este desafio é restrito a seguidores do criador 🔒')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Este desafio é restrito a seguidores 🔒')));
       return;
     }
-
     final ref = _firestore.collection('challenges').doc(widget.challengeId);
-    final data = _challenge!.data() as Map<String, dynamic>;
     final isJoining = !_participating;
-    final type = data['type'] ?? 'geral';
-
     try {
       setState(() => _loading = true);
-      if (isJoining && type == 'grupo') {
-        final teams = data['teams'] as Map<String, dynamic>? ?? {};
-        final teamA = teams['timeA']?['name'] ?? 'Time A';
-        final teamB = teams['timeB']?['name'] ?? 'Time B';
-
-        String? chosenTeam = await showDialog<String>(
-          context: context,
-          builder: (_) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('Escolha seu time'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ElevatedButton(onPressed: () => Navigator.pop(context, 'timeA'), child: Text(teamA)),
-                const SizedBox(height: 12),
-                ElevatedButton(onPressed: () => Navigator.pop(context, 'timeB'), child: Text(teamB)),
-              ],
-            ),
-          ),
-        );
-        if (chosenTeam == null) { setState(() => _loading = false); return; }
-        await ref.update({'participants': FieldValue.arrayUnion([uid]), 'teams.$chosenTeam.members': FieldValue.arrayUnion([uid])});
-      } else if (isJoining) {
+      if (isJoining) {
         await ref.update({'participants': FieldValue.arrayUnion([uid])});
       } else {
-        await ref.update({'participants': FieldValue.arrayRemove([uid]), 'teams.timeA.members': FieldValue.arrayRemove([uid]), 'teams.timeB.members': FieldValue.arrayRemove([uid])});
+        await ref.update({'participants': FieldValue.arrayRemove([uid])});
       }
       await _loadAll();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e'))); }
+    finally { if (mounted) setState(() => _loading = false); }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (_challenge == null || !_challenge!.exists) return const Scaffold(body: Center(child: Text('Não encontrado')));
+    if (_loading) return const Scaffold(backgroundColor: Colors.white, body: Center(child: CircularProgressIndicator(color: Color(0xFFFF6D00))));
+    if (_challenge == null || !_challenge!.exists) return const Scaffold(backgroundColor: Colors.white, body: Center(child: Text('Não encontrado')));
 
     final data = _challenge!.data() as Map<String, dynamic>;
     final title = data['title'] ?? 'Desafio';
     final desc = data['description'] ?? '';
     final type = data['type'] ?? 'geral';
     final isPublic = data['isPublic'] ?? true;
+    final df = DateFormat('dd/MM/yyyy');
 
     return Scaffold(
-      appBar: AppBar(title: Text(title), backgroundColor: Colors.white, iconTheme: const IconThemeData(color: Colors.black)),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(title, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
       floatingActionButton: _tabController.index == 2 ? null : FloatingActionButton.extended(
         backgroundColor: _participating ? Colors.redAccent : const Color(0xFFFF6D00),
         onPressed: _toggleParticipation,
-        label: Text(_participating ? 'Sair' : (_canJoin ? 'Participar' : 'Restrito 🔒')),
-        icon: Icon(_participating ? Icons.logout : (_canJoin ? Icons.flag : Icons.lock)),
+        label: Text(_participating ? 'Sair' : (_canJoin ? 'Participar' : 'Restrito 🔒'), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        icon: Icon(_participating ? Icons.logout : (_canJoin ? Icons.flag : Icons.lock), color: Colors.white),
       ),
       body: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
+            color: Colors.white,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(desc),
-                const SizedBox(height: 8),
+                Text(desc, style: const TextStyle(fontSize: 16, color: Colors.black87)),
+                const SizedBox(height: 10),
                 Row(
                   children: [
-                    Chip(label: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white)), backgroundColor: Colors.black87),
+                    Chip(label: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12)), backgroundColor: Colors.black87),
                     const SizedBox(width: 8),
                     Chip(
-                      label: Text(isPublic ? 'PÚBLICO' : 'RESTRITO', style: const TextStyle(color: Colors.white)),
+                      label: Text(isPublic ? 'PÚBLICO' : 'RESTRITO', style: const TextStyle(color: Colors.white, fontSize: 12)),
                       backgroundColor: isPublic ? Colors.green : Colors.orange,
                     ),
+                    const Spacer(),
+                    if (_start != null && _end != null)
+                      Text('${df.format(_start!)} - ${df.format(_end!)}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
                   ],
                 ),
               ],
             ),
           ),
-          TabBar(controller: _tabController, tabs: const [Tab(text: 'Geral'), Tab(text: 'Ranking'), Tab(text: 'Chat')], labelColor: Colors.black),
-          Expanded(child: TabBarView(controller: _tabController, children: [_buildOverviewTab(), _buildRankingTab(), _buildChatTab()])),
+          TabBar(
+            controller: _tabController,
+            tabs: const [Tab(text: 'Visão geral'), Tab(text: 'Ranking'), Tab(text: 'Chat')],
+            labelColor: Colors.black,
+            unselectedLabelColor: Colors.black54,
+            indicatorColor: const Color(0xFFFF6D00),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [_buildOverviewTab(), _buildRankingTab(), _buildChatTab()],
+            ),
+          ),
         ],
       ),
     );
@@ -323,30 +293,89 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Metas', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        const Text('Metas do Desafio', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black)),
+        const SizedBox(height: 12),
         ..._goals.map((g) {
+          final label = g['label'] ?? 'Meta';
+          final metric = g['metric'] ?? 'km';
           final target = (g['target'] ?? 0).toDouble();
-          return ListTile(title: Text(g['label']), subtitle: Text('Meta: $target ${g['metric']}'));
+          
+          num totalValue = 0;
+          for (final uid in _participants) {
+            if (_stats[uid] != null && _stats[uid]![metric] != null) totalValue += (_stats[uid]![metric] as num);
+          }
+          final progress = target > 0 ? (totalValue / target).clamp(0.0, 1.0).toDouble() : 0.0;
+
+          return Card(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                  const SizedBox(height: 4),
+                  Text('Total: ${totalValue.toStringAsFixed(1)} / $target $metric', style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.grey[200], color: const Color(0xFFFF6D00)),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 20),
+        Text('Participantes (${_participants.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black)),
+        const SizedBox(height: 12),
+        ..._participants.map((uid) {
+          final user = _userMap[uid] ?? {};
+          final name = user['displayName'] ?? 'Runner';
+          final photo = user['photoURL'];
+          final s = _stats[uid] ?? {'km': 0.0, 'xp': 0.0};
+          return ListTile(
+            leading: CircleAvatar(backgroundImage: photo != null ? NetworkImage(photo) : null, backgroundColor: Colors.grey[200], child: photo == null ? const Icon(Icons.person, color: Colors.grey) : null),
+            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black)),
+            subtitle: Text('${(s['km'] as double).toStringAsFixed(1)} km • ${(s['xp'] as double).toInt()} XP', style: const TextStyle(color: Colors.black54)),
+          );
         }),
       ],
     );
   }
 
   Widget _buildRankingTab() {
-    if (_ranking.isEmpty) return const Center(child: Text('Sem ranking ainda'));
-    final firstMetric = _goals.first['metric'];
+    if (_ranking.isEmpty) return const Center(child: Text('Sem ranking disponível', style: TextStyle(color: Colors.black54)));
+    final firstMetric = _goals.isNotEmpty ? _goals.first['metric'] : 'km';
     final current = _ranking[firstMetric] ?? [];
+    
     return ListView.builder(
+      padding: const EdgeInsets.all(16),
       itemCount: current.length,
       itemBuilder: (context, i) {
         final row = current[i];
-        final name = _userMap[row['uid']]?['displayName'] ?? 'Runner';
-        return ListTile(leading: Text('${i+1}'), title: Text(name), trailing: Text('${row['value']}'));
+        final uid = row['uid'] as String;
+        final user = _userMap[uid] ?? {};
+        final name = user['displayName'] ?? 'Runner';
+        final photo = user['photoURL'];
+        final value = row['value'] as num;
+
+        return Card(
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(backgroundColor: i < 3 ? Colors.amber : Colors.grey[200], child: Text('${i + 1}', style: TextStyle(color: i < 3 ? Colors.white : Colors.black, fontWeight: FontWeight.bold))),
+            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+            trailing: Text(value is double ? '${value.toStringAsFixed(1)}' : '$value', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF6D00), fontSize: 16)),
+          ),
+        );
       },
     );
   }
 
   Widget _buildChatTab() {
-    return const Center(child: Text('Chat em desenvolvimento'));
+    return const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.chat_bubble_outline, size: 50, color: Colors.grey), SizedBox(height: 10), Text('Chat disponível apenas para participantes', style: TextStyle(color: Colors.black54))]));
   }
 }
