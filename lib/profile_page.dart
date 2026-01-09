@@ -494,7 +494,7 @@ class _ProfilePageState extends State<ProfilePage> {
           indicatorColor: Color(0xFFFF6D00),
           indicatorWeight: 3,
           tabs: [
-            Tab(text: 'Estatísticas'),
+            Tab(text: 'Início'),
             Tab(text: 'Conquistas'),
             Tab(text: 'Histórico'),
             Tab(text: 'Desafios'),
