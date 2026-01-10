@@ -51,25 +51,30 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         .map((snapshot) => snapshot.docs.length);
   }
 
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+  static const Color kStroke = Color(0x1FFFFFFF); // branco 12%
+
   void _showCreateOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: kCard,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 40,
+                width: 42,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
+                margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: Colors.white24,
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
@@ -77,22 +82,21 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 'Crie algo incrível!',
                 style: TextStyle(
                   fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               _buildCreateOption(
                 icon: Icons.edit,
-                color: Colors.deepPurpleAccent,
+                color: kOrange,
                 title: 'Faça uma Publicação',
                 subtitle: 'Compartilhe sua corrida, foto ou reflexão do dia',
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (context) => const CreatePostPage()),
+                    MaterialPageRoute(builder: (context) => const CreatePostPage()),
                   );
                 },
               ),
@@ -101,6 +105,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         );
       },
     );
+
   }
 
   void _openChallengeCreator() {
@@ -142,11 +147,11 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       ),
       title: Text(
         title,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 13, color: Colors.black54),
+        style: const TextStyle(fontSize: 13, color: Colors.white60, fontWeight: FontWeight.w600),
       ),
       onTap: onTap,
     );
@@ -154,6 +159,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   Widget _buildFeedToggleButton(String label, String mode) {
     final bool isSelected = _selectedFeed == mode;
+
     return GestureDetector(
       onTap: () {
         if (_selectedFeed != mode) {
@@ -164,35 +170,34 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         }
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF00C853) : Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? kOrange : kCard,
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected ? const Color(0xFF00C853) : Colors.grey.shade400,
-            width: 1.3,
+            color: isSelected ? kOrange.withOpacity(0.9) : Colors.white12,
+            width: 1.2,
           ),
-          boxShadow: isSelected
-              ? [
+          boxShadow: [
             BoxShadow(
-              color: const Color(0xFF00C853).withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+              color: Colors.black.withOpacity(isSelected ? 0.35 : 0.25),
             ),
-          ]
-              : [],
+          ],
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.black : Colors.white,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ),
     );
   }
+
 
   Future<void> _setupFeedStream() async {
     final userRef =
@@ -280,29 +285,30 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: kBg,
       appBar: AppBar(
+        backgroundColor: kBg,
+        elevation: 0,
         title: const Text(
           'RunFeed',
           style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
             fontSize: 22,
+            letterSpacing: 0.2,
           ),
         ),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: const IconThemeData(color: kOrange),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.search_rounded, color: Colors.white70),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const SearchUsersPage()),
             ).then((_) => _setupFeedStream()),
           ),
           IconButton(
-            icon: const Icon(Icons.add_box_outlined),
+            icon: const Icon(Icons.add_box_outlined, color: Colors.white70),
             onPressed: () => _showCreateOptions(context),
           ),
           StreamBuilder<int>(
@@ -313,12 +319,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               return Stack(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.favorite_border),
+                    icon: const Icon(Icons.favorite_border, color: Colors.white70),
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const NotificationsPage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const NotificationsPage()),
                     ),
                   ),
                   if (unreadCount > 0)
@@ -329,9 +333,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: Colors.red,
+                          color: kOrange,
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1.5),
+                          border: Border.all(color: kBg, width: 1.6),
                         ),
                       ),
                     )
@@ -342,9 +346,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: kOrange))
           : _buildFeedBody(),
     );
+
   }
 
   Widget _buildFeedBody() {
@@ -361,7 +366,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        const Divider(height: 1, color: Colors.black26),
+        const Divider(height: 1, color: Colors.white12),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _postsStream,
@@ -806,76 +811,179 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   Widget _emptyFeedMessage() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.photo_library_outlined,
-              size: 60, color: Colors.black45),
-          const SizedBox(height: 16),
-          const Text(
-            'Nenhuma publicação encontrada',
-            style: TextStyle(color: Colors.black54, fontSize: 16),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const CreatePostPage()),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.photo_library_outlined, size: 60, color: Colors.white38),
+            const SizedBox(height: 14),
+            const Text(
+              'Nenhuma publicação encontrada',
+              style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w800),
             ),
-            icon: const Icon(Icons.add),
-            label: const Text('Fazer uma publicação'),
-          ),
-        ],
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CreatePostPage()),
+              ),
+              icon: const Icon(Icons.add, color: Colors.black),
+              label: const Text('Fazer uma publicação'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kOrange,
+                foregroundColor: Colors.black,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
 }
 
 class _AchievementPostCard extends StatelessWidget {
   final Map<String, dynamic> data;
   const _AchievementPostCard({required this.data});
 
+  // Paleta do app (igual SearchUsersPage)
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+
   @override
   Widget build(BuildContext context) {
-    final icon = data['icon'] ?? '🏆';
-    final title = data['title'] ?? 'Conquista Desconhecida';
-    final userName = data['authorName'] ?? 'Jogador';
-    final timestamp =
-        (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+    final icon = (data['icon'] ?? '🏆').toString();
+    final title = (data['title'] ?? 'Conquista Desconhecida').toString();
+    final userName = (data['authorName'] ?? 'Jogador').toString();
+    final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      color: Colors.white,
-      elevation: 3,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.amber.shade50, Colors.white],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.35),
           ),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Row(
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 36)),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Positioned(
+              left: -40,
+              top: -60,
+              child: Container(
+                width: 180,
+                height: 180,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: kOrange.withOpacity(0.10),
+                ),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
                 children: [
-                  Text("$userName conquistou:",
-                      style:
-                      const TextStyle(fontSize: 13, color: Colors.black54)),
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                  Text(
-                    timeago.format(timestamp, locale: 'pt_BR'),
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.black45),
+                  // Ícone da conquista com aro laranja
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: kOrange.withOpacity(0.9), width: 1.3),
+                    ),
+                    child: CircleAvatar(
+                      radius: 26,
+                      backgroundColor: Colors.white10,
+                      child: Text(
+                        icon,
+                        style: const TextStyle(fontSize: 26),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // linha superior
+                        Text(
+                          '$userName conquistou',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: Colors.white60,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+
+                        // título da conquista
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15.5,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            height: 1.15,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+
+                        // tempo + badge
+                        Row(
+                          children: [
+                            const Icon(Icons.schedule_rounded, size: 14, color: Colors.white54),
+                            const SizedBox(width: 6),
+                            Text(
+                              timeago.format(timestamp, locale: 'pt_BR'),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: Colors.white54,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: kOrange.withOpacity(0.14),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: kOrange.withOpacity(0.45)),
+                              ),
+                              child: const Text(
+                                'CONQUISTA',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: kOrange,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.7,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -886,6 +994,7 @@ class _AchievementPostCard extends StatelessWidget {
     );
   }
 }
+
 
 class _RunStat extends StatelessWidget {
   final String label;
@@ -1459,6 +1568,11 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     'like': 'Curtir',
   };
 
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+  static const Color kStroke = Color(0x1FFFFFFF); // branco 12%
+
   @override
   Widget build(BuildContext context) {
     final reactionsCol = FirebaseFirestore.instance
@@ -1484,385 +1598,376 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
         }
       },
       child: Container(
-        color: Colors.white,
-        margin: const EdgeInsets.only(bottom: 8),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        color: kBg,
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: kCard,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white10),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+                color: Colors.black.withOpacity(0.35),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Stack(
+              clipBehavior: Clip.none,
               children: [
-                // Cabeçalho
-                ListTile(
-                  leading: GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ProfilePage(userId: widget.authorId),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Cabeçalho
+                    ListTile(
+                      leading: GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProfilePage(userId: widget.authorId),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: kOrange.withOpacity(0.9), width: 1.3),
+                          ),
+                          child: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: Colors.white10,
+                            backgroundImage: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
+                                ? NetworkImage(widget.photoUrl!)
+                                : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                          ),
                         ),
-                      );
-                    },
-                    child: CircleAvatar(
-                      radius: 20,
-                      backgroundImage: (widget.photoUrl != null &&
-                          widget.photoUrl!.isNotEmpty)
-                          ? NetworkImage(widget.photoUrl!)
-                          : const AssetImage(
-                          'assets/icon/logo_principal.png')
-                      as ImageProvider,
-                    ),
-                  ),
-                  title: GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ProfilePage(userId: widget.authorId),
+                      ),
+                      title: GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ProfilePage(userId: widget.authorId),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          widget.authorName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
                         ),
-                      );
-                    },
-                    child: Text(
-                      widget.authorName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                      ),
+                      subtitle: Text(
+                        timeago.format(widget.postTime, locale: 'pt_BR'),
+                        style: const TextStyle(color: Colors.white60, fontSize: 12),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.more_vert, color: Colors.white60),
+                        onPressed: () => _showPostOptions(context),
                       ),
                     ),
-                  ),
-                  subtitle: Text(
-                    timeago.format(widget.postTime, locale: 'pt_BR'),
-                    style: const TextStyle(
-                        color: Colors.black54, fontSize: 12),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.more_vert),
-                    onPressed: () => _showPostOptions(context),
-                  ),
-                ),
 
-                // 🏃‍♂️ / 📍 Card de corrida + localização
-                _buildRunAndLocationCard(),
+                    // 🏃‍♂️ / 📍 Card de corrida + localização
+                    _buildRunAndLocationCard(),
 
-                // Mídia (foto ou vídeo)
-                if (hasImage || isVideo)
-                  StreamBuilder<DocumentSnapshot>(
-                    stream: myDoc,
-                    builder: (context, mySnap) {
-                      final myReaction =
-                      (mySnap.data?.data() as Map<String, dynamic>?)?['type']
-                      as String?;
-
-                      return GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: () {
-                          if (isVideo &&
-                              _videoController != null &&
-                              _isVideoInitialized) {
-                            setState(() {
-                              if (_videoController!.value.isPlaying) {
-                                _videoController!.pause();
-                                _isVideoPlaying = false;
-                              } else {
-                                _videoController!.play();
-                                _isVideoPlaying = true;
-                              }
-                            });
-                          }
-                        },
-                        onDoubleTap: () async {
-                          await widget.onLikeTap(myReaction);
-                          _triggerHeart();
-                          HapticFeedback.lightImpact();
-                        },
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            if (isVideo)
-                              _buildVideoPlayer()
-                            else
-                              Image.network(
-                                widget.imageUrl!,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                              ),
-                            if (showHeart)
-                              ScaleTransition(
-                                scale: _heartScale,
-                                child: const Icon(
-                                  Icons.favorite_rounded,
-                                  color: Colors.white,
-                                  size: 110,
-                                  shadows: [
-                                    Shadow(
-                                        color: Colors.black54,
-                                        blurRadius: 12),
-                                  ],
-                                ),
-                              ),
-                            if (isVideo &&
-                                _videoController != null &&
-                                _isVideoInitialized)
-                              Positioned(
-                                bottom: 12,
-                                right: 12,
-                                child: CircleAvatar(
-                                  radius: 20,
-                                  backgroundColor: Colors.black54,
-                                  child: Icon(
-                                    _videoController!.value.isPlaying
-                                        ? Icons.pause
-                                        : Icons.play_arrow,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-
-                // Linha de botões (Like / Comment / Share)
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Row(
-                    children: [
-                      // Botão de curtir com tap e long-press
+                    // Mídia (foto ou vídeo)
+                    if (hasImage || isVideo)
                       StreamBuilder<DocumentSnapshot>(
                         stream: myDoc,
                         builder: (context, mySnap) {
-                          final myType =
-                          (mySnap.data?.data()
-                          as Map<String, dynamic>?)?['type']
-                          as String?;
-                          final isActive = myType != null;
-                          final text =
-                              _label[myType ?? 'like'] ?? 'Curtir';
-                          final color = myType == 'love'
-                              ? Colors.redAccent
-                              : (isActive
-                              ? Colors.blueAccent
-                              : Colors.black87);
-                          final icon = myType == 'love'
-                              ? Icons.favorite_rounded
-                              : Icons.thumb_up_alt_rounded;
+                          final myReaction =
+                          (mySnap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
 
                           return GestureDetector(
-                            onTap: () => widget.onLikeTap(myType),
-                            onLongPressStart: (_) {
-                              setState(() => showOverlay = true);
-                              _overlayController.forward(from: 0);
-                              HapticFeedback.selectionClick();
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () {
+                              if (isVideo && _videoController != null && _isVideoInitialized) {
+                                setState(() {
+                                  if (_videoController!.value.isPlaying) {
+                                    _videoController!.pause();
+                                    _isVideoPlaying = false;
+                                  } else {
+                                    _videoController!.play();
+                                    _isVideoPlaying = true;
+                                  }
+                                });
+                              }
                             },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6.0),
-                              child: AnimatedContainer(
-                                duration:
-                                const Duration(milliseconds: 150),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isActive
-                                      ? color.withOpacity(0.08)
-                                      : Colors.transparent,
-                                  borderRadius:
-                                  BorderRadius.circular(18),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(icon, color: color, size: 22),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      text,
-                                      style: TextStyle(
-                                        color: color,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('posts')
-                            .doc(widget.postId)
-                            .collection('comments')
-                            .snapshots(),
-                        builder: (context, snapshot) {
-                          final count =
-                              snapshot.data?.docs.length ?? 0;
-                          return GestureDetector(
-                            onTap: widget.onComment,
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6.0, vertical: 4),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                      Icons.chat_bubble_outline,
-                                      color: Colors.black87),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    count.toString(),
-                                    style: const TextStyle(
-                                      color: Colors.black87,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
+                            onDoubleTap: () async {
+                              await widget.onLikeTap(myReaction);
+                              _triggerHeart();
+                              HapticFeedback.lightImpact();
+                            },
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (isVideo)
+                                  _buildVideoPlayer()
+                                else
+                                  Image.network(
+                                    widget.imageUrl!,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                  ),
+                                if (showHeart)
+                                  ScaleTransition(
+                                    scale: _heartScale,
+                                    child: const Icon(
+                                      Icons.favorite_rounded,
+                                      color: Colors.white,
+                                      size: 110,
+                                      shadows: [
+                                        Shadow(color: Colors.black54, blurRadius: 12),
+                                      ],
                                     ),
                                   ),
-                                ],
-                              ),
+                                if (isVideo && _videoController != null && _isVideoInitialized)
+                                  Positioned(
+                                    bottom: 12,
+                                    right: 12,
+                                    child: CircleAvatar(
+                                      radius: 20,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(
+                                        _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           );
                         },
                       ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.share_outlined,
-                            color: Colors.black87),
-                        onPressed: () {},
-                      ),
-                    ],
-                  ),
-                ),
 
-                // Contador de reações por tipo + total
-                StreamBuilder<QuerySnapshot>(
-                  stream: allDocs,
-                  builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return const SizedBox(height: 8);
-                    }
-                    final counts = <String, int>{
-                      'love': 0,
-                      'haha': 0,
-                      'strong': 0,
-                      'like': 0,
-                    };
-                    for (final d in snap.data!.docs) {
-                      final type =
-                      (d.data() as Map<String, dynamic>)['type'];
-                      if (counts.containsKey(type)) {
-                        counts[type] = counts[type]! + 1;
-                      }
-                    }
-                    final total =
-                    counts.values.fold<int>(0, (a, b) => a + b);
-                    final nonZero = counts.entries
-                        .where((e) => e.value > 0)
-                        .toList()
-                      ..sort((a, b) =>
-                          b.value.compareTo(a.value));
-
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 4),
-                      child: total == 0
-                          ? const SizedBox.shrink()
-                          : Row(
+                    // Linha de botões (Like / Comment / Share)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Row(
                         children: [
-                          Flexible(
-                            child: Wrap(
-                              spacing: 10,
-                              runSpacing: 6,
-                              children: nonZero.map((e) {
-                                final emoji =
-                                    _emoji[e.key] ?? '';
-                                return Row(
-                                  mainAxisSize:
-                                  MainAxisSize.min,
-                                  children: [
-                                    Text(emoji,
-                                        style:
-                                        const TextStyle(
-                                            fontSize:
-                                            16)),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      e.value.toString(),
-                                      style: const TextStyle(
-                                        fontWeight:
-                                        FontWeight.bold,
-                                        color: Colors.black,
-                                      ),
+                          // Botão de curtir com tap e long-press
+                          StreamBuilder<DocumentSnapshot>(
+                            stream: myDoc,
+                            builder: (context, mySnap) {
+                              final myType =
+                              (mySnap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
+
+                              final isActive = myType != null;
+
+                              final text = _label[myType ?? 'like'] ?? 'Curtir';
+
+                              // 🎨 cores no dark
+                              final color = myType == 'love'
+                                  ? Colors.redAccent
+                                  : (isActive ? kOrange : Colors.white70);
+
+                              final icon = myType == 'love'
+                                  ? Icons.favorite_rounded
+                                  : Icons.thumb_up_alt_rounded;
+
+                              return GestureDetector(
+                                onTap: () => widget.onLikeTap(myType),
+                                onLongPressStart: (_) {
+                                  setState(() => showOverlay = true);
+                                  _overlayController.forward(from: 0);
+                                  HapticFeedback.selectionClick();
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: isActive ? color.withOpacity(0.12) : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(18),
                                     ),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
+                                    child: Row(
+                                      children: [
+                                        Icon(icon, color: color, size: 22),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          text,
+                                          style: TextStyle(
+                                            color: color,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                          const Spacer(),
-                          Text(
-                            '$total',
-                            style: const TextStyle(
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
 
-                // Legenda
-                if (widget.caption != null &&
-                    widget.caption!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 6),
-                    child: RichText(
-                      text: TextSpan(
-                        style: const TextStyle(color: Colors.black),
-                        children: [
-                          TextSpan(
-                            text: '${widget.authorName} ',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold),
+                          StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance
+                                .collection('posts')
+                                .doc(widget.postId)
+                                .collection('comments')
+                                .snapshots(),
+                            builder: (context, snapshot) {
+                              final count = snapshot.data?.docs.length ?? 0;
+                              return GestureDetector(
+                                onTap: widget.onComment,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        count.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                          TextSpan(text: widget.caption!),
+
+                          const Spacer(),
+
+                          IconButton(
+                            icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                            onPressed: () {},
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                const SizedBox(height: 10),
-              ],
-            ),
 
-            // Overlay (balão) acima do botão de curtir
-            if (showOverlay)
-              Positioned(
-                left: 12,
-                bottom: 72,
-                child: FadeTransition(
-                  opacity: _overlayFade,
-                  child: ScaleTransition(
-                    scale: _overlayScale,
-                    child: _ReactionsOverlay(
-                      onSelect: (type) async {
-                        await _setReaction(type);
-                        if (mounted) {
-                          setState(() => showOverlay = false);
-                          _overlayController.reverse();
+                    // Contador de reações por tipo + total
+                    StreamBuilder<QuerySnapshot>(
+                      stream: allDocs,
+                      builder: (context, snap) {
+                        if (!snap.hasData) return const SizedBox(height: 8);
+
+                        final counts = <String, int>{
+                          'love': 0,
+                          'haha': 0,
+                          'strong': 0,
+                          'like': 0,
+                        };
+
+                        for (final d in snap.data!.docs) {
+                          final type = (d.data() as Map<String, dynamic>)['type'];
+                          if (counts.containsKey(type)) counts[type] = counts[type]! + 1;
                         }
-                        HapticFeedback.mediumImpact();
+
+                        final total = counts.values.fold<int>(0, (a, b) => a + b);
+                        final nonZero = counts.entries.where((e) => e.value > 0).toList()
+                          ..sort((a, b) => b.value.compareTo(a.value));
+
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          child: total == 0
+                              ? const SizedBox.shrink()
+                              : Row(
+                            children: [
+                              Flexible(
+                                child: Wrap(
+                                  spacing: 10,
+                                  runSpacing: 6,
+                                  children: nonZero.map((e) {
+                                    final emoji = _emoji[e.key] ?? '';
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(emoji, style: const TextStyle(fontSize: 16)),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          e.value.toString(),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '$total',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
                       },
                     ),
-                  ),
+
+                    // Legenda
+                    if (widget.caption != null && widget.caption!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        child: RichText(
+                          text: TextSpan(
+                            style: const TextStyle(color: Colors.white),
+                            children: [
+                              TextSpan(
+                                text: '${widget.authorName} ',
+                                style: const TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                              TextSpan(
+                                text: widget.caption!,
+                                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    const SizedBox(height: 10),
+                  ],
                 ),
-              ),
-          ],
+
+                // Overlay (balão) acima do botão de curtir
+                if (showOverlay)
+                  Positioned(
+                    left: 12,
+                    bottom: 72,
+                    child: FadeTransition(
+                      opacity: _overlayFade,
+                      child: ScaleTransition(
+                        scale: _overlayScale,
+                        child: _ReactionsOverlay(
+                          onSelect: (type) async {
+                            await _setReaction(type);
+                            if (mounted) {
+                              setState(() => showOverlay = false);
+                              _overlayController.reverse();
+                            }
+                            HapticFeedback.mediumImpact();
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
+
     );
   }
 }

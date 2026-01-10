@@ -1,15 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ haptic
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
-import 'package:run_walk_app/historico_page.dart';
 import 'package:run_walk_app/profile_page.dart';
-import 'package:run_walk_app/activity_page.dart';
 import 'package:run_walk_app/feedback_page.dart';
 import 'package:run_walk_app/community_page.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
-
 
 // ✅ Controlador global para esconder/mostrar o Scaffold
 class ScaffoldVisibilityController {
@@ -39,6 +37,16 @@ class _MainScaffoldState extends State<MainScaffold>
   late AnimationController _pulseController;
   late PageController _pageController;
 
+  // 🎨 Paleta (mesma das páginas)
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+
+  // BottomNav layout (para “pixel perfect”)
+  static const double _navHeight = 62;
+  static const double _navOuterPaddingH = 14;
+  static const double _navOuterPaddingB = 12;
+
   bool get isWearOS {
     final size = MediaQueryData.fromWindow(WidgetsBinding.instance.window).size;
     return size.shortestSide < 300;
@@ -61,11 +69,10 @@ class _MainScaffoldState extends State<MainScaffold>
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-      lowerBound: 0.8,
-      upperBound: 1.1,
+      lowerBound: 0.88,
+      upperBound: 1.08,
     )..repeat(reverse: true);
 
-    // 🏆 Registra bônus diário só uma vez por dia
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         await GamificationService().registrarBonusDiario(context: context);
@@ -75,7 +82,6 @@ class _MainScaffoldState extends State<MainScaffold>
     });
   }
 
-
   @override
   void dispose() {
     _pulseController.dispose();
@@ -83,24 +89,40 @@ class _MainScaffoldState extends State<MainScaffold>
     super.dispose();
   }
 
+  /// 🎯 Centro exato do item na bottom bar flutuante (considera padding + safe area)
+  Offset _navItemCenter(int index) {
+    final mq = MediaQuery.of(context);
+    final screenW = mq.size.width;
+    final screenH = mq.size.height;
+
+    final navW = screenW - (_navOuterPaddingH * 2);
+    final itemW = navW / 5;
+
+    final cx = _navOuterPaddingH + itemW * (index + 0.5);
+
+    // Centro vertical do container da bottom bar flutuante
+    final cy = screenH - mq.padding.bottom - _navOuterPaddingB - (_navHeight / 2);
+
+    return Offset(cx, cy);
+  }
+
   void _onItemTapped(int index) async {
     if (index == _selectedIndex || _transitioning) return;
 
+    // ✅ haptics diferentes
     if (index == 2) {
-      Future.delayed(const Duration(milliseconds: 300), () {
+      HapticFeedback.heavyImpact();
+      Future.delayed(const Duration(milliseconds: 220), () {
         _audioPlayer.play(AssetSource('sounds/1.mp3'));
       });
+    } else {
+      HapticFeedback.selectionClick();
     }
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final itemWidth = screenWidth / 7;
-    final center =
-    Offset(itemWidth * (index + 0.5), MediaQuery.of(context).size.height - 40);
 
     setState(() {
       _transitioning = true;
       _nextIndex = index;
-      _transitionCenter = center;
+      _transitionCenter = _navItemCenter(index); // ✅ pixel perfect
     });
   }
 
@@ -116,11 +138,11 @@ class _MainScaffoldState extends State<MainScaffold>
   // 📱 -------- MOBILE VIEW --------
   Widget _buildMobileView() {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kBg,
+      extendBody: true, // ✅ evita overflow com bottom bar flutuante
       body: Stack(
         children: [
           Positioned.fill(child: _pages[_selectedIndex]),
-
           if (_transitioning)
             Positioned.fill(
               child: TweenAnimationBuilder<double>(
@@ -147,30 +169,69 @@ class _MainScaffoldState extends State<MainScaffold>
         ],
       ),
 
-      // ⚫ Bottom Navigation Bar minimalista preta
+      // 🟠 Bottom Navigation (dark + laranja, flutuante)
       bottomNavigationBar: ValueListenableBuilder<bool>(
         valueListenable: ScaffoldVisibilityController.isVisible,
         builder: (context, visible, _) {
           if (!visible) return const SizedBox.shrink();
 
-          return AnimatedOpacity(
-            opacity: visible ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 400),
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.white,
-              selectedItemColor: Colors.black,
-              unselectedItemColor: Colors.grey.shade400,
-              currentIndex: _selectedIndex,
-              onTap: _onItemTapped,
-              showUnselectedLabels: false,
-              items: [
-                _navItem(Icons.dashboard_outlined, 0),
-                _navItem(Icons.people_outline, 1),
-                _activityItem(Icons.bolt, 2),
-                _navItem(Icons.person_outline, 3),
-                _navItem(Icons.chat_bubble_outline, 4),
-              ],
+          final bottomInset = MediaQuery.of(context).padding.bottom; // ✅ safe area real do device
+
+          return AnimatedSlide(
+            offset: visible ? Offset.zero : const Offset(0, 1),
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOut,
+            child: AnimatedOpacity(
+              opacity: visible ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 260),
+              child: Padding(
+                // ✅ aqui fica o “flutuante” + margem externa
+                padding: EdgeInsets.fromLTRB(
+                  _navOuterPaddingH,
+                  0,
+                  _navOuterPaddingH,
+                  _navOuterPaddingB + bottomInset, // ✅ inclui safe area sem duplicar
+                ),
+                child: SizedBox(
+                  // ✅ altura fixa, não soma com SafeArea
+                  height: _navHeight,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: kCard.withOpacity(0.96),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: Colors.white10),
+                      boxShadow: [
+                        BoxShadow(
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                          color: Colors.black.withOpacity(0.45),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: BottomNavigationBar(
+                        type: BottomNavigationBarType.fixed,
+                        backgroundColor: Colors.transparent,
+                        elevation: 0,
+                        selectedItemColor: kOrange,
+                        unselectedItemColor: Colors.white54,
+                        currentIndex: _selectedIndex,
+                        onTap: _onItemTapped,
+                        showSelectedLabels: false,
+                        showUnselectedLabels: false,
+                        items: [
+                          _navItem(Icons.dashboard_outlined, 0),
+                          _navItem(Icons.people_outline, 1),
+                          _activityItem(Icons.bolt_rounded, 2),
+                          _navItem(Icons.person_outline, 3),
+                          _navItem(Icons.chat_bubble_outline, 4),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           );
         },
@@ -178,60 +239,133 @@ class _MainScaffoldState extends State<MainScaffold>
     );
   }
 
+
+  /// ✅ ícone normal + pontinho laranja quando selecionado
   BottomNavigationBarItem _navItem(IconData icon, int index) {
     final isSelected = _selectedIndex == index;
+
     return BottomNavigationBarItem(
       icon: AnimatedScale(
-        duration: const Duration(milliseconds: 200),
-        scale: isSelected ? 1.2 : 1.0,
-        child: Icon(icon,
-            color: isSelected ? Colors.black : Colors.grey.shade400, size: 26),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        scale: isSelected ? 1.10 : 1.0,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 26,
+              color: isSelected ? kOrange : Colors.white54,
+            ),
+            const SizedBox(height: 5),
+            AnimatedOpacity(
+              opacity: isSelected ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 180),
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: kOrange,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: kOrange.withOpacity(0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
       label: "",
     );
   }
 
+  /// ✅ botão central com pulse + pontinho + glow
   BottomNavigationBarItem _activityItem(IconData icon, int index) {
     final isSelected = _selectedIndex == index;
+
     return BottomNavigationBarItem(
       icon: AnimatedBuilder(
         animation: _pulseController,
         builder: (context, child) {
           final scale = isSelected ? _pulseController.value : 1.0;
-          final glowOpacity =
-          isSelected ? (sin(_pulseController.value * pi).abs()) * 0.6 : 0.0;
+          final glowOpacity = isSelected
+              ? (sin(_pulseController.value * pi).abs()) * 0.55
+              : 0.0;
 
-          return Transform.scale(
-            scale: scale,
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isSelected ? Colors.black : Colors.black12,
-                boxShadow: isSelected
-                    ? [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(glowOpacity * 0.3),
-                    blurRadius: 18,
-                    spreadRadius: 2,
+          return Transform.translate(
+            offset: const Offset(0, -12), // 🔼 sobe o botão (use -4, -6 ou -8)
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected ? kOrange : Colors.white10,
+                      border: Border.all(
+                        color: isSelected
+                            ? kOrange.withOpacity(0.75)
+                            : Colors.white10,
+                        width: 1.2,
+                      ),
+                      boxShadow: isSelected
+                          ? [
+                        BoxShadow(
+                          color: kOrange.withOpacity(glowOpacity * 0.35),
+                          blurRadius: 22,
+                          spreadRadius: 1.5,
+                        ),
+                      ]
+                          : [],
+                    ),
+                    child: Icon(
+                      icon,
+                      size: isSelected ? 34 : 28,
+                      color: isSelected ? Colors.black : Colors.white70,
+                    ),
                   ),
-                ]
-                    : [],
-              ),
-              child: Icon(icon,
-                  size: isSelected ? 34 : 28,
-                  color: isSelected ? Colors.white : Colors.black),
+                ),
+                const SizedBox(height: 5),
+                AnimatedOpacity(
+                  opacity: isSelected ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 180),
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: kOrange,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: kOrange.withOpacity(0.35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           );
+
         },
       ),
       label: "",
     );
   }
 
+  // ⌚ WearOS mantém simples (dark também)
   Widget _buildWearOSView() {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: kBg,
       body: SafeArea(
         child: PageView.builder(
           controller: _pageController,

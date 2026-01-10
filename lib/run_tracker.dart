@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,9 @@ import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:lottie/lottie.dart' hide Marker;
+import 'UI/territory_toggle.dart';
+import 'controller/territory_controller.dart';
+import 'enums/territory_mode.dart';
 import 'model/run_model.dart';
 
 
@@ -30,6 +34,9 @@ import 'widgets/main_scaffold.dart';
 
 // Som (apenas Wear OS usará)
 import 'package:audioplayers/audioplayers.dart';
+
+
+
 
 // Lista de frases e áudios correspondentes
 final List<Map<String, String>> preRunPhrases = [
@@ -118,13 +125,18 @@ class FuturisticChrono extends StatefulWidget {
 class _FuturisticChronoState extends State<FuturisticChrono>
     with SingleTickerProviderStateMixin {
 
-
+  late final TerritoryController _territoryController;
 
   late final AnimationController _glowCtrl;
 
   @override
   void initState() {
     super.initState();
+
+    _territoryController = TerritoryController(
+      currentUserId: FirebaseAuth.instance.currentUser!.uid,
+    );
+
     _checkAchievementsOnLoad();
 
     _glowCtrl = AnimationController(
@@ -134,6 +146,7 @@ class _FuturisticChronoState extends State<FuturisticChrono>
       upperBound: 0.9,
     )..repeat(reverse: true);
   }
+
 
   Future<void> _checkAchievementsOnLoad() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -161,6 +174,7 @@ class _FuturisticChronoState extends State<FuturisticChrono>
   @override
   void dispose() {
     _glowCtrl.dispose();
+    _territoryController.dispose();
     super.dispose();
   }
 
@@ -239,6 +253,27 @@ class RunTrackingPage extends StatefulWidget {
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
   List<LatLng> _recordedRoute = [];
+
+  final TerritoryController _territoryController =
+  TerritoryController(
+    currentUserId: FirebaseAuth.instance.currentUser!.uid,
+  );
+
+
+
+
+  // ✅ Token para cancelar "carregamentos antigos" (async) quando trocar de modo
+  int _overlayEpoch = 0;
+
+  // ✅ Listener de territórios (o seu _loadTerritories() atual não guarda/cancela)
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _territoriesSub;
+
+  // ✅ opcional: controla se estamos no modo livre (facilita checks)
+  bool get _isFreeMode => _territoryController.mode == MapTerritoryMode.livre;
+
+  void _invalidateOverlayJobs() {
+    _overlayEpoch++;
+  }
 
   double _slideDragValue = 0.0;
 
@@ -321,6 +356,20 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         );
       }
     });
+  }
+
+  void _clearMapOverlaysForFreeMode() {
+    _polylines.clear();
+    _polygons.clear();
+    _markers.clear();
+    _markerGestures.clear();
+  }
+
+  Future<void> _restoreGlobalOverlays() async {
+    if (!isWearOS) {
+      await _loadSavedRuns();
+      await _updateMarker(); // mantém seu marcador atual
+    }
   }
 
 
@@ -475,6 +524,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void initState() {
+
+    // inicia em GLOBAL e começa a escutar territórios
+    _territoryController.setMode(
+      MapTerritoryMode.livre,
+      onUpdate: () {
+        if (mounted) setState(() {});
+      },
+    );
      _initLocationFlow();
 
     super.initState();
@@ -505,13 +562,38 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     });
 
-    // Carregamento do histórico — desativado no Wear para poupar recursos
-    if (!isWearOS) {
-      _loadSavedRuns();
-    }
     _listenToActiveChallenge();
     _setOnlineInitially();
   }
+
+  final List<Color> _colorPalette = const [
+    Colors.orangeAccent,
+    Colors.cyanAccent,
+    Colors.purpleAccent,
+    Colors.amberAccent,
+    Colors.pinkAccent,
+    Colors.lightGreenAccent,
+    Colors.blueAccent,
+  ];
+
+  Color _baseColorForUser(String userId) {
+    final me = FirebaseAuth.instance.currentUser?.uid;
+
+    // 💚 você sempre verde
+    if (me != null && userId == me) return const Color(0xFF00C853);
+
+    // 🎨 determinístico (sempre a mesma cor para o mesmo userId)
+    final idx = (userId.hashCode & 0x7fffffff) % _colorPalette.length;
+    return _colorPalette[idx];
+  }
+
+  Color _territoryFillForOwner(String ownerId) =>
+      _baseColorForUser(ownerId).withOpacity(0.22);
+
+  Color _territoryStrokeForOwner(String ownerId) =>
+      _baseColorForUser(ownerId).withOpacity(0.85);
+
+
 
   Future<void> _initLocationFlow() async {
     await _checkLocationPermissionAndSetInitialLocation();
@@ -653,12 +735,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         }
 
         // 🔹 Define cor
-        final baseColor = userId == user.uid
-            ? const Color(0xFF00C853) // 💚 você
-            : (userColors[userId] ?? colorPalette[colorIndex++ % colorPalette.length]);
+        final baseColor = _baseColorForUser(userId);
 
         final color = isDominated
-            ? Colors.grey.withOpacity(0.3) // corrida de território perdido
+            ? Colors.grey.withOpacity(0.3) // corrida em território perdido
             : baseColor.withOpacity(0.85);
 
         // 🔹 Desenha o traçado
@@ -698,18 +778,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       debugPrint("Erro ao carregar corridas: $e");
     }
 
-    // 🔹 Ajuste automático do zoom
-    // if (_markers.isNotEmpty && _googleMapController != null && _followUser) {
-    //   await Future.delayed(const Duration(milliseconds: 800));
-    //   _googleMapController?.animateCamera(
-    //     CameraUpdate.newLatLngBounds(
-    //       _calculateBounds(_markers.map((m) => m.position).toList()),
-    //       80,
-    //     ),
-    //   );
-    // }
   }
-
 
   Future<void> _loadTerritories() async {
     FirebaseFirestore.instance.collection('territorios').snapshots().listen((snap) {
@@ -726,13 +795,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       // Se você também desenha polígonos:
       _territoryPolygons
         ..clear()
-        ..addAll(_territories.map((t) => Polygon(
-          polygonId: PolygonId('territorio_${t.id}'),
-          points: t.points,
-          fillColor: Colors.deepPurpleAccent.withOpacity(0.25),
-          strokeColor: Colors.deepPurpleAccent,
-          strokeWidth: 2,
-        )));
+        ..addAll(_territories.map((t) {
+          final ownerColorFill = _territoryFillForOwner(t.ownerId);
+          final ownerColorStroke = _territoryStrokeForOwner(t.ownerId);
+
+          return Polygon(
+            polygonId: PolygonId('territorio_${t.id}'),
+            points: t.points,
+            fillColor: ownerColorFill,
+            strokeColor: ownerColorStroke,
+            strokeWidth: 2,
+          );
+        }));
+
 
       // Limpa marcadores que ficaram “ilegais” após uma troca de dono
       _pruneLoserMarkers();
@@ -740,6 +815,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       setState(() {});
     });
   }
+
 
   bool _pointInPolygon(LatLng p, List<LatLng> polygon) {
     bool inside = false;
@@ -757,10 +833,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
     return inside;
   }
-
-
-
-
 
   Future<void> _showPreRunCountdown() async {
     int secondsLeft = 15;
@@ -1071,10 +1143,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     debugPrint("▶️ Corrida retomada.");
   }
 
-
-
-
-
   DateTime? _lastPointTime;
 
   void _updatePolyline() {
@@ -1171,61 +1239,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   }
 
-
-
-
-
-  Marker? _pulseMarker;
-  double _pulseT = 0.0;
-  Timer? _pulseTimer;
-
-  Future<void> _startPulseEffect() async {
-    if (isWearOS) return;
-    _pulseTimer?.cancel();
-    if (_positions.length < 2) return;
-
-    final pulseIcon = await _createUserCircleIcon(
-      size: 60,
-      fillColor: const Color(0xFFFF7600),
-    );
-
-    _pulseT = 0.0;
-    _pulseTimer = Timer.periodic(const Duration(milliseconds: 60), (_) {
-      if (_positions.length < 2) return;
-
-      _pulseT += 0.01;
-      if (_pulseT >= 1.0) _pulseT = 0.0;
-
-      final index = (_pulseT * (_positions.length - 1)).floor();
-      if (index >= _positions.length - 1) return;
-
-      final start = _positions[index];
-      final end = _positions[index + 1];
-
-      final t = (_pulseT * (_positions.length - 1) - index);
-      final lat = start.latitude + (end.latitude - start.latitude) * t;
-      final lng = start.longitude + (end.longitude - start.longitude) * t;
-      final pulsePos = LatLng(lat, lng);
-
-      _pulseMarker = Marker(
-        markerId: const MarkerId('pulse'),
-        position: pulsePos,
-        icon: pulseIcon,
-        anchor: const Offset(0.5, 0.5),
-      );
-
-      setState(() {
-        _markers.removeWhere((m) => m.markerId.value == 'pulse');
-        _markers.add(_pulseMarker!);
-      });
-    });
-  }
-
-  void _stopPulseEffect() {
-    _pulseTimer?.cancel();
-    _pulseMarker = null;
-  }
-
   Future<void> _stopRun() async {
     _timer?.cancel();
     await _positionStream?.cancel();
@@ -1291,17 +1304,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       description: 'Corrida concluída',
     );
 
-    // 🔹 Território
-    await TerritoryService().checkTerritoryDominance(
-      userId: user.uid,
-      pace: _averagePace,
-      route: (runData['route'] as List)
-          .map((e) => Map<String, double>.from(e))
-          .toList(),
-    );
+    // 🔹 Território (somente se NÃO estiver em modo livre)
+    final isFreeMode = _territoryController.mode == MapTerritoryMode.livre;
 
-    await _loadTerritories();
-    setState(() {});
+    if (!isFreeMode) {
+      await TerritoryService().checkTerritoryDominance(
+        userId: user.uid,
+        pace: _averagePace,
+        route: (runData['route'] as List)
+            .map((e) => Map<String, double>.from(e))
+            .toList(),
+      );
+
+      await _loadTerritories();
+      if (mounted) setState(() {});
+    } else {
+      debugPrint("🕊️ Modo LIVRE ativo — não domina território ao finalizar corrida.");
+    }
+
 
     // 🔹 Conquistas
     await AchievementService().checkAchievements(
@@ -1353,59 +1373,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     int minutes = pace.floor();
     int seconds = ((pace - minutes) * 60).round();
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
-  LatLngBounds _calculateBounds(List<LatLng> positions) {
-    double minLat = positions.first.latitude;
-    double maxLat = positions.first.latitude;
-    double minLng = positions.first.longitude;
-    double maxLng = positions.first.longitude;
-
-    for (final LatLng pos in positions) {
-      if (pos.latitude < minLat) minLat = pos.latitude;
-      if (pos.latitude > maxLat) maxLat = pos.latitude;
-      if (pos.longitude < minLng) minLng = pos.longitude;
-      if (pos.longitude > maxLng) maxLng = pos.longitude;
-    }
-
-    return LatLngBounds(
-      southwest: LatLng(minLat, minLng),
-      northeast: LatLng(maxLat, maxLng),
-    );
-  }
-
-  Future<void> _startLocationTracking() async {
-    try {
-      await _positionStream?.cancel();
-      // 🧹 Sempre começa com rota limpa
-      _recordedRoute.clear();
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 3,
-        ),
-      ).listen((position) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-          // 🗺️ Salva cada ponto na rota
-          _recordedRoute.add(_currentPosition);
-        });
-        _updateMarker();
-
-        if (!isWearOS && _followUser) {
-          _isProgrammaticCameraMove = true;
-          _googleMapController?.animateCamera(
-            CameraUpdate.newLatLng(_currentPosition),
-          );
-          Future.delayed(const Duration(milliseconds: 300), () {
-            _isProgrammaticCameraMove = false;
-          });
-        }
-
-      });
-    } catch (e) {
-      debugPrint("Erro ao iniciar rastreamento contínuo: $e");
-    }
   }
 
   Future<void> _setOnlineInitially() async {
@@ -1497,23 +1464,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void dispose() {
+    _territoriesSub?.cancel();
+    _territoriesSub = null;
+
     _timer?.cancel();
     _positionStream?.cancel();
     _animationController.dispose();
     _googleMapController?.dispose();
     _audio.dispose();
     _onlinePositionStream?.cancel();
-    // ✅ Marca como offline ao encerrar o app
     _setOfflineOnExit();
     super.dispose();
   }
 
-  void _onItemTapped(int index) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => MainScaffold(initialIndex: index)),
-    );
-  }
 
   // ===== UI =====
 
@@ -1882,20 +1845,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-
-
-
-  Widget _buildCancelButton(String challengeId) {
-    return TextButton.icon(
-      onPressed: () => _confirmCancelChallenge(challengeId),
-      icon: const Icon(Icons.cancel, color: Colors.redAccent),
-      label: const Text(
-        "Cancelar inscrição",
-        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
   void _confirmCancelChallenge(String challengeId) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1990,7 +1939,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               _googleMapController?.setMapStyle(style);
             },
             polylines: _polylines,
-            polygons: {..._polygons, ..._territoryPolygons},
+            polygons: {..._polygons, ..._territoryController.territoryPolygons},
             markers: _markers,
             myLocationEnabled: false,
             zoomControlsEnabled: false,
@@ -2042,6 +1991,52 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 },
               ),
             ),
+
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 230,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: TerritoryModeToggle(
+                mode: _territoryController.mode,
+                onChange: (newMode) async {
+                  // se clicar no modo que já está ativo, não faz nada
+                  if (newMode == _territoryController.mode) return;
+
+                  // ✅ invalida jobs async antigos (polylines/markers/territories)
+                  _invalidateOverlayJobs();
+
+                  // ✅ atualiza o controller (se você usa ele pra mode/territoryPolygons)
+                  _territoryController.setMode(
+                    newMode,
+                    onUpdate: () {
+                      if (mounted) setState(() {});
+                    },
+                  );
+
+                  if (newMode == MapTerritoryMode.livre) {
+                    // ✅ cancela listener de territórios do RunTrackingPage
+                    await _territoriesSub?.cancel();
+                    _territoriesSub = null;
+
+                    if (!mounted) return;
+                    setState(() {
+                      _clearMapOverlaysForFreeMode();
+                    });
+
+                    if (!isWearOS) _updateMarker(); // mantém só seu pin
+                  } else {
+                    // GLOBAL
+                    await _restoreGlobalOverlays();
+                    await _loadTerritories();
+
+                    if (mounted) setState(() {});
+                  }
+                },
+              ),
+            ),
+          ),
+
 
 
 
@@ -2152,33 +2147,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ▶️ Botão de início da corrida
-  Widget _buildStartButton() {
-    return GestureDetector(
-      onTap: _showPreRunCountdown,
-      child: Container(
-        height: 90,
-        width: 90,
-        decoration: BoxDecoration(
-          color: Colors.black,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 10,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
-        child: const Icon(
-          Icons.play_arrow_rounded,
-          color: Color(0xFFFF6D00),
-          size: 48,
-        ),
       ),
     );
   }
@@ -2662,156 +2630,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
-
-
-
-
-
-  Future<void> _updateUserRunStats() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    final startOfDay = DateTime(now.year, now.month, now.day);
-
-    final runsQuery = await FirebaseFirestore.instance
-        .collection('corridas')
-        .where('userId', isEqualTo: user.uid)
-        .get();
-
-    final runs = runsQuery.docs.map((doc) {
-      final data = doc.data();
-      final date = (data['data'] as Timestamp).toDate();
-      return date;
-    }).toList();
-
-    // Contagem da semana atual
-    weeklyRunsCount = runs.where((d) => d.isAfter(startOfWeek)).length;
-
-    // Calcula sequência de dias consecutivos (streak)
-    runs.sort((a, b) => b.compareTo(a));
-    streakDays = 1;
-
-    for (int i = 1; i < runs.length; i++) {
-      final diff = runs[i - 1].difference(runs[i]).inDays;
-      if (diff == 1) {
-        streakDays++;
-      } else if (diff > 1) {
-        break;
-      }
-    }
-  }
-
-
-  Future<void> _finalizarCorrida() async {
-
-    // só finalize se realmente estiver correndo
-    if (!_isRunning) return;
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    _timer?.cancel();
-    _stopwatch.stop();
-
-    final distanceMeters = _totalDistance;          // metros
-    final distanceKm = distanceMeters / 1000.0;     // km
-    final duration = _stopwatch.elapsed.inSeconds;
-
-    // Evita corridas muito curtas
-    if (distanceMeters < 10) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Distância muito curta para registrar corrida."),
-          backgroundColor: Colors.redAccent,
-        ));
-      }
-      return;
-    }
-
-    // 🎯 XP base: 10 xp por km + 5 de bônus
-    final baseXP = (distanceKm * 10).floor() + 5;
-
-    // 🎛️ Multiplicadores
-    double xpMultiplier = 1.0;
-
-    // Exemplo de "Pro Runner" — adapte sua flag real
-    final isPro = (user.email ?? '').contains('pro');
-    if (isPro) xpMultiplier *= 2.0;
-
-    // Desafio ativo
-    final inActiveChallenge = await _userHasActiveChallenge();
-    if (inActiveChallenge) xpMultiplier *= 1.5;
-
-    final totalXP = (baseXP * xpMultiplier).round();
-
-    // 🎈 Feedback de XP
-    _showXPAnimation("+$totalXP XP");
-
-    // 🏅 Salva corrida
-    final runData = {
-      'userId': user.uid,
-      'distance': distanceMeters,         // guardei em METROS p/ consistência com o resto do app
-      'duration': duration,
-      'pace': _averagePace,
-      'calories': _caloriesBurned,
-      'xpEarned': totalXP,
-      'createdAt': FieldValue.serverTimestamp(),
-    };
-    await FirebaseFirestore.instance.collection('corridas').add(runData);
-
-    // ➕ adiciona XP ao perfil
-    await GamificationService().addPoints(
-      points: totalXP,
-      source: "Corrida",
-      description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em ${_timer} min",
-      meta: {
-        'distanciaKm': distanceKm,
-        'duracao': _timer,
-        'calorias': _caloriesBurned,
-      },
-      context: context,
-    );
-
-
-    // 🏆 Conquistas/estatísticas
-    await _updateUserRunStats();
-    await AchievementService().checkAchievements(
-      runData: {
-        'distance': distanceMeters,
-        'pace': _averagePace,
-        'weeklyRuns': weeklyRunsCount,
-        'streak': streakDays,
-      },
-      context: context,
-    );
-
-    // 🥇 Leaderboard
-    await _updateLeaderboard();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("🏁 Corrida salva! +$totalXP XP."), backgroundColor: Colors.green[700]),
-      );
-    }
-
-    // reset UI
-    setState(() {
-      _isRunning = false;
-      _runEnded = true;
-      _positions.clear();
-      _polylines.clear();
-      _markers.clear();
-      _totalDistance = 0;
-      _seconds = 0;
-      _averagePace = 0;
-      _caloriesBurned = 0;
-      _slideDragValue = 0.0;
-    });
-    ScaffoldVisibilityController.show();
-  }
-
   void _showXPAnimation(String text) {
     OverlayEntry? overlayEntry;
     overlayEntry = OverlayEntry(
@@ -2956,6 +2774,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }) async {
     if (isWearOS) return;
 
+    // ✅ snapshot do token atual
+    final int epoch = _overlayEpoch;
+
+    // ✅ se estiver livre, não cria marcador
+    if (_isFreeMode) return;
+
     // ❗️ANTES de desenhar o marcador, valide o dono do território
     final runUserId = (runData['userId'] ?? '') as String;
 
@@ -3079,6 +2903,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         consumeTapEvents: false,
       );
 
+      if (!mounted || epoch != _overlayEpoch || _isFreeMode) return;
       setState(() => _markers.add(marker));
       _markerGestures[position] = (userName, photoUrl, runData);
     } catch (e) {
@@ -3123,226 +2948,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 // 🔹 Armazena dados dos marcadores
   final Map<LatLng, (String, String?, Map<String, dynamic>)> _markerGestures = {};
-
-  /// Chamado a partir do mapa, interceptando gestos sobre marcadores
-  Timer? _markerHoldTimer;
-  OverlayEntry? _activeMarkerOverlay;
-
-  void _showRadialMenu(
-      LatLng markerPos,
-      String userName,
-      String? photoUrl,
-      Map<String, dynamic> runData,
-      ) async {
-    if (_googleMapController == null) return;
-
-    final screenCoordinate =
-    await _googleMapController!.getScreenCoordinate(markerPos);
-
-    final renderBox = context.findRenderObject() as RenderBox;
-    final screenSize = renderBox.size;
-    final safeTop = MediaQuery.of(context).padding.top;
-
-    double dx = screenCoordinate.x.toDouble();
-    double dy = screenCoordinate.y.toDouble();
-
-    // Ajuste de posição: centraliza acima da bolinha
-    dy = dy - 80 - safeTop;
-
-    dx = dx.clamp(80.0, screenSize.width - 80.0);
-    dy = dy.clamp(150.0, screenSize.height - 150.0);
-    final center = Offset(dx, dy);
-
-    // Feedback tátil
-    HapticFeedback.mediumImpact();
-
-    _radialMenuOverlay?.remove();
-
-    // Reutiliza o controlador de animação existente
-    _animationController.reset();
-    _animationController.duration = const Duration(milliseconds: 400);
-    _animationController.forward();
-
-    _radialMenuOverlay = OverlayEntry(
-      builder: (context) {
-        return AnimatedBuilder(
-          animation: _animationController,
-          builder: (context, child) {
-            final progress = Curves.easeOut.transform(_animationController.value);
-            final waveRadius = 10 + (progress * 300);
-
-            return Positioned.fill(
-              child: GestureDetector(
-                onTap: _removeRadialMenu,
-                child: Stack(
-                  children: [
-                    // Fundo escurecido
-                    AnimatedOpacity(
-                      opacity: 0.5,
-                      duration: const Duration(milliseconds: 150),
-                      child: Container(color: Colors.black54),
-                    ),
-
-                    // 💫 Efeito de expansão circular
-                    Positioned(
-                      left: center.dx - waveRadius / 2,
-                      top: center.dy - waveRadius / 2,
-                      child: Container(
-                        width: waveRadius,
-                        height: waveRadius,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              const Color(0xFF4A90E2).withOpacity(0.4 * (1 - progress)),
-                              const Color(0xFF007AFF).withOpacity(0.3 * (1 - progress)),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // 🧭 Menu circular principal sem texto
-                    Positioned(
-                      left: center.dx - 75,
-                      top: center.dy - 75,
-                      child: AnimatedScale(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOutBack,
-                        scale: _animationController.value,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            // Fundo translúcido
-                            Container(
-                              width: 150,
-                              height: 150,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withOpacity(0.65),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 2,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.blueAccent.withOpacity(0.4),
-                                    blurRadius: 25,
-                                    spreadRadius: 4,
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            // 🧍 Ícone "Info do jogador"
-                            Positioned(
-                              top: 10,
-                              child: GestureDetector(
-                                onTap: () {
-                                  _removeRadialMenu();
-                                  _showPlayerInfo(userName, photoUrl, userId: runData['userId']);
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: const Icon(Icons.person, color: Colors.white, size: 30),
-                                ),
-                              ),
-                            ),
-
-                            // 🏁 Ícone "Detalhes da corrida"
-                            Positioned(
-                              bottom: 10,
-                              child: GestureDetector(
-                                onTap: () {
-                                  _removeRadialMenu();
-                                  _showRunDetailsPopup(runData);
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: LinearGradient(
-                                      colors: [Color(0xFFFF6D00), Color(0xFFE53935)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                  ),
-                                  child: const Icon(Icons.flag_rounded, color: Colors.white, size: 30),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    Overlay.of(context).insert(_radialMenuOverlay!);
-  }
-
-
-
-
-
-
-  void _removeRadialMenu() {
-    _isHoldingMarker = false;
-    _radialMenuOverlay?.remove();
-    _radialMenuOverlay = null;
-  }
-
-
-  Widget _buildRadialButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Icon(icon, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
 
 
   void _showLoadingOverlay(BuildContext context) {
@@ -3680,138 +3285,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-
-
-
-
-  /// Detecta long press e arrasto no mapa
-  void _handleMapGesture(LatLng markerPos, String userName, String? photoUrl, Map<String, dynamic> runData) {
-    _activeMarkerOverlay?.remove();
-
-    _activeMarkerOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        left: MediaQuery.of(context).size.width / 2 - 100,
-        bottom: 150,
-        child: GestureDetector(
-          onHorizontalDragUpdate: (details) async {
-            if (details.primaryDelta != null && details.primaryDelta! > 25) {
-              _activeMarkerOverlay?.remove();
-              _activeMarkerOverlay = null;
-              HapticFeedback.mediumImpact();
-              await Future.delayed(const Duration(milliseconds: 120));
-              _showRunDetailsPopup(runData);
-            }
-          },
-          onTapUp: (_) => _activeMarkerOverlay?.remove(),
-          child: AnimatedOpacity(
-            opacity: 1,
-            duration: const Duration(milliseconds: 150),
-            child: Container(
-              width: 200,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF007AFF).withOpacity(0.4),
-                    blurRadius: 20,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                        ? NetworkImage(photoUrl)
-                        : null,
-                    backgroundColor: const Color(0xFF4A90E2),
-                    child: (photoUrl == null || photoUrl.isEmpty)
-                        ? const Icon(Icons.person, color: Colors.white)
-                        : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          userName,
-                          style: GoogleFonts.poppins(
-                            textStyle: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          "${(runData['distance'] / 1000).toStringAsFixed(2)} km",
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    Overlay.of(context).insert(_activeMarkerOverlay!);
-    HapticFeedback.lightImpact();
-  }
-
-  /// Associa o gesto “press and hold” a cada marcador
-  void _enableMarkerGestures() {
-    for (final markerPos in _markerGestures.keys) {
-      final (name, photo, data) = _markerGestures[markerPos]!;
-
-      // Simula gesto de pressionar sobre o marcador
-      _markers.add(
-        Marker(
-          markerId: MarkerId("runner_${markerPos.latitude}_${markerPos.longitude}"),
-          position: markerPos,
-          icon: _markers
-              .firstWhere((m) => m.position == markerPos)
-              .icon, // usa mesmo ícone existente
-          onTap: () {
-            // Nada em tap curto
-          },
-          onDragStart: (_) {},
-          consumeTapEvents: false,
-          onDragEnd: (_) {},
-          infoWindow: InfoWindow(
-            title: name,
-            onTap: () {}, // evita abrir info padrão
-          ),
-        ),
-      );
-    }
-  }
-
-  /// Encontra o marcador mais próximo da posição do toque
-  LatLng? _findNearestMarker(Offset position) {
-    if (_googleMapController == null || _markerGestures.isEmpty) return null;
-    for (final marker in _markerGestures.keys) {
-      // Poderia usar hitbox mais refinada com coordenadas de tela
-      // mas aqui simplificamos.
-      return marker;
-    }
-    return null;
-  }
-
-
-
-
   void _showRunDetailsPopup(Map<String, dynamic> runData) {
     if (isWearOS) return; // dialog é desconfortável no relógio
 
@@ -3964,20 +3437,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-
-
-  Widget _buildPopupInfo(IconData icon, String text) {
-    return Column(
-      children: [
-        Icon(icon, color: Colors.white, size: 28),
-        const SizedBox(height: 5),
-        Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-        ),
-      ],
-    );
-  }
   Future<Map<String, dynamic>> _getPlayerStats(String userId) async {
     try {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
