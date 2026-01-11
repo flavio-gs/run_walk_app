@@ -555,6 +555,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _enemyAlertOpen = false;
 
     if (go == true) {
+      await _startGlobalDispute(t);
       debugPrint("⚔️ Disputa iniciada no território: ${t.id} (dono=${t.ownerId})");
 
       // ✅ mostra o VS no centro e salva o id da disputa
@@ -569,6 +570,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
   }
+
+  Future<void> _cancelGlobalDispute(String territoryId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('territorios')
+          .doc(territoryId)
+          .update({
+        'dispute': FieldValue.delete(),
+      });
+
+      debugPrint("❌ Disputa cancelada no território $territoryId");
+    } catch (e) {
+      debugPrint("Erro ao cancelar disputa: $e");
+    }
+  }
+
 
 
 
@@ -791,6 +808,60 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       debugPrint('Erro som start: $e');
     }
   }
+
+  Future<void> _startGlobalDispute(_Territory t) async {
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return;
+
+    if (t.ownerId.isEmpty || t.ownerId == me.uid) {
+      debugPrint("⚠️ Território sem dono ou seu — disputa não inicia.");
+      return;
+    }
+
+    final docRef = FirebaseFirestore.instance.collection('territorios').doc(t.id);
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final snap = await tx.get(docRef);
+        if (!snap.exists) return;
+
+        final data = snap.data() as Map<String, dynamic>;
+        final currentOwner = (data['userId'] ?? '') as String;
+
+        // ✅ se mudou o dono, cancela
+        if (currentOwner != t.ownerId) {
+          throw Exception("Dono do território mudou. Atualize o mapa.");
+        }
+
+        // ✅ já existe disputa ativa?
+        final dispute = data['dispute'] as Map<String, dynamic>?;
+        if (dispute != null && dispute['status'] == 'active') {
+          final attacker = dispute['attackerId'];
+          throw Exception("Já existe disputa ativa (atacante: $attacker).");
+        }
+
+        tx.update(docRef, {
+          'dispute': {
+            'status': 'active',
+            'attackerId': me.uid,
+            'defenderId': t.ownerId,
+            'startedAt': FieldValue.serverTimestamp(),
+          }
+        });
+      });
+
+      debugPrint("⚔️ Disputa GLOBAL iniciada em ${t.id}");
+
+    } catch (e) {
+      debugPrint("❌ Falha ao iniciar disputa: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Não foi possível iniciar disputa: $e")),
+        );
+      }
+    }
+  }
+
 
   Future<void> _playStop() async {
     if (!isWearOS) return;
@@ -1103,6 +1174,69 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   }
 
+  void _syncDisputeMarkers(Set<String> activeTerritoryIds) {
+    _markers.removeWhere((m) {
+      final id = m.markerId.value;
+      if (!id.startsWith('dispute_')) return false;
+      final territoryId = id.replaceFirst('dispute_', '');
+      return !activeTerritoryIds.contains(territoryId);
+    });
+  }
+
+
+  Future<void> _upsertGlobalDisputeMarker({
+    required _Territory territory,
+    required String attackerId,
+    required String defenderId,
+  }) async {
+    if (!mounted) return;
+    if (isWearOS) return;
+
+    final center = _territoryCenter(territory.points);
+    final accent = _territoryStrokeForOwner(territory.ownerId);
+
+    // carrega atacante
+    final atkDoc = await FirebaseFirestore.instance.collection('users').doc(attackerId).get();
+    final atk = atkDoc.data() ?? {};
+    final atkName = (atk['displayName'] as String?) ?? 'Atacante';
+    final atkPhoto = (atk['photoURL'] as String?);
+
+    // carrega defensor
+    final defDoc = await FirebaseFirestore.instance.collection('users').doc(defenderId).get();
+    final def = defDoc.data() ?? {};
+    final defName = (def['displayName'] as String?) ?? 'Defensor';
+    final defPhoto = (def['photoURL'] as String?);
+
+    final icon = await _createVsDisputeIcon(
+      leftName: atkName,
+      rightName: defName,
+      leftPhotoUrl: atkPhoto,
+      rightPhotoUrl: defPhoto,
+      accent: accent,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      // remove marker antigo daquele território e coloca o novo
+      _markers.removeWhere((m) => m.markerId.value == 'dispute_${territory.id}');
+      _markers.add(
+        Marker(
+          markerId: MarkerId('dispute_${territory.id}'),
+          position: center,
+          icon: icon,
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 9998,
+          onTap: () {
+            // opcional: abrir card do atacante/defensor ou mostrar detalhes
+            debugPrint("⚔️ Disputa em ${territory.id}: $attackerId vs $defenderId");
+          },
+        ),
+      );
+    });
+  }
+
+
   Future<void> _loadTerritories() async {
     // ✅ sempre cancela o listener anterior
     await _territoriesSub?.cancel();
@@ -1124,7 +1258,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         .snapshots()
         .listen((snap) async {
       if (!mounted) return;
-      if (_territoryController.mode == MapTerritoryMode.livre) return;
 
       _territories
         ..clear()
@@ -1144,6 +1277,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           );
         }));
 
+      // ✅ polígonos de território (seu código)
       _territoryPolygons
         ..clear()
         ..addAll(_territories.map((t) {
@@ -1169,9 +1303,47 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         );
       }
 
+      // ✅ DISPUTAS GLOBAIS: identifica quais territórios estão em disputa
+      final activeDisputes = <String, Map<String, dynamic>>{};
+      for (final d in snap.docs) {
+        final data = d.data();
+        final dispute = data['dispute'];
+        if (dispute is Map<String, dynamic> && dispute['status'] == 'active') {
+          activeDisputes[d.id] = dispute;
+        }
+      }
+
+      // ✅ remove markers de disputa que não existem mais
+      _syncDisputeMarkers(activeDisputes.keys.toSet());
+
+      // ✅ cria/atualiza markers de disputa ativos
+      // (sem await em setState: faz antes, depois dá 1 setState final)
+      for (final entry in activeDisputes.entries) {
+        final tid = entry.key;
+        final dispute = entry.value;
+
+        final attackerId = (dispute['attackerId'] ?? '') as String;
+        final defenderId = (dispute['defenderId'] ?? '') as String;
+        if (attackerId.isEmpty || defenderId.isEmpty) continue;
+
+        final t = _territories.firstWhere(
+              (x) => x.id == tid,
+          orElse: () => const _Territory(id: '', ownerId: '', points: []),
+        );
+        if (t.id.isEmpty || t.points.length < 3) continue;
+
+        // ⚠️ isso faz fetch de users (ok pra MVP). Depois a gente cacheia.
+        await _upsertGlobalDisputeMarker(
+          territory: t,
+          attackerId: attackerId,
+          defenderId: defenderId,
+        );
+      }
+
       _pruneLoserMarkers();
       if (mounted) setState(() {});
     });
+
   }
 
 
@@ -2508,6 +2680,67 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+
+          if (_activeDisputeTerritoryId != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top +
+                  MediaQuery.of(context).size.height * 0.72 -
+                  60, // 👈 fica acima do Online/Offline
+              right: 20,
+              child: GestureDetector(
+                onTap: () async {
+                  final id = _activeDisputeTerritoryId!;
+                  await _cancelGlobalDispute(id);
+
+                  if (!mounted) return;
+                  setState(() {
+                    _activeDisputeTerritoryId = null;
+                  });
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("❌ Disputa cancelada"),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent,
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.cancel_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Cancelar disputa",
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
 
           // 🌐 Online/Offline — minimalista
           Positioned(

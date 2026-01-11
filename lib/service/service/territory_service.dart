@@ -127,6 +127,7 @@ class TerritoryService {
       'userId': newUserId,
       'capturedAt': Timestamp.fromDate(now),
       'lastProgress': progress,
+      'dispute': FieldValue.delete(), // ✅ encerra a disputa global
     });
 
     // 🔹 Adiciona registro ao histórico de ownership
