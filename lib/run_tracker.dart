@@ -12,6 +12,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
+import 'package:run_walk_app/profile_page.dart';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:run_walk_app/service/service/gamification_service.dart';
@@ -260,13 +261,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   );
 
 
+  StreamSubscription<QuerySnapshot>? _territoriesSub;
+  int _territoryEpoch = 0;
+
 
 
   // ✅ Token para cancelar "carregamentos antigos" (async) quando trocar de modo
   int _overlayEpoch = 0;
-
-  // ✅ Listener de territórios (o seu _loadTerritories() atual não guarda/cancela)
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _territoriesSub;
 
   // ✅ opcional: controla se estamos no modo livre (facilita checks)
   bool get _isFreeMode => _territoryController.mode == MapTerritoryMode.livre;
@@ -274,6 +275,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   void _invalidateOverlayJobs() {
     _overlayEpoch++;
   }
+
+  String? _lastEnemyTerritoryId;     // pra não repetir o mesmo alerta
+  DateTime? _lastEnemyAlertAt;       // throttling
+  bool _enemyAlertOpen = false;      // evita abrir vários dialogs
+
 
   double _slideDragValue = 0.0;
 
@@ -295,6 +301,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   bool _isHoldingMarker = false;
   Offset? _markerScreenPosition;
 
+  String? _activeDisputeTerritoryId; // qual território está em disputa agora
+
   String _areaCapturedFormatted = "0 m²";
 
   final Set<Polygon> _territoryPolygons = {}; // 🟩 Territórios salvos
@@ -305,6 +313,264 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _challengeStream;
   Map<String, dynamic>? _activeChallengeData;
+
+  void _clearDisputeMarker() {
+    _markers.removeWhere((m) => m.markerId.value.startsWith('dispute_'));
+    _activeDisputeTerritoryId = null;
+  }
+
+  Future<BitmapDescriptor> _createVsDisputeIcon({
+    required String leftName,
+    required String rightName,
+    String? leftPhotoUrl,
+    String? rightPhotoUrl,
+    required Color accent,
+  }) async {
+    const int w = 420;
+    const int h = 140;
+    const double avatarR = 44;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    // fundo glass/placa
+    final bgRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()),
+      const Radius.circular(22),
+    );
+    final bgPaint = Paint()..color = Colors.black.withOpacity(0.60);
+    canvas.drawRRect(bgRect, bgPaint);
+
+    final border = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..color = accent.withOpacity(0.9);
+    canvas.drawRRect(bgRect, border);
+
+    // função auxiliar pra carregar imagem
+    Future<ui.Image?> loadImg(String? url) async {
+      if (url == null || url.isEmpty) return null;
+      try {
+        final data = await NetworkAssetBundle(Uri.parse(url)).load("");
+        final bytes = data.buffer.asUint8List();
+        return await decodeImageFromList(bytes);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final leftImg = await loadImg(leftPhotoUrl);
+    final rightImg = await loadImg(rightPhotoUrl);
+
+    // desenha avatar circular
+    void drawAvatar(double cx, double cy, ui.Image? img, String fallbackLetter) {
+      final center = Offset(cx, cy);
+      final r = avatarR;
+
+      // glow
+      final glow = Paint()
+        ..color = accent.withOpacity(0.55)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10);
+      canvas.drawCircle(center, r, glow);
+
+      if (img == null) {
+        final p = Paint()..color = Colors.grey.shade900;
+        canvas.drawCircle(center, r, p);
+
+        final tp = TextPainter(
+          text: TextSpan(
+            text: fallbackLetter,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        tp.layout();
+        tp.paint(canvas, Offset(cx - tp.width / 2, cy - tp.height / 2));
+      } else {
+        final clip = Path()..addOval(Rect.fromCircle(center: center, radius: r));
+        canvas.save();
+        canvas.clipPath(clip);
+        final paint = Paint()
+          ..shader = ImageShader(
+            img,
+            TileMode.clamp,
+            TileMode.clamp,
+            Matrix4.identity()
+                .scaled((r * 2) / img.width, (r * 2) / img.height)
+                .storage,
+          );
+        canvas.drawCircle(center, r, paint);
+        canvas.restore();
+      }
+
+      // borda branca
+      final b = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Colors.white.withOpacity(0.9);
+      canvas.drawCircle(center, r, b);
+    }
+
+    // posições
+    final leftC = const Offset(92, 70);
+    final rightC = const Offset(328, 70);
+
+    drawAvatar(leftC.dx, leftC.dy, leftImg, leftName.isNotEmpty ? leftName[0].toUpperCase() : '?');
+    drawAvatar(rightC.dx, rightC.dy, rightImg, rightName.isNotEmpty ? rightName[0].toUpperCase() : '?');
+
+    // VS no meio
+    final vsPainter = TextPainter(
+      text: TextSpan(
+        text: "VS",
+        style: TextStyle(
+          color: accent.withOpacity(0.95),
+          fontSize: 38,
+          fontWeight: FontWeight.w900,
+          shadows: const [Shadow(blurRadius: 12, offset: Offset(0, 2), color: Colors.black87)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    vsPainter.layout();
+    vsPainter.paint(canvas, Offset((w - vsPainter.width) / 2, 40));
+
+    // texto embaixo
+    final subPainter = TextPainter(
+      text: const TextSpan(
+        text: "Disputando território",
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    subPainter.layout(maxWidth: w.toDouble());
+    subPainter.paint(canvas, Offset((w - subPainter.width) / 2, 102));
+
+    final pic = recorder.endRecording();
+    final img = await pic.toImage(w, h);
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
+  }
+
+  Future<void> _showDisputeVsMarker({
+    required _Territory territory,
+  }) async {
+    if (!mounted) return;
+    if (isWearOS) return;
+
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return;
+
+    // centro do território (use sua função)
+    final center = _territoryCenter(territory.points);
+
+    // pega dados do atacante (você)
+    final myDoc = await FirebaseFirestore.instance.collection('users').doc(me.uid).get();
+    final myData = myDoc.data() ?? {};
+    final myName = (myData['displayName'] as String?) ?? 'Você';
+    final myPhoto = (myData['photoURL'] as String?);
+
+    // pega dados do defensor (dono)
+    final ownerDoc = await FirebaseFirestore.instance.collection('users').doc(territory.ownerId).get();
+    final ownerData = ownerDoc.data() ?? {};
+    final ownerName = (ownerData['displayName'] as String?) ?? 'Jogador';
+    final ownerPhoto = (ownerData['photoURL'] as String?);
+
+    final accent = _territoryStrokeForOwner(territory.ownerId);
+
+    final icon = await _createVsDisputeIcon(
+      leftName: myName,
+      rightName: ownerName,
+      leftPhotoUrl: myPhoto,
+      rightPhotoUrl: ownerPhoto,
+      accent: accent,
+    );
+
+    setState(() {
+      // remove VS antigo se houver
+      _markers.removeWhere((m) => m.markerId.value.startsWith('dispute_'));
+
+      _activeDisputeTerritoryId = territory.id;
+
+      _markers.add(
+        Marker(
+          markerId: MarkerId('dispute_${territory.id}'),
+          position: center,
+          icon: icon,
+          anchor: const Offset(0.5, 0.5), // centralizado
+          zIndex: 9998, // acima dos donos e abaixo do currentLocation (10000)
+        ),
+      );
+    });
+  }
+
+
+
+
+  _Territory? _enemyTerritoryAt(LatLng pos, String myUid) {
+    for (final t in _territories) {
+      if (t.points.length < 3) continue;
+      if (_pointInPolygon(pos, t.points)) {
+        if (t.ownerId.isNotEmpty && t.ownerId != myUid) {
+          return t; // inimigo
+        }
+        return null; // é seu ou sem dono
+      }
+    }
+    return null;
+  }
+
+  Future<void> _showEnemyTerritoryAlert(_Territory t) async {
+    if (!mounted) return;
+    if (_enemyAlertOpen) return;
+
+    _enemyAlertOpen = true;
+
+    final go = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => AlertDialog(
+        title: const Text("⚔️ Território inimigo"),
+        content: const Text("Você está dentro de um território inimigo. Gostaria de iniciar uma disputa?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Agora não"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Iniciar disputa"),
+          ),
+        ],
+      ),
+    );
+
+    _enemyAlertOpen = false;
+
+    if (go == true) {
+      debugPrint("⚔️ Disputa iniciada no território: ${t.id} (dono=${t.ownerId})");
+
+      // ✅ mostra o VS no centro e salva o id da disputa
+      await _showDisputeVsMarker(territory: t);
+
+      // opcional: feedback rápido
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("⚔️ Disputa iniciada! Finalize a corrida para tentar dominar.")),
+        );
+      }
+    }
+
+  }
+
+
 
   Future<bool> _userHasActiveChallenge() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -366,11 +632,25 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _restoreGlobalOverlays() async {
-    if (!isWearOS) {
-      await _loadSavedRuns();
-      await _updateMarker(); // mantém seu marcador atual
-    }
+    if (isWearOS) return;
+
+    // 🔥 limpa overlays globais antes de redesenhar
+    _polylines.clear();
+    _markers.removeWhere((m) => m.markerId.value != 'currentLocation'); // opcional
+    _polygons.clear(); // polígono local "territorio"
+    _areaCaptured = 0;
+    _areaCapturedFormatted = "0 m²";
+
+    // ⚠️ e limpa os territórios (serão recarregados)
+    _territories.clear();
+    _territoryPolygons.clear();
+
+    if (mounted) setState(() {});
+
+    //await _loadSavedRuns();
+    await _updateMarker();
   }
+
 
 
 
@@ -615,7 +895,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _updateMarker() async {
-    if (isWearOS) return; // sem marcador/Mapa no Wear
+    if (isWearOS) return; // sem mapa no Wear
+    if (!mounted) return;
+
     final customIcon = await _createUserCircleIcon(
       size: 60,
       fillColor: const Color(0xFFFF7600),
@@ -633,7 +915,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         ),
       );
     });
+
+    // ✅ não alerta em modo livre
+    if (_territoryController.mode == MapTerritoryMode.livre) return;
+
+
+    // ❌ não alerta se já estiver correndo
+    if (_isRunning) return;
+
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return;
+
+    // ✅ precisa ter territórios carregados
+    if (_territories.isEmpty) return;
+
+    final enemy = _enemyTerritoryAt(_currentPosition, me.uid);
+    if (enemy == null) {
+      _lastEnemyTerritoryId = null; // saiu do inimigo → reseta
+      return;
+    }
+
+    // ✅ evita repetir o mesmo alerta sem sair do território
+    if (_lastEnemyTerritoryId == enemy.id) return;
+
+    // ✅ throttling (ex: 12s) pra não ficar irritante se GPS oscilar
+    final now = DateTime.now();
+    if (_lastEnemyAlertAt != null &&
+        now.difference(_lastEnemyAlertAt!).inSeconds < 12) {
+      return;
+    }
+
+    _lastEnemyTerritoryId = enemy.id;
+    _lastEnemyAlertAt = now;
+
+    await _showEnemyTerritoryAlert(enemy);
+
+    if (_activeDisputeTerritoryId != null) {
+      final active = _territories.where((x) => x.id == _activeDisputeTerritoryId).toList();
+      if (active.isEmpty || !_pointInPolygon(_currentPosition, active.first.points)) {
+        _clearDisputeMarker();
+        if (mounted) setState(() {});
+      }
+    }
+
   }
+
 
   Future<void> _setInitialLocation() async {
     try {
@@ -770,9 +1096,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         }
       }
 
-
-      await _loadTerritories(); // 🟩 Carrega territórios conquistados
-
       setState(() {});
     } catch (e) {
       debugPrint("Erro ao carregar corridas: $e");
@@ -781,40 +1104,77 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _loadTerritories() async {
-    FirebaseFirestore.instance.collection('territorios').snapshots().listen((snap) {
+    // ✅ sempre cancela o listener anterior
+    await _territoriesSub?.cancel();
+    _territoriesSub = null;
+
+    // ✅ se estiver em modo livre: limpa e sai
+    if (_territoryController.mode == MapTerritoryMode.livre) {
+      _territories.clear();
+      _territoryPolygons.clear();
+      _polygons.clear();
+      _areaCaptured = 0;
+      _areaCapturedFormatted = "0 m²";
+      if (mounted) setState(() {});
+      return;
+    }
+
+    _territoriesSub = FirebaseFirestore.instance
+        .collection('territorios')
+        .snapshots()
+        .listen((snap) async {
+      if (!mounted) return;
+      if (_territoryController.mode == MapTerritoryMode.livre) return;
+
       _territories
         ..clear()
         ..addAll(snap.docs.map((d) {
           final data = d.data();
           final pts = (data['points'] as List? ?? [])
-              .map((p) => LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()))
+              .map((p) => LatLng(
+            (p['lat'] as num).toDouble(),
+            (p['lng'] as num).toDouble(),
+          ))
               .toList();
-          return _Territory(id: d.id, ownerId: (data['userId'] ?? '') as String, points: pts);
+
+          return _Territory(
+            id: d.id,
+            ownerId: (data['userId'] ?? '') as String,
+            points: pts,
+          );
         }));
 
-      // Se você também desenha polígonos:
       _territoryPolygons
         ..clear()
         ..addAll(_territories.map((t) {
-          final ownerColorFill = _territoryFillForOwner(t.ownerId);
-          final ownerColorStroke = _territoryStrokeForOwner(t.ownerId);
-
+          final fill = _territoryFillForOwner(t.ownerId);
+          final stroke = _territoryStrokeForOwner(t.ownerId);
           return Polygon(
             polygonId: PolygonId('territorio_${t.id}'),
             points: t.points,
-            fillColor: ownerColorFill,
-            strokeColor: ownerColorStroke,
+            fillColor: fill,
+            strokeColor: stroke,
             strokeWidth: 2,
           );
         }));
 
+      // ✅ remove markers antigos e cria markers centralizados pro dono
+      _clearTerritoryOwnerMarkers();
+      for (final t in _territories) {
+        if (t.ownerId.isEmpty) continue;
+        await _addTerritoryOwnerMarker(
+          territoryId: t.id,
+          ownerId: t.ownerId,
+          territoryPoints: t.points,
+        );
+      }
 
-      // Limpa marcadores que ficaram “ilegais” após uma troca de dono
       _pruneLoserMarkers();
-
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
+
+
 
 
   bool _pointInPolygon(LatLng p, List<LatLng> polygon) {
@@ -1008,6 +1368,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _startRun() async {
+
+    _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
     FlutterBackgroundService().startService();
 
@@ -1168,7 +1530,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
     if (distance < 0.5) return;
 
-    final speed = (distance / elapsed).clamp(0.2, 6.0); // m/s
+    final speed = (distance / elapsed).clamp(0.2, 6.0);
 
     final color = Color.lerp(
       const Color(0xFF3FA9F5),
@@ -1190,8 +1552,17 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
     );
 
+    // ✅ Se estiver em modo livre, NÃO conquista território (nem calcula, nem desenha)
+    if (_isFreeMode) {
+      if (_areaCaptured != 0 || _areaCapturedFormatted != "0 m²" || _polygons.isNotEmpty) {
+        _areaCaptured = 0;
+        _areaCapturedFormatted = "0 m²";
+        _polygons.clear();
+      }
+      return;
+    }
 
-    // 🟩 Atualiza área/plot do território SEM mexer em timers/estados da corrida
+    // 🟩 Atualiza área/plot do território (somente modo território)
     if (_positions.length >= 3) {
       _areaCapturedFormatted = _calculateAreaFormatted(_positions);
       _polygons
@@ -1206,8 +1577,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+
   // 🟩 NOVO: cálculo de área (m² ou km², com formatação automática)
   String _calculateAreaFormatted(List<LatLng> points) {
+    if (_isFreeMode) {
+      _areaCaptured = 0;
+      return "0 m²";
+    }
     if (points.length < 3) return "0 m²";
 
     const double earthRadius = 6378137.0;
@@ -1314,10 +1690,37 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         route: (runData['route'] as List)
             .map((e) => Map<String, double>.from(e))
             .toList(),
+
+        // ✅ se tiver disputa ativa, só ela pode ser capturada
+        activeDisputeTerritoryId: _activeDisputeTerritoryId,
+
+        // ✅ quando capturar, finaliza disputa e remove o VS marker
+        onTerritoryCaptured: ({
+          required String territoryId,
+          required String oldUserId,
+          required String newUserId,
+          required double progress,
+        }) async {
+          if (!mounted) return;
+
+          // só finaliza se era a disputa ativa
+          if (_activeDisputeTerritoryId == territoryId) {
+            setState(() {
+              _activeDisputeTerritoryId = null;
+
+              // remove o marker VS
+              _markers.removeWhere((m) => m.markerId.value == 'dispute_$territoryId');
+            });
+
+            debugPrint("✅ Disputa finalizada — território $territoryId conquistado.");
+          }
+        },
       );
+
 
       await _loadTerritories();
       if (mounted) setState(() {});
+
     } else {
       debugPrint("🕊️ Modo LIVRE ativo — não domina território ao finalizar corrida.");
     }
@@ -2015,6 +2418,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   );
 
                   if (newMode == MapTerritoryMode.livre) {
+                    debugPrint("polygonsLocal=${_polygons.length} territoryPolygons=${_territoryPolygons.length}");
                     // ✅ cancela listener de territórios do RunTrackingPage
                     await _territoriesSub?.cancel();
                     _territoriesSub = null;
@@ -2026,12 +2430,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                     if (!isWearOS) _updateMarker(); // mantém só seu pin
                   } else {
-                    // GLOBAL
-                    await _restoreGlobalOverlays();
-                    await _loadTerritories();
-
+                    await _loadTerritories();        // territórios (listener)
+                    await _restoreGlobalOverlays();  // corridas + marcador
                     if (mounted) setState(() {});
+                    debugPrint("polygonsLocal=${_polygons.length} territoryPolygons=${_territoryPolygons.length}");
+
                   }
+
                 },
               ),
             ),
@@ -2081,8 +2486,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🔘 Botão recenter
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.67,
-            left: 20,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.80,
+            right: 20,
             child: GestureDetector(
               onTap: _recenterMap,
               child: Container(
@@ -2106,7 +2511,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🌐 Online/Offline — minimalista
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.70,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.72,
             right: 20,
             child: GestureDetector(
               onTap: _toggleOnlineStatus,
@@ -2549,17 +2954,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       await _setInitialLocation();
     }
 
-    // 🗺️ Salva território conquistado
-    if (pathSnapshot.length >= 3 && _areaCaptured > 0) {
+
+    // 🗺️ Salva território conquistado (somente se NÃO estiver em modo livre)
+    if (!_isFreeMode && pathSnapshot.length >= 3 && _areaCaptured > 0) {
       await FirebaseFirestore.instance.collection('territorios').add({
         'userId': user.uid,
-        'points':
-        pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+        'points': pathSnapshot
+            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+            .toList(),
         'area': _areaCaptured,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
       await _loadTerritories();
+    } else {
+      debugPrint('[TERRITORY] Ignorado: modo livre=$_isFreeMode, pts=${pathSnapshot.length}, area=$_areaCaptured');
     }
+
   }
 
 
@@ -2761,8 +3172,183 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     Future.delayed(const Duration(milliseconds: 1000), () => overlay?.remove());
   }
 
+  void _clearTerritoryOwnerMarkers() {
+    _markers.removeWhere((m) => m.markerId.value.startsWith('territory_owner_'));
+  }
 
 
+  Future<void> _addTerritoryOwnerMarker({
+    required String territoryId,
+    required String ownerId,
+    required List<LatLng> territoryPoints,
+  }) async {
+    if (isWearOS) return;
+
+    final int epoch = _overlayEpoch;
+
+    // modo livre: não cria
+    if (_territoryController.mode == MapTerritoryMode.livre) return;
+
+    if (territoryPoints.length < 3) return;
+
+    // ✅ centro do território
+    final position = _territoryCenter(territoryPoints);
+
+    try {
+      // 🔎 busca dados do dono
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(ownerId).get();
+      final data = userDoc.data() ?? {};
+      final userName = (data['displayName'] as String?) ?? 'Jogador';
+      final photoUrl = (data['photoURL'] as String?);
+
+      const double size = 86;
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final paint = Paint()..isAntiAlias = true;
+
+      final center = Offset(size / 2, size / 2);
+      final radius = size / 2;
+
+      // 🎨 cor do território (pra combinar com o polígono)
+      final strokeColor = _territoryStrokeForOwner(ownerId);
+
+      // glow externo
+      final glowPaint = Paint()
+        ..color = strokeColor.withOpacity(0.85)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 12);
+      canvas.drawCircle(center, radius - 2, glowPaint);
+
+      // tenta carregar foto
+      ui.Image? profileImage;
+      if (photoUrl != null && photoUrl.isNotEmpty) {
+        try {
+          final imageData = await NetworkAssetBundle(Uri.parse(photoUrl)).load("");
+          final bytes = imageData.buffer.asUint8List();
+          profileImage = await decodeImageFromList(bytes);
+        } catch (_) {}
+      }
+
+      if (profileImage == null) {
+        // fundo + inicial
+        paint.color = Colors.grey.shade900;
+        canvas.drawCircle(center, radius - 5, paint);
+
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: userName.isNotEmpty ? userName[0].toUpperCase() : "?",
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 34,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
+        );
+      } else {
+        // foto circular
+        final clipPath = Path()..addOval(Rect.fromCircle(center: center, radius: radius - 5));
+        canvas.save();
+        canvas.clipPath(clipPath);
+        paint.shader = ImageShader(
+          profileImage,
+          TileMode.clamp,
+          TileMode.clamp,
+          Matrix4.identity()
+              .scaled(size / profileImage.width, size / profileImage.height)
+              .storage,
+        );
+        canvas.drawCircle(center, radius - 5, paint);
+        canvas.restore();
+      }
+
+      // borda dupla (branca + cor do dono)
+      paint
+        ..shader = null
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Colors.white.withOpacity(0.9);
+      canvas.drawCircle(center, radius - 3, paint);
+
+      paint
+        ..strokeWidth = 4
+        ..color = strokeColor.withOpacity(0.95);
+      canvas.drawCircle(center, radius - 5, paint);
+
+      final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
+      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
+
+      final marker = Marker(
+        markerId: MarkerId("territory_owner_$territoryId"),
+        position: position,
+        icon: BitmapDescriptor.fromBytes(bytes),
+        anchor: const Offset(0.5, 0.5), // ✅ centralizado no território
+        zIndex: 9000,
+        onTap: () async {
+          HapticFeedback.lightImpact();
+          _showLoadingOverlay(context);
+          await Future.delayed(const Duration(milliseconds: 700));
+          if (!context.mounted) return;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) {
+              Navigator.pop(context);
+              _showPlayerCard(
+                context,
+                ownerId,
+                fromTerritory: true,
+              );
+            }
+          });
+
+        },
+
+      );
+
+      if (!mounted || epoch != _overlayEpoch || _territoryController.mode == MapTerritoryMode.livre) return;
+
+      setState(() {
+        // remove se já existia (pra atualizar)
+        _markers.removeWhere((m) => m.markerId.value == "territory_owner_$territoryId");
+        _markers.add(marker);
+      });
+    } catch (e) {
+      debugPrint("❌ Erro ao criar marker do dono do território: $e");
+    }
+  }
+
+
+  LatLng _territoryCenter(List<LatLng> pts) {
+    if (pts.isEmpty) return _currentPosition;
+
+    // média simples
+    double latSum = 0, lngSum = 0;
+    for (final p in pts) {
+      latSum += p.latitude;
+      lngSum += p.longitude;
+    }
+    final candidate = LatLng(latSum / pts.length, lngSum / pts.length);
+
+    // se estiver fora, usa centro do bounds
+    if (!_pointInPolygon(candidate, pts)) {
+      double minLat = pts.first.latitude, maxLat = pts.first.latitude;
+      double minLng = pts.first.longitude, maxLng = pts.first.longitude;
+
+      for (final p in pts) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      return LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
+    }
+
+    return candidate;
+  }
 
 
 
@@ -3468,23 +4054,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
-  void _showPlayerCard(BuildContext context, String userId, {required Map<String, dynamic> runData}) async {
-    debugPrint("📊 Abrindo card para $userId com dados: ${runData.keys}");
+  void _showPlayerCard(
+      BuildContext context,
+      String userId, {
+        Map<String, dynamic>? runData,
+        bool fromTerritory = false,
+      }) async {
+    runData ??= const <String, dynamic>{};
+
+    debugPrint("📊 Abrindo card para $userId | fromTerritory=$fromTerritory | keys=${runData.keys}");
+
     final stats = await _getPlayerStats(userId);
     if (stats.isEmpty) {
       debugPrint("⚠️ Nenhum dado retornado — card abortado");
       return;
     }
-    if (stats.isEmpty) {
-      debugPrint("⚠️ Stats vazias, mas exibindo card básico mesmo assim.");
-    }
 
-    // --- prepara métricas da corrida selecionada ---
+    // --- prepara métricas da corrida selecionada (só se não for território) ---
     final distanceKm = ((runData['distance'] ?? 0) / 1000).toStringAsFixed(2);
     final durationSec = (runData['duration'] ?? 0) as int;
     final pace = (runData['pace'] ?? 0.0) as double;
     final calories = (runData['calories'] ?? 0).round();
     final when = DateTime.tryParse(runData['endTime'] ?? '') ?? DateTime.now();
+
     String _fmt2(int n) => n.toString().padLeft(2, '0');
     String _fmtDuration(int s) => "${_fmt2(s ~/ 3600)}:${_fmt2((s % 3600) ~/ 60)}:${_fmt2(s % 60)}";
     String _fmtPace(double p) {
@@ -3653,16 +4245,36 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      stats['displayName'],
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                      style: GoogleFonts.poppins(
-                                        color: Colors.black,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w700,
+                                    Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(8),
+                                        onTap: () {
+                                          Navigator.pop(context); // fecha o card primeiro (opcional)
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => ProfilePage(userId: userId),
+                                            ),
+                                          );
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(vertical: 2), // aumenta área clicável
+                                          child: Text(
+                                            stats['displayName'],
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            style: GoogleFonts.poppins(
+                                              color: Colors.black,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
+
+
                                     const SizedBox(height: 6),
                                     Row(
                                       children: [
@@ -3758,25 +4370,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                           const SizedBox(height: 5),
 
-                          // 📊 NOVA SEÇÃO DE MÉTRICAS — organizada em GRID simétrica
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-
-                            child: GridView.count(
-                              crossAxisCount: 2,
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              children: [
-                                _buildMetricCard(Icons.route, "$distanceKm km", "Distância"),
-                                _buildMetricCard(Icons.timer, _fmtDuration(durationSec), "Tempo"),
-                                _buildMetricCard(
-                                    Icons.local_fire_department, "$calories kcal", "Calorias"),
-                                _buildMetricCard(Icons.speed, "${_fmtPace(pace)} min/km", "Ritmo"),
-                              ],
+                          if (!fromTerritory) ...[
+                            // 📊 NOVA SEÇÃO DE MÉTRICAS — organizada em GRID simétrica
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              child: GridView.count(
+                                crossAxisCount: 2,
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                children: [
+                                  _buildMetricCard(Icons.route, "$distanceKm km", "Distância"),
+                                  _buildMetricCard(Icons.timer, _fmtDuration(durationSec), "Tempo"),
+                                  _buildMetricCard(Icons.local_fire_department, "$calories kcal", "Calorias"),
+                                  _buildMetricCard(Icons.speed, "${_fmtPace(pace)} min/km", "Ritmo"),
+                                ],
+                              ),
                             ),
-                          ),
+                          ] else ...[
+                            // 🏰 Versão quando o card foi aberto pelo território
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.white.withOpacity(0.7)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.shield, color: Colors.black87),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "Dono do território",
+                                    style: GoogleFonts.poppins(
+                                      color: Colors.black87,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
 
                           const SizedBox(height: 10),
 

@@ -691,7 +691,7 @@ class _StatsTabState extends State<_StatsTab> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           Container(
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
             padding: const EdgeInsets.all(18),
@@ -704,7 +704,7 @@ class _StatsTabState extends State<_StatsTab> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 0),
           GridView(
             shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 12, crossAxisSpacing: 12),
@@ -714,12 +714,12 @@ class _StatsTabState extends State<_StatsTab> {
               _StatBox(icon: Icons.local_fire_department, label: 'Calorias', value: "${widget.totalCalories30d.toStringAsFixed(0)} kcal"),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           InkWell(
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PointsDetailsPage(userId: widget.userId, displayName: name, isOwner: widget.isOwner))),
             child: Container(
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(10),
               child: Row(
                 children: [
                   const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
@@ -730,9 +730,10 @@ class _StatsTabState extends State<_StatsTab> {
               ),
             ),
           ),
+          const SizedBox(height: 10),
           if (widget.isOwner)
             Padding(
-              padding: const EdgeInsets.only(top: 40),
+              padding: const EdgeInsets.only(bottom: 30),
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.logout), label: const Text('Sair'),
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.red, minimumSize: const Size(double.infinity, 50), side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),

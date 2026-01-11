@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:ui';
+
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:run_walk_app/widgets/main_scaffold.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MapTutorialPage extends StatefulWidget {
   const MapTutorialPage({super.key});
@@ -18,15 +19,37 @@ class MapTutorialPage extends StatefulWidget {
 class _MapTutorialPageState extends State<MapTutorialPage> {
   GoogleMapController? _mapController;
   final player = AudioPlayer();
+
   final List<LatLng> _playerPath = [];
   final List<LatLng> _enemyPath = [];
   Set<Polygon> _polygons = {};
+
   Timer? _pathTimer;
+
   int _step = 0;
   double xpGain = 0.0;
   bool showXP = false;
 
-  final List<LatLng> playerRoute = [
+  // ===== Tutorial keys (tooltips 1x) =====
+  final GlobalKey _keyCta = GlobalKey();
+  final GlobalKey _keyBack = GlobalKey();
+  final GlobalKey _keySkip = GlobalKey();
+  final GlobalKey _keyMap = GlobalKey();
+
+  OverlayEntry? _tooltipEntry;
+
+  // ===== Micro effects =====
+  bool _invadeFlash = false; // vermelho
+  bool _playerFlash = false; // laranja (capítulo/alertas leves)
+
+  double _enemyPulse = 0.0;
+  Timer? _pulseTimer;
+
+  double _playerPulse = 0.0;
+  Timer? _playerPulseTimer;
+
+  // ===== Routes =====
+  final List<LatLng> playerRoute = const [
     LatLng(-22.9377202, -43.325633),
     LatLng(-22.9374791, -43.3256108),
     LatLng(-22.9374432, -43.3258882),
@@ -84,15 +107,346 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   void initState() {
     super.initState();
     enemyRoute = playerRoute.sublist(0, (playerRoute.length / 2).floor());
+
+    // dispara efeitos iniciais e tooltip 1x depois do 1º frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _onEnterStep(_step);
+    });
   }
 
   @override
   void dispose() {
+    _pulseTimer?.cancel();
+    _playerPulseTimer?.cancel();
     _pathTimer?.cancel();
+    _hideTooltip();
     player.dispose();
     _mapController?.dispose();
     super.dispose();
   }
+
+  // ======================
+  // Helpers: steps / narrative
+  // ======================
+
+  List<Map<String, String>> _steps({required bool isCompact}) {
+    if (isCompact) {
+      return const [
+        {
+          'title': "CAP.1 — Fundação",
+          'text': "Você chegou ao mapa. Vamos marcar sua primeira rota."
+        },
+        {
+          'title': "Rota registrada",
+          'text': "Sua corrida vira linha. Pace, distância e calorias contam."
+        },
+        {
+          'title': "Selo de domínio",
+          'text': "Fechou uma volta? A área vira território e gera XP."
+        },
+        {
+          'title': "Alerta de rival",
+          'text': "Se alguém fechar área sobre a sua… pode invadir."
+        },
+        {
+          'title': "Batalha!",
+          'text': "O território muda de cor. Você pode recuperar correndo de novo."
+        },
+        {
+          'title': "Modo Território",
+          'text': "Aqui você disputa áreas e expande seu Império."
+        },
+        {
+          'title': "Modo Livre",
+          'text': "Treine e registre atividade sem disputar mapa."
+        },
+        {
+          'title': "Conquistas",
+          'text': "Desbloqueie conquistas e evolução visual."
+        },
+        {
+          'title': "Social + Clãs",
+          'text': "Interaja, entre em clãs e faça desafios/rankings."
+        },
+      ];
+    }
+
+    return const [
+      {
+        'title': "CAPÍTULO 1 — Fundação do Império",
+        'text':
+        "Bem-vindo ao Empire of The Run. Aqui, corrida vira território. Vamos simular seu primeiro domínio no mapa."
+      },
+      {
+        'title': "🏃 A Primeira Corrida",
+        'text':
+        "Ao iniciar, o app registra sua rota em tempo real e calcula distância, tempo, pace e calorias. Pausar/retomar mantém tudo certinho."
+      },
+      {
+        'title': "🟧 Fechou uma volta = Território",
+        'text':
+        "Quando sua rota fecha uma área, ela vira território dominado no mapa. Isso rende XP e aumenta sua progressão/nível."
+      },
+      {
+        'title': "⚠️ Contato! Rival Detectado",
+        'text':
+        "Outros corredores também disputam o mapa. Se alguém fechar uma área sobre a sua região… pode invadir e tomar parte do seu domínio."
+      },
+      {
+        'title': "⚔️ Invasão em andamento",
+        'text':
+        "Quando um território é invadido, a área muda de cor e você recebe alerta. A defesa é simples: corra de novo pela área para reconquistar."
+      },
+      {
+        'title': "🗺️ Modo Território",
+        'text':
+        "Nesse modo, suas corridas são usadas para conquistar e disputar áreas. Perfeito para quem quer jogar o mapa e expandir o Império."
+      },
+      {
+        'title': "🌙 Modo Livre",
+        'text':
+        "Quer apenas treinar? No modo livre você registra a atividade e guarda no histórico — sem disputa de mapa."
+      },
+      {
+        'title': "🏆 Conquistas e Evolução",
+        'text':
+        "Complete objetivos para desbloquear conquistas e marcos de evolução. Seu perfil mostra o quanto você evoluiu."
+      },
+      {
+        'title': "📣 Social, Clãs e Desafios",
+        'text':
+        "Suas corridas aparecem no feed. Curta, comente, siga pessoas, entre em clãs/grupos e participe de desafios e rankings."
+      },
+    ];
+  }
+
+  // ======================
+  // Tutorial navigation (effects on enter)
+  // ======================
+
+  Future<void> _setStep(int newStep) async {
+    if (!mounted) return;
+    setState(() => _step = newStep);
+    await _onEnterStep(newStep);
+  }
+
+  Future<void> _goNext({required bool isCompact}) async {
+    // Ações “cinemáticas” dos primeiros steps
+    if (_step == 0) {
+      await _runPlayerRoute();
+      await _setStep(1);
+      return;
+    }
+
+    if (_step == 1) {
+      await _showTerritory();
+      await _pulsePlayerTerritory();
+      await _setStep(2);
+      return;
+    }
+
+    if (_step == 2) {
+      await _runEnemyRoute();
+      await _setStep(3);
+      return;
+    }
+
+    if (_step == 3) {
+      await _invadeTerritory();
+      await _setStep(4);
+      return;
+    }
+
+    // restantes: só avança
+    final total = _steps(isCompact: isCompact).length;
+    if (_step < total - 1) {
+      await _setStep(_step + 1);
+    } else {
+      await _finish();
+    }
+  }
+
+  Future<void> _goBack({required bool isCompact}) async {
+    if (_step <= 0) return;
+
+    _hideTooltip();
+    setState(() {
+      _step--;
+      _enemyPath.clear();
+      _playerPath.clear();
+      _polygons.clear();
+      showXP = false;
+      xpGain = 0;
+    });
+
+    await _onEnterStep(_step);
+
+    // se voltar pros passos de simulação, mantém consistente:
+    // (opcional) você pode reexecutar rotas automaticamente ao voltar
+  }
+
+  Future<void> _onEnterStep(int s) async {
+    _hideTooltip();
+
+    // micro-efeitos por step
+    if (s == 0) {
+      await _flashOrange();
+      await _showTooltipOnce(
+        keyName: "cta_start",
+        target: _keyCta,
+        title: "Continuar",
+        text: "Toque aqui para simular o capítulo e ver as mecânicas no mapa.",
+      );
+    }
+
+    if (s == 1) {
+      await _showTooltipOnce(
+        keyName: "map_route",
+        target: _keyMap,
+        title: "Sua rota",
+        text: "A linha laranja é seu percurso. Corridas registram stats e progresso.",
+      );
+    }
+
+    if (s == 2) {
+      await _showTooltipOnce(
+        keyName: "territory",
+        target: _keyMap,
+        title: "Território",
+        text: "Área fechada = território dominado. Isso dá XP e sobe seu nível.",
+      );
+    }
+
+    if (s == 3) {
+      await _flashOrange(quick: true); // alerta leve antes do vermelho
+      await _showTooltipOnce(
+        keyName: "enemy_warning",
+        target: _keyMap,
+        title: "Rival à vista",
+        text: "Agora você vai ver a rota do inimigo chegando na sua região.",
+      );
+    }
+
+    if (s == 4) {
+      await _showTooltipOnce(
+        keyName: "defense",
+        target: _keyCta,
+        title: "Defesa",
+        text: "Se invadirem, corra de novo na região para reconquistar o domínio.",
+      );
+    }
+  }
+
+  // ======================
+  // Animations / FX
+  // ======================
+
+  double _easeInOutCubic(double t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+  }
+
+  LatLng _lerpLatLng(LatLng a, LatLng b, double t) {
+    return LatLng(
+      a.latitude + (b.latitude - a.latitude) * t,
+      a.longitude + (b.longitude - a.longitude) * t,
+    );
+  }
+
+  Future<void> _flashOrange({bool quick = false}) async {
+    setState(() => _playerFlash = true);
+    await Future.delayed(Duration(milliseconds: quick ? 80 : 130));
+    if (!mounted) return;
+    setState(() => _playerFlash = false);
+  }
+
+  Future<void> _enemyTakeoverEffect() async {
+    // flash vermelho rápido
+    setState(() => _invadeFlash = true);
+    await Future.delayed(const Duration(milliseconds: 120));
+    if (!mounted) return;
+    setState(() => _invadeFlash = false);
+
+    // pulso no polígono vermelho (3 batidas)
+    _pulseTimer?.cancel();
+    int beats = 0;
+    bool up = true;
+    _enemyPulse = 0.0;
+
+    _pulseTimer = Timer.periodic(const Duration(milliseconds: 30), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+
+      setState(() {
+        _enemyPulse += up ? 0.08 : -0.08;
+        if (_enemyPulse >= 1) up = false;
+        if (_enemyPulse <= 0 && !up) {
+          beats++;
+          up = true;
+        }
+      });
+
+      if (beats >= 3) {
+        t.cancel();
+        setState(() => _enemyPulse = 0.0);
+      }
+    });
+
+    // mini shake de câmera (sutil)
+    if (_mapController != null) {
+      final center = enemyRoute[enemyRoute.length ~/ 2];
+      await _mapController!.animateCamera(CameraUpdate.newLatLng(center));
+      await _mapController!.animateCamera(CameraUpdate.scrollBy(8, 0));
+      await _mapController!.animateCamera(CameraUpdate.scrollBy(-16, 0));
+      await _mapController!.animateCamera(CameraUpdate.scrollBy(8, 0));
+    }
+  }
+
+  Future<void> _pulsePlayerTerritory() async {
+    _playerPulseTimer?.cancel();
+    int beats = 0;
+    bool up = true;
+    _playerPulse = 0.0;
+
+    _playerPulseTimer = Timer.periodic(const Duration(milliseconds: 30), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+
+      setState(() {
+        _playerPulse += up ? 0.08 : -0.08;
+        if (_playerPulse >= 1) up = false;
+        if (_playerPulse <= 0 && !up) {
+          beats++;
+          up = true;
+        }
+
+        // reaplica polígono pulsando
+        _polygons = {
+          Polygon(
+            polygonId: const PolygonId('player_area'),
+            points: playerRoute,
+            fillColor: Colors.orangeAccent
+                .withOpacity(0.25 + (_playerPulse * 0.35)),
+            strokeColor: Colors.orangeAccent
+                .withOpacity(0.70 + (_playerPulse * 0.25)),
+            strokeWidth: 3 + (_playerPulse * 3).round(),
+          ),
+        };
+      });
+
+      if (beats >= 3) {
+        t.cancel();
+        setState(() => _playerPulse = 0.0);
+      }
+    });
+  }
+
+  // ======================
+  // Audio
+  // ======================
 
   Future<void> _play(String name) async {
     try {
@@ -100,43 +454,24 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     } catch (_) {}
   }
 
-  Future<void> _showTerritory() async {
-    // 🔸 Centraliza e destaca o território
-    await _fitRoute(playerRoute);
-    await _play('conquer');
+  // ======================
+  // Map style
+  // ======================
 
-    setState(() {
-      _polygons = {
-        Polygon(
-          polygonId: const PolygonId('player_area'),
-          points: playerRoute,
-          fillColor: Colors.orangeAccent.withOpacity(0.45),
-          strokeColor: Colors.orangeAccent,
-          strokeWidth: 3,
-        ),
-      };
-    });
-
-    // 🔸 Move a câmera suavemente para o centro
-    if (_mapController != null) {
-      _mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: playerRoute[playerRoute.length ~/ 2],
-            zoom: 17.5,
-            tilt: 30,
-          ),
-        ),
-      );
-    }
+  Future<void> _setMapStyle() async {
+    final style = await rootBundle.loadString('assets/map_style.json');
+    _mapController?.setMapStyle(style);
   }
 
+  // ======================
+  // Map camera helpers
+  // ======================
 
   Future<void> _fitRoute(List<LatLng> route) async {
     if (_mapController == null || route.isEmpty) return;
     double minLat = route.first.latitude, maxLat = route.first.latitude;
     double minLng = route.first.longitude, maxLng = route.first.longitude;
-    for (var p in route) {
+    for (final p in route) {
       minLat = min(minLat, p.latitude);
       maxLat = max(maxLat, p.latitude);
       minLng = min(minLng, p.longitude);
@@ -153,82 +488,158 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     );
   }
 
-  // 🔹 Cada etapa controlada manualmente
+  // ======================
+  // Tutorial actions (simulation)
+  // ======================
+
   Future<void> _runPlayerRoute() async {
+    _hideTooltip();
     _playerPath.clear();
+    _enemyPath.clear();
+    setState(() {
+      _polygons.clear();
+      showXP = false;
+      xpGain = 0;
+    });
+
     await _fitRoute(playerRoute);
     await _play('step');
 
+    // ✅ fluidez real
+    const framesPerSegment = 1; // aumenta = mais suave
+    const frameDelay = Duration(milliseconds: 16); // ~60fps
+
     for (int i = 0; i < playerRoute.length - 1; i++) {
       if (!mounted) return;
-      final current = playerRoute[i];
-      final next = playerRoute[i + 1];
-      final interp = LatLng(
-        (current.latitude + next.latitude) / 2,
-        (current.longitude + next.longitude) / 2,
-      );
-      setState(() => _playerPath.addAll([current, interp]));
-      if (i % 10 == 0) _play('step');
-      if (i % 6 == 0) {
-        _mapController?.animateCamera(CameraUpdate.newLatLng(_playerPath.last));
-      }
-      await Future.delayed(const Duration(milliseconds: 60));
-    }
-  }
 
-  Future<void> _runEnemyRoute() async {
-    _enemyPath.clear();
-    await _play('alert');
+      final a = playerRoute[i];
+      final b = playerRoute[i + 1];
 
-    for (int i = 0; i < enemyRoute.length; i++) {
-      if (!mounted) return;
+      for (int f = 0; f < framesPerSegment; f++) {
+        final t = _easeInOutCubic(f / framesPerSegment);
+        final p = _lerpLatLng(a, b, t);
 
-      setState(() => _enemyPath.add(enemyRoute[i]));
+        setState(() => _playerPath.add(p));
 
-      // 🔹 Move a câmera para seguir o inimigo suavemente
-      if (i % 3 == 0 && _mapController != null) {
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLng(enemyRoute[i]),
-        );
+        if ((_playerPath.length % 18) == 0) {
+          _mapController?.animateCamera(CameraUpdate.newLatLng(p));
+        }
+
+        await Future.delayed(frameDelay);
       }
 
-      // 🔹 Emite um leve som de passo/alerta a cada curva
       if (i % 10 == 0) {
         _play('step');
       }
-
-      await Future.delayed(const Duration(milliseconds: 100));
     }
+
+    setState(() => _playerPath.add(playerRoute.last));
   }
 
+  Future<void> _runEnemyRoute() async {
+    _hideTooltip();
+    _enemyPath.clear();
+    await _play('alert');
 
-  void _invadeTerritory() async {
+    const framesPerSegment = 10;
+    const frameDelay = Duration(milliseconds: 18);
+
+    for (int i = 0; i < enemyRoute.length - 1; i++) {
+      if (!mounted) return;
+
+      final a = enemyRoute[i];
+      final b = enemyRoute[i + 1];
+
+      for (int f = 0; f < framesPerSegment; f++) {
+        final t = _easeInOutCubic(f / framesPerSegment);
+        final p = _lerpLatLng(a, b, t);
+
+        setState(() => _enemyPath.add(p));
+
+        if ((_enemyPath.length % 16) == 0 && _mapController != null) {
+          _mapController!.animateCamera(CameraUpdate.newLatLng(p));
+        }
+
+        await Future.delayed(frameDelay);
+      }
+
+      if (i % 12 == 0) _play('step');
+    }
+
+    setState(() => _enemyPath.add(enemyRoute.last));
+  }
+
+  Future<void> _showTerritory() async {
+    _hideTooltip();
+    await _fitRoute(playerRoute);
+    await _play('conquer');
+
     setState(() {
       _polygons = {
         Polygon(
           polygonId: const PolygonId('player_area'),
           points: playerRoute,
-          fillColor: Colors.orangeAccent.withOpacity(0.35),
+          fillColor: Colors.orangeAccent.withOpacity(0.45),
           strokeColor: Colors.orangeAccent,
+          strokeWidth: 3,
+        ),
+      };
+    });
+
+    if (_mapController != null) {
+      _mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: playerRoute[playerRoute.length ~/ 2],
+            zoom: 17.5,
+            tilt: 30,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _invadeTerritory() async {
+    _hideTooltip();
+    await _play('battle');
+
+    // efeito visual antes
+    await _enemyTakeoverEffect();
+
+    setState(() {
+      final pulseAlpha = 0.45 + (_enemyPulse * 0.35); // 0.45..0.80
+      final strokeW = 4 + (_enemyPulse * 4).round(); // 4..8
+
+      _polygons = {
+        Polygon(
+          polygonId: const PolygonId('player_area'),
+          points: playerRoute,
+          fillColor: Colors.orangeAccent.withOpacity(0.28),
+          strokeColor: Colors.orangeAccent.withOpacity(0.85),
           strokeWidth: 3,
         ),
         Polygon(
           polygonId: const PolygonId('enemy_area'),
           points: enemyRoute,
-          fillColor: Colors.redAccent.withOpacity(0.45),
-          strokeColor: Colors.redAccent,
-          strokeWidth: 3,
+          fillColor: Colors.redAccent.withOpacity(pulseAlpha),
+          strokeColor: Colors.redAccent.withOpacity(0.95),
+          strokeWidth: strokeW,
         ),
       };
       showXP = true;
     });
-    await _play('battle');
+
     _animateXP();
   }
 
   void _animateXP() {
     double val = 0;
     Timer.periodic(const Duration(milliseconds: 40), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+
       if (val >= 1) {
         t.cancel();
         _play('victory');
@@ -243,234 +654,382 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasSeenTutorial', true);
     if (!mounted) return;
-
     Navigator.of(context).pushReplacementNamed('/login');
   }
 
-  Future<void> _setMapStyle() async {
-    final style = await rootBundle.loadString('assets/map_style.json');
-    _mapController?.setMapStyle(style);
+  // ======================
+  // Tooltips (once)
+  // ======================
+
+  void _hideTooltip() {
+    _tooltipEntry?.remove();
+    _tooltipEntry = null;
   }
+
+  Future<void> _showTooltipOnce({
+    required String keyName,
+    required GlobalKey target,
+    required String title,
+    required String text,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final seen = prefs.getBool("tutorial_tip_$keyName") ?? false;
+    if (seen) return;
+
+    // dá tempo do layout estabilizar
+    await Future.delayed(const Duration(milliseconds: 180));
+    if (!mounted) return;
+
+    final ctx = target.currentContext;
+    if (ctx == null) return;
+
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+
+    final pos = box.localToGlobal(Offset.zero);
+    final size = box.size;
+
+    _tooltipEntry = OverlayEntry(
+      builder: (_) {
+        return Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(color: Colors.black.withOpacity(0.35)),
+                  ),
+                ),
+
+                // highlight
+                Positioned(
+                  left: pos.dx - 8,
+                  top: pos.dy - 8,
+                  width: size.width + 16,
+                  height: size.height + 16,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.orangeAccent, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.orangeAccent.withOpacity(0.35),
+                            blurRadius: 18,
+                          ),
+                        ],
+                      ),
+                    )
+                        .animate()
+                        .fadeIn(duration: 220.ms)
+                        .scale(
+                      begin: const Offset(0.96, 0.96),
+                      end: const Offset(1, 1),
+                    ),
+                  ),
+                ),
+
+                // bubble
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  top: (pos.dy + size.height + 10)
+                      .clamp(60, MediaQuery.of(context).size.height - 160),
+                  child: _TutorialTooltipBubble(
+                    title: title,
+                    text: text,
+                    onClose: () async {
+                      await prefs.setBool("tutorial_tip_$keyName", true);
+                      _hideTooltip();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    Overlay.of(context, rootOverlay: true).insert(_tooltipEntry!);
+  }
+
+  // ======================
+  // UI
+  // ======================
 
   @override
   Widget build(BuildContext context) {
-    final double width = MediaQuery.of(context).size.width;
-    final bool isCompact = width < 300; // Wear OS geralmente tem ~140–200px
+    final width = MediaQuery.of(context).size.width;
+    final isCompact = width < 300; // Wear
 
     if (isCompact) {
-      // 🔹 Layout simplificado para Wear OS
       return Scaffold(
         backgroundColor: Colors.black,
         body: _wearTutorial(),
       );
     }
 
-    // 🔹 Layout completo para mobile
     return Scaffold(
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition:
-            CameraPosition(target: playerRoute.first, zoom: 17),
-            onMapCreated: (c) {
-              _mapController = c;
-              _setMapStyle();
-            },
-            polylines: {
-              Polyline(
-                polylineId: const PolylineId('player'),
-                color: Colors.orangeAccent,
-                width: 6,
-                points: _playerPath,
-              ),
-              Polyline(
-                polylineId: const PolylineId('enemy'),
-                color: Colors.redAccent,
-                width: 5,
-                points: _enemyPath,
-              ),
-            },
-            polygons: _polygons,
-            zoomControlsEnabled: false,
-            myLocationButtonEnabled: false,
-            scrollGesturesEnabled: false,
-            rotateGesturesEnabled: false,
-            tiltGesturesEnabled: false,
+          // mapa (key para tooltip)
+          KeyedSubtree(
+            key: _keyMap,
+            child: GoogleMap(
+              initialCameraPosition:
+              CameraPosition(target: playerRoute.first, zoom: 17),
+              onMapCreated: (c) {
+                _mapController = c;
+                _setMapStyle();
+              },
+              polylines: {
+                Polyline(
+                  polylineId: const PolylineId('player'),
+                  color: Colors.orangeAccent,
+                  width: 7,
+                  points: _playerPath,
+                  startCap: Cap.roundCap,
+                  endCap: Cap.roundCap,
+                  jointType: JointType.round,
+                  geodesic: true,
+                ),
+                Polyline(
+                  polylineId: const PolylineId('enemy'),
+                  color: Colors.redAccent,
+                  width: 6,
+                  points: _enemyPath,
+                  startCap: Cap.roundCap,
+                  endCap: Cap.roundCap,
+                  jointType: JointType.round,
+                  geodesic: true,
+                ),
+              },
+              polygons: _polygons,
+              zoomControlsEnabled: false,
+              myLocationButtonEnabled: false,
+              scrollGesturesEnabled: false,
+              rotateGesturesEnabled: false,
+              tiltGesturesEnabled: false,
+            ),
           ),
+
+          // leve escurecida (INTVL-ish)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(color: Colors.black.withOpacity(0.10)),
+            ),
+          ),
+
+          // flash laranja (capítulo/alerta)
+          if (_playerFlash)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(color: Colors.orangeAccent.withOpacity(0.10)),
+              ),
+            ),
+
+          // flash vermelho (invasão)
+          if (_invadeFlash)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(color: Colors.redAccent.withOpacity(0.18)),
+              ),
+            ),
+
           if (showXP) _buildXPBar(),
-          _overlay(false),
+
+          _overlay(isCompact: false),
         ],
       ),
     );
   }
 
+  Widget _overlay({required bool isCompact}) {
+    final steps = _steps(isCompact: isCompact);
+    final titleSize = isCompact ? 14.0 : 20.0;
+    final textSize = isCompact ? 11.0 : 14.0;
 
-  Widget _overlay(bool isCompact) {
-    // Seleciona versão curta ou completa
-    final steps = isCompact
-        ? [
-      {'title': "🌎 Seu Império Começa!", 'text': "Corra e domine ruas!"},
-      {'title': "🏃 Crie trajeto", 'text': "Feche voltas e ganhe XP."},
-      {'title': "🔥 Território dominado!", 'text': "Suba de nível e evolua!"},
-      {'title': "⚔️ Rivais!", 'text': "Defenda sua área!"},
-      {'title': "🏅 Vitória!", 'text': "Conecte-se com outros corredores."},
-    ]
-        : [
-      {
-        'title': "🌎 Bem-vindo ao Empire of The Run!",
-        'text': "Transforme suas corridas em conquistas reais!..."
-      },
-      {
-        'title': "🏃 Criando seu trajeto...",
-        'text':
-        "Enquanto você corre, o app traça automaticamente seu percurso..."
-      },
-      {
-        'title': "🔥 Território conquistado!",
-        'text':
-        "Parabéns! Você acaba de dominar sua primeira área. Territórios rendem XP..."
-      },
-      {
-        'title': "⚔️ Invasão inimiga!",
-        'text':
-        "Outros corredores podem tentar roubar parte do seu território..."
-      },
-      {
-        'title': "🏅 Vitória e Conexões!",
-        'text':
-        "Explore a rede social, siga corredores e participe de desafios!"
-      },
-    ];
-
-    final double titleSize = isCompact ? 14 : 22;
-    final double textSize = isCompact ? 10 : 15;
-    final double spacing = isCompact ? 6 : 20;
-    final double padH = isCompact ? 8 : 24;
-    final double padV = isCompact ? 20 : 80;
-
-    return Container(
-      alignment: Alignment.bottomCenter,
-      padding: EdgeInsets.only(bottom: padV, left: padH, right: padH),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              steps[_step]['title']!,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.orangeAccent,
-                fontSize: titleSize,
-                fontWeight: FontWeight.bold,
+    return Positioned(
+      left: 14,
+      right: 14,
+      bottom: isCompact ? 10 : 22,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: EdgeInsets.fromLTRB(16, 14, 16, isCompact ? 12 : 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF101015).withOpacity(0.78),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: Colors.orangeAccent.withOpacity(0.35),
+                width: 1,
               ),
-            ),
-            SizedBox(height: spacing / 2),
-            Text(
-              steps[_step]['text']!,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: textSize,
-                height: 1.3,
-              ),
-            ),
-            SizedBox(height: spacing),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                if (_step > 0)
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _step--;
-                      _enemyPath.clear();
-                      _playerPath.clear();
-                      _polygons.clear();
-                      showXP = false;
-                    }),
-                    child: Text(
-                      "◀ Voltar",
-                      style: TextStyle(
-                        color: Colors.orangeAccent,
-                        fontSize: textSize,
-                      ),
-                    ),
-                  ),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (_step == 0) {
-                      await _runPlayerRoute();
-                      setState(() => _step = 1);
-                    } else if (_step == 1) {
-                      await _showTerritory();
-                      setState(() => _step = 2);
-                    } else if (_step == 2) {
-                      await _runEnemyRoute();
-                      setState(() => _step = 3);
-                    } else if (_step == 3) {
-                      _invadeTerritory();
-                      setState(() => _step = 4);
-                    } else if (_step == 4) {
-                      _finish();
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orangeAccent,
-                    minimumSize:
-                    Size(isCompact ? 80 : 140, isCompact ? 32 : 48),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isCompact ? 8 : 32,
-                      vertical: isCompact ? 6 : 14,
-                    ),
-                  ),
-                  child: Text(
-                    _step == 4 ? "Ir" : "Avançar ▶",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: textSize,
-                    ),
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // topo: step + dots + pular
+                Row(
+                  children: [
+                    Text(
+                      "${_step + 1}/${steps.length}",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: isCompact ? 10 : 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Row(
+                        children: List.generate(steps.length, (i) {
+                          final active = i == _step;
+                          return Expanded(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 220),
+                              margin:
+                              const EdgeInsets.symmetric(horizontal: 3),
+                              height: active ? 6 : 4,
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? Colors.orangeAccent
+                                    : Colors.white.withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(99),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    if (_step < steps.length - 1 && !isCompact)
+                      TextButton(
+                        key: _keySkip,
+                        onPressed: _finish,
+                        child: const Text(
+                          "Pular",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // texto
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    steps[_step]['title']!,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: titleSize,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    steps[_step]['text']!,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: textSize,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 14),
+
+                // ações
+                Row(
+                  children: [
+                    if (_step > 0)
+                      InkWell(
+                        key: _keyBack,
+                        onTap: () => _goBack(isCompact: isCompact),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          width: isCompact ? 38 : 44,
+                          height: isCompact ? 38 : 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.10),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.chevron_left,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    else
+                      const SizedBox(width: 44),
+
+                    const SizedBox(width: 10),
+
+                    Expanded(
+                      child: SizedBox(
+                        height: isCompact ? 40 : 48,
+                        child: KeyedSubtree(
+                          key: _keyCta,
+                          child: ElevatedButton(
+                            onPressed: () => _goNext(isCompact: isCompact),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orangeAccent,
+                              foregroundColor: Colors.black,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: Text(
+                              _step == steps.length - 1 ? "Começar" : "Continuar",
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: isCompact ? 12 : 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          )
+              .animate()
+              .fadeIn(duration: 220.ms)
+              .slideY(begin: 0.15, end: 0),
         ),
       ),
     );
   }
 
+  // ========= Wear (mantém simples) =========
   Widget _wearTutorial() {
-    final List<Map<String, String>> steps = [
-      {
-        'title': '🌎 Empire of The Run',
-        'text':
-        'Transforme suas corridas em conquistas reais! Cada trajeto vira território dominado no mapa.'
-      },
-      {
-        'title': '🏃 Crie seu trajeto',
-        'text':
-        'Enquanto corre, o app registra seu percurso. Feche voltas e conquiste áreas para ganhar XP.'
-      },
-      {
-        'title': '🔥 Suba de nível',
-        'text':
-        'Cada território rende XP e desbloqueia molduras exclusivas (Elos) que mostram sua evolução.'
-      },
-      {
-        'title': '⚔️ Defenda seu império',
-        'text':
-        'Outros corredores podem invadir suas áreas! Corra para reconquistar e proteger seu domínio.'
-      },
-      {
-        'title': '🏅 Explore e Conecte-se',
-        'text':
-        'Siga outros corredores, entre em clãs e participe de desafios globais para expandir seu império.'
-      },
-    ];
+    final steps = _steps(isCompact: true);
 
     return SafeArea(
       child: Container(
@@ -512,8 +1071,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
               children: [
                 if (_step > 0)
                   TextButton(
-                    onPressed: () =>
-                        setState(() => _step = (_step - 1).clamp(0, steps.length - 1)),
+                    onPressed: () => _setStep((_step - 1).clamp(0, steps.length - 1)),
                     child: const Text(
                       "◀",
                       style: TextStyle(color: Colors.orangeAccent, fontSize: 10),
@@ -523,7 +1081,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                 ElevatedButton(
                   onPressed: () async {
                     if (_step < steps.length - 1) {
-                      setState(() => _step++);
+                      await _setStep(_step + 1);
                     } else {
                       await _finish();
                     }
@@ -553,9 +1111,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     );
   }
 
-
-
-
+  // ========= XP BAR =========
   Widget _buildXPBar() {
     return Positioned(
       top: 60,
@@ -572,8 +1128,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
           alignment: Alignment.centerLeft,
           child: Container(
             decoration: BoxDecoration(
-              gradient:
-              const LinearGradient(colors: [Colors.orange, Colors.amber]),
+              gradient: const LinearGradient(colors: [Colors.orange, Colors.amber]),
               borderRadius: BorderRadius.circular(12),
             ),
           ).animate().fadeIn(duration: 400.ms),
@@ -581,5 +1136,88 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
       ),
     );
   }
+}
 
+// ======================
+// Tooltip bubble
+// ======================
+class _TutorialTooltipBubble extends StatelessWidget {
+  final String title;
+  final String text;
+  final VoidCallback onClose;
+
+  const _TutorialTooltipBubble({
+    required this.title,
+    required this.text,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF101015).withOpacity(0.9),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      text,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.75),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              InkWell(
+                onTap: onClose,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    "OK",
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.08, end: 0);
+  }
 }

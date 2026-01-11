@@ -20,6 +20,15 @@ class TerritoryService {
     required double pace,
     required List<Map<String, double>> route,
     BuildContext? context,
+
+    // ✅ NOVO
+    String? activeDisputeTerritoryId,
+    Future<void> Function({
+    required String territoryId,
+    required String oldUserId,
+    required String newUserId,
+    required double progress,
+    })? onTerritoryCaptured,
   }) async {
     final snapshot = await _firestore.collection('territorios').get();
     int capturedCount = 0;
@@ -45,6 +54,11 @@ class TerritoryService {
         oldUserPace = (oldUserDoc.data()?['bestPace'] ?? double.infinity) as double;
       } catch (_) {}
 
+      // ✅ Se existe disputa ativa, só permite capturar aquele território
+      if (activeDisputeTerritoryId != null && doc.id != activeDisputeTerritoryId) {
+        continue;
+      }
+
       // 🔥 Se for mais rápido, domina (parcial ou total)
       if (pace < oldUserPace) {
         await _transferTerritory(
@@ -55,6 +69,14 @@ class TerritoryService {
           context: context,
         );
         capturedCount++;
+      }
+      if (onTerritoryCaptured != null) {
+        await onTerritoryCaptured(
+          territoryId: doc.id,
+          oldUserId: oldUserId,
+          newUserId: userId,
+          progress: progress,
+        );
       }
     }
 
