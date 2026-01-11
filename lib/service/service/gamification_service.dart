@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -82,7 +83,23 @@ class GamificationService {
     Map<String, dynamic>? meta,
     BuildContext? context,
   }) async {
+    debugPrint("🧨 [addPoints] +$points source=$source desc=$description");
+    debugPrint(StackTrace.current.toString());
     final prefs = await SharedPreferences.getInstance();
+    // ✅ evita duplicar o mesmo evento em poucos segundos (hot reload / chamadas repetidas)
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dedupeKey = "dedupe_${source}_${description ?? ''}_${points}".hashCode.toString();
+
+    final lastKey = prefs.getString('last_points_key');
+    final lastAt = prefs.getInt('last_points_at') ?? 0;
+
+    if (lastKey == dedupeKey && (now - lastAt) < 3000) {
+      debugPrint("🛑 [addPoints] Ignorado duplicado (hot reload) key=$dedupeKey");
+      return;
+    }
+
+    await prefs.setString('last_points_key', dedupeKey);
+    await prefs.setInt('last_points_at', now);
     int localPoints = prefs.getInt('pending_points') ?? 0;
     localPoints += points;
     await prefs.setInt('pending_points', localPoints);
@@ -128,20 +145,36 @@ class GamificationService {
   /// ☁️ SINCRONIZAÇÃO COM FIRESTORE
   /// ===========================================================
 
+  bool _syncing = false;
+
   Future<void> _trySync({BuildContext? context}) async {
-    debugPrint("🔍 Tentando sincronizar pontos pendentes...");
-    final connectivity = await Connectivity().checkConnectivity();
-    if (connectivity == ConnectivityResult.none) return;
+    if (_syncing) {
+      debugPrint("⏳ _trySync ignorado (já está sincronizando).");
+      return;
+    }
+    _syncing = true;
 
-    final prefs = await SharedPreferences.getInstance();
-    int pendingPoints = prefs.getInt('pending_points') ?? 0;
-    if (pendingPoints <= 0) return;
-
-    final user = _auth.currentUser;
-    if (user == null) return;
-    final userRef = _firestore.collection('users').doc(user.uid);
-
+    int pendingPoints = 0;
     try {
+      debugPrint("🔍 Tentando sincronizar pontos pendentes...");
+
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity == ConnectivityResult.none) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      pendingPoints = prefs.getInt('pending_points') ?? 0;
+      if (pendingPoints <= 0) return;
+
+      final user = _auth.currentUser;
+      if (user == null) return;
+      final userRef = _firestore.collection('users').doc(user.uid);
+
+      // ✅ ZERA ANTES para evitar duplicar em hot reload / chamadas repetidas
+      await prefs.setInt('pending_points', 0);
+
+      // ✅ (Opcional mas recomendado) trava de sync por timestamp (debug)
+      await prefs.setString('last_sync_attempt', DateTime.now().toIso8601String());
+
       final snap = await userRef.get();
       if (!snap.exists) {
         await userRef.set({
@@ -162,8 +195,11 @@ class GamificationService {
 
       // recalcula level
       final updated = await userRef.get();
-      final int xp = (updated.data()?['xp'] ?? 0) as int;
+      final data = updated.data() ?? {};
+
+      final int xp = ((data['xp'] as num?) ?? 0).toInt();
       final levelInfo = _levelFromXp(xp);
+
 
       await userRef.set({
         'level': levelInfo['level'],
@@ -172,15 +208,24 @@ class GamificationService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await prefs.setInt('pending_points', 0);
-
       _showSnack(context, "✅ Pontos/XP sincronizados (+$pendingPoints)!");
-    } catch (e) {
-      debugPrint("Erro ao sincronizar pontos/xp: $e");
-    }
-    debugPrint("💰 Sincronizando +$pendingPoints pontos (pending_points detectado).");
+      debugPrint("💰 Sincronizado +$pendingPoints pontos (pending_points capturado).");
+    } catch (e, st) {
+      debugPrint("❌ Erro ao sincronizar pontos/xp: ${e.toString()}");
+      debugPrint("📌 Stack: $st");
 
+      // ✅ Se falhar, devolve os pontos pro pending para não perder
+      if (pendingPoints > 0) {
+        final prefs = await SharedPreferences.getInstance();
+        final current = prefs.getInt('pending_points') ?? 0;
+        await prefs.setInt('pending_points', current + pendingPoints);
+        debugPrint("🧯 pending_points restaurado (+$pendingPoints).");
+      }
+    } finally {
+      _syncing = false;
+    }
   }
+
 
   /// ===========================================================
   /// 🔥 COMBO DIÁRIO (STREAK)
@@ -191,78 +236,86 @@ class GamificationService {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    // ✅ Proteção global em memória — impede rodar de novo até reiniciar o app
+    // ✅ Proteção em memória (sessão atual)
     if (_bonusDadoHoje) {
-      debugPrint("⚠️ Bônus diário já processado nesta sessão (proteção de memória).");
+      debugPrint("⚠️ Bônus diário já processado nesta sessão (memória).");
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final lastDateStr = prefs.getString('last_daily_bonus');
-    final today = DateTime.now();
 
+    // ✅ Trava por DIA (YYYY-MM-DD) — À PROVA DE HOT RELOAD
+    final today = DateTime.now();
+    final todayKey = "${today.year.toString().padLeft(4, '0')}-"
+        "${today.month.toString().padLeft(2, '0')}-"
+        "${today.day.toString().padLeft(2, '0')}";
+
+    final lastAwardedDay = prefs.getString('daily_bonus_day');
+    if (lastAwardedDay == todayKey) {
+      debugPrint("⏳ Bônus diário já concedido hoje (daily_bonus_day=$todayKey).");
+      _bonusDadoHoje = true;
+      return;
+    }
+
+    // ------------------------------------------------------------
+    // ✅ Lógica de streak (por dia do calendário)
+    // ------------------------------------------------------------
+    final lastDateStr = prefs.getString('last_daily_bonus_day'); // agora guardamos só yyyy-mm-dd
     DateTime? lastDate;
+
     if (lastDateStr != null) {
       try {
-        lastDate = DateTime.parse(lastDateStr);
+        // reconstrói como data local (00:00)
+        final parts = lastDateStr.split('-');
+        if (parts.length == 3) {
+          lastDate = DateTime(
+            int.parse(parts[0]),
+            int.parse(parts[1]),
+            int.parse(parts[2]),
+          );
+        }
       } catch (_) {}
     }
 
     int streak = prefs.getInt('daily_streak') ?? 0;
-    bool ganhouHoje = false;
 
-    if (lastDate != null) {
-      final diff = today.difference(lastDate).inDays;
-
-      if (diff == 0) {
-        // já ganhou hoje
-        ganhouHoje = true;
-      } else if (diff == 1) {
-        // manteve sequência
-        streak++;
-      } else {
-        // perdeu sequência
-        streak = 1;
-      }
-    } else {
+    if (lastDate == null) {
       streak = 1;
-    }
+    } else {
+      final lastKey = "${lastDate.year.toString().padLeft(4, '0')}-"
+          "${lastDate.month.toString().padLeft(2, '0')}-"
+          "${lastDate.day.toString().padLeft(2, '0')}";
 
-    if (ganhouHoje) {
-      _bonusDadoHoje = true; // 🔒 trava em memória
-      debugPrint("⏳ Bônus diário já concedido hoje");
-      return;
-    }
-
-// Proteção extra: evita duplicar bônus no mesmo minuto (ex: hot reload)
-    final lastGivenStr = prefs.getString('last_bonus_timestamp');
-    if (lastGivenStr != null) {
-      final lastGiven = DateTime.tryParse(lastGivenStr);
-      if (lastGiven != null &&
-          DateTime.now().difference(lastGiven).inSeconds < 60) {
-        debugPrint("⚠️ Ignorando repetição de bônus em menos de 60s (possível hot reload)");
+      if (lastKey == todayKey) {
+        // já ganhou hoje (redundante com daily_bonus_day, mas seguro)
+        _bonusDadoHoje = true;
+        debugPrint("⏳ Bônus diário já concedido hoje (last_daily_bonus_day).");
         return;
       }
+
+      final yesterday = today.subtract(const Duration(days: 1));
+      final yesterdayKey = "${yesterday.year.toString().padLeft(4, '0')}-"
+          "${yesterday.month.toString().padLeft(2, '0')}-"
+          "${yesterday.day.toString().padLeft(2, '0')}";
+
+      if (lastKey == yesterdayKey) {
+        streak = max(1, streak + 1);
+      } else {
+        streak = 1;
+      }
     }
-    await prefs.setString('last_bonus_timestamp', DateTime.now().toIso8601String());
 
-
-
-
-    // salva o último dia
-    await prefs.setString('last_daily_bonus', today.toIso8601String());
-    _bonusDadoHoje = true; // ✅ garante que não será repetido enquanto o app estiver aberto
+    // ✅ Marca ANTES de dar pontos (idempotência total)
+    await prefs.setString('daily_bonus_day', todayKey);
+    await prefs.setString('last_daily_bonus_day', todayKey);
     await prefs.setInt('daily_streak', streak);
+    _bonusDadoHoje = true;
 
-    // calcula bônus baseado no streak
-    int pontosBase;
-    if (streak >= 5) {
-      pontosBase = 25;
-    } else {
-      pontosBase = 5 * streak;
-    }
+    // ------------------------------------------------------------
+    // ✅ Calcula pontos
+    // ------------------------------------------------------------
+    int pontosBase = (streak >= 5) ? 25 : (5 * streak);
 
-    // aplica multiplicador se for Pro
     final mult = await _getMultiplicadorPro();
     final pontosFinais = (pontosBase * mult).round();
 
@@ -275,7 +328,7 @@ class GamificationService {
       context: context,
     );
 
-    // 🏆 Após conceder o bônus, verifica conquistas de streak
+    // 🏆 checa conquistas
     try {
       await AchievementService().checkAchievements(
         runData: {'streak': streak},
@@ -285,12 +338,9 @@ class GamificationService {
       debugPrint("[Gamification] Erro ao checar conquistas de streak: $e");
     }
 
-    _showSnack(
-      context,
-      "🔥 Combo diário ${streak}x! +$pontosFinais pontos",
-    );
-
+    _showSnack(context, "🔥 Combo diário ${streak}x! +$pontosFinais pontos");
   }
+
 
   /// Retorna o status atual da sequência
   Future<Map<String, dynamic>> getStatusStreak() async {

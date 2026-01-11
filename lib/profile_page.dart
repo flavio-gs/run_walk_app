@@ -13,6 +13,7 @@ import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
 import 'package:run_walk_app/widgets/achievement_overlay.dart';
 import 'detalhe_corrida_page.dart';
+import 'help_page.dart';
 import 'model/run_model.dart';
 import 'package:run_walk_app/activity_page.dart';
 import 'package:lottie/lottie.dart';
@@ -613,27 +614,53 @@ class _StatsTabState extends State<_StatsTab> {
     final isPro = (widget.userData?['isPro'] ?? false) as bool;
     final name = widget.userData?['displayName'] ?? 'Usuário';
 
+    // ✅ ajuste esse valor para a altura REAL do seu bottom nav do MainScaffold
+    // (se seu CurvedNavbar for grande, use algo tipo 90~110)
+    const double kBottomNavOverlay = 96;
+
+    final double bottomSafe =
+        MediaQuery.of(context).padding.bottom + kBottomNavOverlay;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + bottomSafe),
       child: Column(
         children: [
           Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(widget.memberSinceText, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                Text(
+                  widget.memberSinceText,
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                ),
                 const SizedBox(height: 8),
                 GestureDetector(
                   onTap: widget.isOwner ? _editBio : null,
                   child: Container(
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: const Color(0xFFF7F7F7), borderRadius: BorderRadius.circular(10)),
-                    child: Text((_bio != null && _bio!.isNotEmpty) ? _bio! : (widget.isOwner ? "Adicione uma biografia" : "Sem biografia"), style: TextStyle(color: (_bio != null && _bio!.isNotEmpty) ? Colors.black87 : Colors.black45)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F7F7),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      (_bio != null && _bio!.isNotEmpty)
+                          ? _bio!
+                          : (widget.isOwner ? "Adicione uma biografia" : "Sem biografia"),
+                      style: TextStyle(
+                        color: (_bio != null && _bio!.isNotEmpty)
+                            ? Colors.black87
+                            : Colors.black45,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
+
                 if (widget.isOwner)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 20),
@@ -641,12 +668,28 @@ class _StatsTabState extends State<_StatsTab> {
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Editar perfil', style: TextStyle(fontWeight: FontWeight.w600)),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12), side: const BorderSide(color: Color(0xFFFF6D00)), foregroundColor: const Color(0xFFFF6D00), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EditProfilePage(userId: widget.userId))).then((_) => widget.onRefreshSocial()),
+                        label: const Text(
+                          'Editar perfil',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Color(0xFFFF6D00)),
+                          foregroundColor: const Color(0xFFFF6D00),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => EditProfilePage(userId: widget.userId),
+                          ),
+                        ).then((_) => widget.onRefreshSocial()),
                       ),
                     ),
                   ),
+
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
@@ -680,18 +723,66 @@ class _StatsTabState extends State<_StatsTab> {
                     ),
                   ],
                 ),
+
                 if (widget.isOwner)
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Conta privada', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: const Text('Apenas seguidores aprovados veem suas atividades.', style: TextStyle(color: Colors.black54)),
+                    title: const Text(
+                      'Conta privada',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: const Text(
+                      'Apenas seguidores aprovados veem suas atividades.',
+                      style: TextStyle(color: Colors.black54),
+                    ),
                     value: _isPrivate,
                     onChanged: _togglePrivacy,
                   ),
               ],
             ),
           ),
+
           const SizedBox(height: 10),
+
+          InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HelpPage()),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.help_outline, color: Color(0xFFFF6D00), size: 34),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Ajuda: XP, Pontos e Elo",
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          "Entenda como subir de nível e dominar o mapa",
+                          style: TextStyle(color: Colors.black54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.black45),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
           Container(
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
             padding: const EdgeInsets.all(18),
@@ -699,24 +790,77 @@ class _StatsTabState extends State<_StatsTab> {
               children: [
                 const Icon(Icons.workspace_premium, color: Colors.amber, size: 38),
                 const SizedBox(width: 14),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(isPro ? "Pro Runner" : "Runner Free", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)), Text(isPro ? "Benefícios exclusivos" : "Desbloqueie conquistas douradas", style: const TextStyle(color: Colors.black54, fontSize: 13))])),
-                TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProPlansPage())), child: const Text("VER MAIS →", style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold))),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isPro ? "Pro Runner" : "Runner Free",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                      ),
+                      Text(
+                        isPro ? "Benefícios exclusivos" : "Desbloqueie conquistas douradas",
+                        style: const TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ProPlansPage()),
+                  ),
+                  child: const Text(
+                    "VER MAIS →",
+                    style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 0),
+
+          const SizedBox(height: 12),
+
           GridView(
-            shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, mainAxisSpacing: 12, crossAxisSpacing: 12),
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+            ),
             children: [
-              _StatBox(icon: Icons.directions_run, label: 'Distância', value: "${widget.totalDistance30d.toStringAsFixed(1)} km"),
-              _StatBox(icon: Icons.access_time, label: 'Tempo', value: _formatDuration(widget.totalDuration30d)),
-              _StatBox(icon: Icons.local_fire_department, label: 'Calorias', value: "${widget.totalCalories30d.toStringAsFixed(0)} kcal"),
+              _StatBox(
+                icon: Icons.directions_run,
+                label: 'Distância',
+                value: "${widget.totalDistance30d.toStringAsFixed(1)} km",
+              ),
+              _StatBox(
+                icon: Icons.access_time,
+                label: 'Tempo',
+                value: _formatDuration(widget.totalDuration30d),
+              ),
+              _StatBox(
+                icon: Icons.local_fire_department,
+                label: 'Calorias',
+                value: "${widget.totalCalories30d.toStringAsFixed(0)} kcal",
+              ),
             ],
           ),
+
           const SizedBox(height: 10),
+
           InkWell(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PointsDetailsPage(userId: widget.userId, displayName: name, isOwner: widget.isOwner))),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PointsDetailsPage(
+                  userId: widget.userId,
+                  displayName: name,
+                  isOwner: widget.isOwner,
+                ),
+              ),
+            ),
             child: Container(
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
               padding: const EdgeInsets.all(10),
@@ -724,26 +868,45 @@ class _StatsTabState extends State<_StatsTab> {
                 children: [
                   const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
                   const SizedBox(width: 16),
-                  Expanded(child: Text(widget.isOwner ? "Você tem ${widget.totalPoints} pontos" : "$name tem ${widget.totalPoints} pontos", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                  Expanded(
+                    child: Text(
+                      widget.isOwner
+                          ? "Você tem ${widget.totalPoints} pontos"
+                          : "$name tem ${widget.totalPoints} pontos",
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                   const Icon(Icons.chevron_right, color: Colors.black45),
                 ],
               ),
             ),
           ),
+
           const SizedBox(height: 10),
+
           if (widget.isOwner)
             Padding(
               padding: const EdgeInsets.only(bottom: 30),
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.logout), label: const Text('Sair'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.red, minimumSize: const Size(double.infinity, 50), side: const BorderSide(color: Colors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                onPressed: () => FirebaseAuth.instance.signOut().then((_) => Navigator.pushReplacementNamed(context, '/login')),
+                icon: const Icon(Icons.logout),
+                label: const Text('Sair'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.red,
+                  minimumSize: const Size(double.infinity, 50),
+                  side: const BorderSide(color: Colors.red),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () => FirebaseAuth.instance
+                    .signOut()
+                    .then((_) => Navigator.pushReplacementNamed(context, '/login')),
               ),
             ),
         ],
       ),
     );
   }
+
 
   Widget _chipStat(String label, int value) => Column(children: [Text('$value', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text(label, style: const TextStyle(color: Colors.black54, fontSize: 13))]);
 }

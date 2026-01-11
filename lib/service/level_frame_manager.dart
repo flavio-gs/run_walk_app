@@ -10,7 +10,7 @@ class LevelFrameManager {
     if (level <= 20) return 'assets/frames/lvl 3.json'; // Ouro
     if (level <= 30) return 'assets/frames/lvl 4.json'; // Platina
     if (level <= 40) return 'assets/frames/lvl 5.json'; // Diamante
-    if (level <= 50) return 'assets/frames/lvl 6.json'; // Diamante
+    if (level <= 50) return 'assets/frames/lvl 6.json'; // Mestre
     return 'assets/frames/lvl 7.json'; // Mestre ou Lendário
   }
 

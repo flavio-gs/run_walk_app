@@ -60,6 +60,8 @@ class _MainScaffoldState extends State<MainScaffold>
     FeedbackPage(),
   ];
 
+  static bool _dailyBonusTriggeredThisSession = false;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +75,13 @@ class _MainScaffoldState extends State<MainScaffold>
       upperBound: 1.08,
     )..repeat(reverse: true);
 
+    _triggerDailyBonus();
+  }
+
+  void _triggerDailyBonus() {
+    if (_dailyBonusTriggeredThisSession) return;
+    _dailyBonusTriggeredThisSession = true;
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         await GamificationService().registrarBonusDiario(context: context);
@@ -81,6 +90,7 @@ class _MainScaffoldState extends State<MainScaffold>
       }
     });
   }
+
 
   @override
   void dispose() {
