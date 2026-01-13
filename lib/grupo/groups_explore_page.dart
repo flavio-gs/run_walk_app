@@ -138,7 +138,7 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                         onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
                         decoration: const InputDecoration(
-                          hintText: 'Buscar grupos...',
+                          hintText: 'Buscar clãs...',
                           hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600),
                           border: InputBorder.none,
                           isDense: true,
@@ -168,7 +168,7 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                   if (!snap.hasData || snap.data!.docs.isEmpty) {
                     return const Center(
                       child: Text(
-                        'Nenhum grupo encontrado 😶',
+                        'Nenhum clã encontrado 😶',
                         style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
                       ),
                     );

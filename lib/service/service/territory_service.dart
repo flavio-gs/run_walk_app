@@ -20,7 +20,6 @@ class TerritoryService {
     required double pace,
     required List<Map<String, double>> route,
     BuildContext? context,
-
     String? activeDisputeTerritoryId,
     Future<void> Function({
     required String territoryId,
@@ -38,32 +37,58 @@ class TerritoryService {
       if (points.isEmpty) continue;
 
       // 🔹 Conta quantos pontos foram percorridos
-      final pointsPassed = points.where((p) =>
-          _passedNearPoint(p['lat'], p['lng'], route, proximityThreshold)
-      ).length;
+      final pointsPassed = points
+          .where((p) => _passedNearPoint(
+        (p['lat'] as num).toDouble(),
+        (p['lng'] as num).toDouble(),
+        route,
+        proximityThreshold,
+      ))
+          .length;
 
       final progress = pointsPassed / points.length;
       if (progress < partialThreshold) continue;
 
-      final oldUserId = (data['userId'] ?? '') as String;
-      if (oldUserId.isEmpty) continue;
+      final oldUserId = (data['userId'] ?? '').toString();
+
+      // ✅ Se existe disputa ativa, só permite capturar aquele território
+      if (activeDisputeTerritoryId != null && doc.id != activeDisputeTerritoryId) {
+        continue;
+      }
+
+      // ✅ Se já é seu, ignora
       if (oldUserId == userId) continue;
 
+      // ✅ TERRITÓRIO SEM DONO -> captura nova (claim)
+      if (oldUserId.isEmpty) {
+        await _claimUnownedTerritory(
+          territoryId: doc.id,
+          newUserId: userId,
+          progress: progress,
+          context: context,
+        );
+
+        capturedCount++;
+
+        if (onTerritoryCaptured != null) {
+          await onTerritoryCaptured(
+            territoryId: doc.id,
+            oldUserId: '',
+            newUserId: userId,
+            progress: progress,
+          );
+        }
+
+        continue;
+      }
+
+      // ✅ TERRITÓRIO COM DONO -> disputa por pace
       double oldUserPace = double.infinity;
       try {
-        final oldUserDoc = await _firestore
-            .collection('users')
-            .doc(oldUserId)
-            .get();
+        final oldUserDoc = await _firestore.collection('users').doc(oldUserId).get();
         final raw = oldUserDoc.data()?['bestPace'];
         oldUserPace = (raw is num) ? raw.toDouble() : double.infinity;
       } catch (_) {}
-
-      // ✅ Se existe disputa ativa, só permite capturar aquele território
-      if (activeDisputeTerritoryId != null &&
-          doc.id != activeDisputeTerritoryId) {
-        continue;
-      }
 
       // 🔥 Se for mais rápido, domina
       if (pace < oldUserPace) {
@@ -92,8 +117,7 @@ class TerritoryService {
     if (capturedCount > 0) {
       await _achievements.checkAchievements(
         runData: {
-          'territoriesCaptured': 0,
-          // força buscar users/{uid}.territories.capturedCount
+          'territoriesCaptured': capturedCount, // ✅ agora vai certo
           'distance': 0.0,
           'pace': pace,
         },
@@ -115,9 +139,14 @@ class TerritoryService {
       final List points = data['points'] ?? [];
       if (points.isEmpty) continue;
 
-      final pointsPassed = points.where((p) =>
-          _passedNearPoint(p['lat'], p['lng'], route, proximityThreshold)
-      ).length;
+      final pointsPassed = points
+          .where((p) => _passedNearPoint(
+        (p['lat'] as num).toDouble(),
+        (p['lng'] as num).toDouble(),
+        route,
+        proximityThreshold,
+      ))
+          .length;
 
       final progress = pointsPassed / points.length;
       if (progress >= threshold) {
@@ -128,34 +157,101 @@ class TerritoryService {
     return false;
   }
 
+  // ============================================================
+  // 🆕 Captura nova (território sem dono)
+  // ============================================================
+
+  Future<void> _claimUnownedTerritory({
+    required String territoryId,
+    required String newUserId,
+    required double progress,
+    BuildContext? context,
+  }) async {
+    final docRef = _firestore.collection('territorios').doc(territoryId);
+
+    // ✅ seta dono (merge pra não perder pontos/area/etc)
+    await docRef.set({
+      'userId': newUserId,
+      'capturedAt': FieldValue.serverTimestamp(),
+      'lastProgress': progress,
+      'dispute': FieldValue.delete(),
+    }, SetOptions(merge: true));
+
+    // ✅ histórico (sem previousOwner)
+    await docRef.collection('ownership').add({
+      'previousOwner': null,
+      'newOwner': newUserId,
+      'progress': progress,
+      'pace': 0,
+      'timestamp': FieldValue.serverTimestamp(),
+      'type': 'claim',
+    });
+
+    // ✅ agrega pro novo dono (cria territories se não existir)
+    await _firestore.collection('users').doc(newUserId).set({
+      'territories': {
+        'capturedCount': FieldValue.increment(1),
+        'activeCount': FieldValue.increment(1),
+      }
+    }, SetOptions(merge: true));
+
+    // 🧩 XP dinâmico
+    final xpGanho = (progress * 150).clamp(50, 150).toDouble();
+    await _achievements.addXP(
+      xpGanho,
+      context: context,
+      source: 'territory',
+      description: progress < 1.0
+          ? "Reivindicou novo território (${(progress * 100).toStringAsFixed(0)}%)"
+          : "Reivindicou território completo",
+    );
+
+    // 📢 Feed público (sem loser)
+    await _postTerritoryToFeed(
+      newUserId,
+      oldUserId: '',
+      title: progress < 1.0
+          ? "Reivindicou novo território (${(progress * 100).toStringAsFixed(0)}%)"
+          : "Reivindicou novo território completo",
+      icon: progress < 1.0 ? "🗺️" : "🏰",
+      territoryId: territoryId,
+      progress: progress,
+    );
+
+    // 🎉 Pop-up visual
+    if (context != null && context.mounted) {
+      await showAchievementPopup(
+        context,
+        title: "🆕 Território reivindicado!",
+        icon: "📍",
+      );
+    }
+
+    debugPrint("🆕 Território $territoryId reivindicado por $newUserId");
+  }
 
   // ============================================================
   // ⚙️ Lógica de domínio e transferência
   // ============================================================
 
-  Future<void> _transferTerritory(String territoryId,
+  Future<void> _transferTerritory(
+      String territoryId,
       String oldUserId,
       String newUserId,
       double progress, {
         BuildContext? context,
       }) async {
     final docRef = _firestore.collection('territorios').doc(territoryId);
-    final data = (await docRef.get()).data();
+    final snap = await docRef.get();
+    final data = snap.data();
     if (data == null) return;
 
     final now = DateTime.now();
 
-    // 🕒 Calcula duração do domínio anterior
-    DateTime? capturedAt;
-    if (data['capturedAt'] != null) {
-      capturedAt = (data['capturedAt'] as Timestamp).toDate();
-    }
-
-    int holdMs = 0;
-    if (capturedAt != null) {
-      holdMs = now
-          .difference(capturedAt)
-          .inMilliseconds;
+    // 🕒 Calcula duração do domínio anterior (só se tiver capturedAt e oldUserId válido)
+    if (oldUserId.isNotEmpty && data['capturedAt'] != null) {
+      final capturedAt = (data['capturedAt'] as Timestamp).toDate();
+      final holdMs = now.difference(capturedAt).inMilliseconds;
       await _recordHoldDuration(oldUserId, territoryId, holdMs, context);
     }
 
@@ -174,6 +270,7 @@ class TerritoryService {
       'progress': progress,
       'pace': data['pace'] ?? 0,
       'timestamp': FieldValue.serverTimestamp(),
+      'type': 'transfer',
     });
 
     // ✅ agrega pro novo dono
@@ -184,66 +281,59 @@ class TerritoryService {
       }
     }, SetOptions(merge: true));
 
-// ✅ reduz do antigo dono (activeCount)
-    await _firestore.collection('users').doc(oldUserId).set({
-      'territories': {
-        'activeCount': FieldValue.increment(-1),
-      }
-    }, SetOptions(merge: true));
-
+    // ✅ reduz do antigo dono (activeCount)
+    if (oldUserId.isNotEmpty && oldUserId != newUserId) {
+      await _firestore.collection('users').doc(oldUserId).set({
+        'territories': {
+          'activeCount': FieldValue.increment(-1),
+        }
+      }, SetOptions(merge: true));
+    }
 
     // 🧩 XP dinâmico conforme domínio parcial
-    final xpGanho = (progress * 150)
-        .clamp(50, 150)
-        .toDouble(); // entre 50 e 150 XP
+    final xpGanho = (progress * 150).clamp(50, 150).toDouble();
     await _achievements.addXP(
       xpGanho,
       context: context,
       source: 'territory',
       description: progress < 1.0
-          ? "Dominou parte de um território (${(progress * 100).toStringAsFixed(
-          0)}%)"
+          ? "Dominou parte de um território (${(progress * 100).toStringAsFixed(0)}%)"
           : "Conquistou território completo",
     );
 
-
-    await _achievements.removeXPForUser(
-      oldUserId,
-      xpGanho / 2,
-      source: 'territory_loss',
-      description: "Perdeu território ($territoryId)",
-      // context NÃO passa aqui porque é o usuário logado (newOwner), não o oldOwner
-    );
-
+    // ✅ só remove XP se houver oldUserId
+    if (oldUserId.isNotEmpty) {
+      await _achievements.removeXPForUser(
+        oldUserId,
+        xpGanho / 2,
+        source: 'territory_loss',
+        description: "Perdeu território ($territoryId)",
+      );
+    }
 
     // 📢 Feed público
     await _postTerritoryToFeed(
       newUserId,
       oldUserId: oldUserId,
       title: progress < 1.0
-          ? "Dominou parte de um território (${(progress * 100).toStringAsFixed(
-          0)}%)"
+          ? "Dominou parte de um território (${(progress * 100).toStringAsFixed(0)}%)"
           : "Conquistou território completo",
       icon: progress < 1.0 ? "🗺️" : "🏰",
       territoryId: territoryId,
       progress: progress,
     );
 
-
     // 🎉 Pop-up visual
     if (context != null && context.mounted) {
       await showAchievementPopup(
         context,
-        title: progress < 1.0
-            ? "🗺️ Domínio parcial!"
-            : "🏆 Território conquistado!",
+        title: progress < 1.0 ? "🗺️ Domínio parcial!" : "🏆 Território conquistado!",
         icon: progress < 1.0 ? "🗺️" : "📍",
       );
     }
 
     debugPrint(
-      "🏆 Território $territoryId dominado (${(progress * 100).toStringAsFixed(
-          1)}%) por $newUserId",
+      "🏆 Território $territoryId dominado (${(progress * 100).toStringAsFixed(1)}%) por $newUserId",
     );
   }
 
@@ -251,11 +341,12 @@ class TerritoryService {
   // 🕒 Controle de tempo de domínio
   // ============================================================
 
-  Future<void> _recordHoldDuration(String oldUserId,
+  Future<void> _recordHoldDuration(
+      String oldUserId,
       String territoryId,
       int holdMs,
-      BuildContext? context,) async {
-    // 🔹 Atualiza recorde global do usuário
+      BuildContext? context,
+      ) async {
     await _achievements.finalizeTerritoryHold(
       territoryId: territoryId,
       territoryName: "Território anterior",
@@ -263,12 +354,7 @@ class TerritoryService {
       context: context,
     );
 
-    // 🔹 Salva duração no histórico
-    await _firestore
-        .collection('users')
-        .doc(oldUserId)
-        .collection('territory_history')
-        .add({
+    await _firestore.collection('users').doc(oldUserId).collection('territory_history').add({
       'territoryId': territoryId,
       'holdMs': holdMs,
       'timestamp': FieldValue.serverTimestamp(),
@@ -279,8 +365,12 @@ class TerritoryService {
   // 📍 Verificação de proximidade (Haversine)
   // ============================================================
 
-  bool _passedNearPoint(double lat, double lng, List<Map<String, double>> route,
-      double threshold) {
+  bool _passedNearPoint(
+      double lat,
+      double lng,
+      List<Map<String, double>> route,
+      double threshold,
+      ) {
     for (final r in route) {
       final distance = _calculateDistance(lat, lng, r['lat']!, r['lng']!);
       if (distance <= threshold) return true;
@@ -288,16 +378,12 @@ class TerritoryService {
     return false;
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2,
-      double lon2) {
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const R = 6371000; // raio da Terra em metros
     final dLat = _degToRad(lat2 - lat1);
     final dLon = _degToRad(lon2 - lon1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degToRad(lat1)) *
-            cos(_degToRad(lat2)) *
-            sin(dLon / 2) *
-            sin(dLon / 2);
+        cos(_degToRad(lat1)) * cos(_degToRad(lat2)) * sin(dLon / 2) * sin(dLon / 2);
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return R * c;
   }
@@ -308,68 +394,55 @@ class TerritoryService {
   // 📢 Feed público de territórios
   // ============================================================
 
-  // ============================================================
-// 📢 Feed público de territórios (com winner/loser e text)
-// ============================================================
-  Future<void> _postTerritoryToFeed(String userId, {
-    required String title,
-    required String icon,
-    required String territoryId,
-
-    // ✅ NOVO
-    required String oldUserId,
-    required double progress,
-  }) async {
+  Future<void> _postTerritoryToFeed(
+      String userId, {
+        required String title,
+        required String icon,
+        required String territoryId,
+        required String oldUserId,
+        required double progress,
+      }) async {
     try {
       // winner (novo dono)
-      final newOwnerDoc = await _firestore
-          .collection('users')
-          .doc(userId)
-          .get();
+      final newOwnerDoc = await _firestore.collection('users').doc(userId).get();
       final newOwner = newOwnerDoc.data() ?? {};
 
-      // loser (antigo dono)
-      final oldOwnerDoc = await _firestore
-          .collection('users')
-          .doc(oldUserId)
-          .get();
-      final oldOwner = oldOwnerDoc.data() ?? {};
+      // loser (antigo dono) — ✅ se oldUserId vazio, não busca
+      Map<String, dynamic> oldOwner = {};
+      if (oldUserId.isNotEmpty) {
+        final oldOwnerDoc = await _firestore.collection('users').doc(oldUserId).get();
+        oldOwner = oldOwnerDoc.data() ?? {};
+      }
 
       final winnerName = (newOwner['displayName'] ?? 'Jogador').toString();
       final winnerPhoto = (newOwner['photoURL'] ?? '').toString();
 
-      final loserName = (oldOwner['displayName'] ?? 'Jogador').toString();
+      final loserName = (oldOwner['displayName'] ?? 'Ninguém').toString();
       final loserPhoto = (oldOwner['photoURL'] ?? '').toString();
 
       final p = progress.clamp(0.0, 1.0);
       final percent = (p * 100).round();
 
-      // 🎮 Texto gamer “VS”
-      final battleTitle = p < 1.0
+      // 🎮 Texto gamer
+      final battleTitle = oldUserId.isEmpty
+          ? "📍 $winnerName reivindicou um novo território!"
+          : (p < 1.0
           ? "⚔️ $winnerName dominou $loserName ($percent%)"
-          : "🏰 $winnerName conquistou o território de $loserName!";
+          : "🏰 $winnerName conquistou o território de $loserName!");
 
       await _firestore.collection('posts').add({
-        // mantém o type atual pra já aparecer no seu feed
         'type': 'territory',
-
-        // ✅ campos padrão do seu feed
         'authorId': userId,
         'authorName': winnerName,
         'authorPhoto': winnerPhoto,
-
         'title': title,
         'icon': icon,
         'territoryId': territoryId,
         'timestamp': FieldValue.serverTimestamp(),
         'likes': 0,
         'commentsCount': 0,
-
-        // ✅ MUITO IMPORTANTE: evita post “sem nada escrito”
-        // seu card usa caption: data['text']
         'text': battleTitle,
 
-        // ✅ extras pro card VS futuramente
         'progress': p,
         'winnerId': userId,
         'winnerName': winnerName,
@@ -379,9 +452,8 @@ class TerritoryService {
         'loserName': loserName,
         'loserPhoto': loserPhoto,
 
-        // opcional: se quiser usar no layout
         'battleTitle': battleTitle,
-        'battleType': p < 1.0 ? 'partial' : 'full',
+        'battleType': oldUserId.isEmpty ? 'claim' : (p < 1.0 ? 'partial' : 'full'),
       });
 
       debugPrint("[Feed] 📢 Postado territory battle: $battleTitle ($icon)");
@@ -390,10 +462,12 @@ class TerritoryService {
     }
   }
 
-
   /// Popup de conquista visual
-  Future<void> showAchievementPopup(BuildContext context,
-      {required String title, required String icon}) async {
+  Future<void> showAchievementPopup(
+      BuildContext context, {
+        required String title,
+        required String icon,
+      }) async {
     await showDialog(
       context: context,
       barrierDismissible: true,
@@ -401,4 +475,41 @@ class TerritoryService {
       builder: (_) => AchievementOverlay(title: title, icon: icon),
     );
   }
+
+  Future<List<Map<String, double>>> extractOutsideRoute({
+    required List<Map<String, double>> route,
+    double threshold = proximityThreshold,
+  }) async {
+    final snap = await _firestore.collection('territorios').get();
+
+    // carrega todos os pontos de todos territórios
+    final List<Map<String, double>> allTerritoryPoints = [];
+    for (final d in snap.docs) {
+      final data = d.data();
+      final pts = (data['points'] as List? ?? []);
+      for (final p in pts) {
+        final lat = (p['lat'] as num?)?.toDouble();
+        final lng = (p['lng'] as num?)?.toDouble();
+        if (lat != null && lng != null) {
+          allTerritoryPoints.add({'lat': lat, 'lng': lng});
+        }
+      }
+    }
+
+    bool isNearAnyTerritoryPoint(Map<String, double> r) {
+      final rLat = r['lat']!;
+      final rLng = r['lng']!;
+      for (final tp in allTerritoryPoints) {
+        final d = _calculateDistance(rLat, rLng, tp['lat']!, tp['lng']!);
+        if (d <= threshold) return true;
+      }
+      return false;
+    }
+
+    // retorna somente os pontos “fora”
+    return route.where((r) => !isNearAnyTerritoryPoint(r)).toList();
+  }
 }
+
+
+

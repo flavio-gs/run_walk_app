@@ -45,7 +45,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
     if (user == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Você precisa estar logado para criar um grupo.')),
+        const SnackBar(content: Text('Você precisa estar logado para criar um clã.')),
       );
       return;
     }
@@ -55,7 +55,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
 
     if (name.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('O nome do grupo precisa ter pelo menos 3 caracteres.')),
+        const SnackBar(content: Text('O nome do clã precisa ter pelo menos 3 caracteres.')),
       );
       return;
     }
@@ -101,12 +101,12 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
       if (!mounted) return;
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Grupo criado com sucesso 🧡')),
+        const SnackBar(content: Text('Clã criado com sucesso 🧡')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao criar grupo: $e')),
+        SnackBar(content: Text('Erro ao criar clã: $e')),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -123,7 +123,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
         surfaceTintColor: kBg,
         centerTitle: true,
         title: const Text(
-          'Criar Grupo',
+          'Criar Clã',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,
@@ -161,7 +161,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                       fontWeight: FontWeight.w800,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Nome do grupo (ex: Clã dos Corredores)',
+                      hintText: 'Nome do Clã (ex: Clã dos Corredores)',
                       hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
                       border: InputBorder.none,
                       isDense: true,
@@ -207,7 +207,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Privacidade do Grupo',
+                    'Privacidade do Clã',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
@@ -262,7 +262,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
               )
                   : const Text(
-                'Criar Grupo',
+                'Criar Clã',
                 style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),

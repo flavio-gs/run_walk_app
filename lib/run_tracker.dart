@@ -380,6 +380,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   int _lastSampleSecond = -999;
 
+  bool _savingRun = false;
+
 
   void _clearDisputeMarker() {
     _markers.removeWhere((m) =>
@@ -3661,110 +3663,121 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // ===== Persistência =====
   Future<void> _saveRun({bool wearMode = false}) async {
-    _calculatePaceAndCalories();
-
-    if (loading) return;
-    setState(() => loading = true);
-
-    // ✅ sempre zera no começo (evita reaproveitar valor antigo)
-    int capturedInThisRun = 0;
-
-    if (context.mounted) _showLoadingOverlay(context);
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      if (context.mounted) _hideLoadingOverlay(context);
-      if (context.mounted && !wearMode) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Usuário não autenticado. Login necessário para salvar.")),
-        );
-      }
-      setState(() => loading = false);
-      return;
-    }
-
-    if (_totalDistance < 10) {
-      if (context.mounted) _hideLoadingOverlay(context);
-      if (context.mounted && !wearMode) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Corrida muito curta para ser salva.")),
-        );
-      }
-      setState(() => loading = false);
-      return;
-    }
-
-    final distanceMeters = _totalDistance;
-    final distanceKm = distanceMeters / 1000.0;
-
-    final endTime = DateTime.now();
-
-// pega last lat/lng
-    final lastPos = _positions.isNotEmpty ? _positions.last : null;
-
-    RunWeather? weather;
-    if (lastPos != null) {
-      weather = await WeatherService.fetchForRun(
-        lat: lastPos.latitude,
-        lng: lastPos.longitude,
-        endTime: endTime,
-      );
-    }
-
-    final runData = {
-      'userId': user.uid,
-      'startTime': _startTime?.toIso8601String(),
-      'endTime': DateTime.now().toIso8601String(),
-      'duration': _stopwatch.elapsed.inSeconds,
-      'distance': distanceMeters,
-      'calories': _caloriesBurned,
-      'pace': _averagePace,
-      'path': _positions.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'avgSpeedKmh': _avgSpeedKmh,
-      'currentSpeedKmh': _currentSpeedKmh, // opcional (última)
-      'elevationGain': _elevationGain,
-      'minElevation': _minElevation,
-      'maxElevation': _maxElevation,
-      // ✅ clima salvo (snapshot)
-      'weather': weather?.toMap(), // pode ser null (sem internet)
-
-
-    };
-
-    // ✅ snapshot da rota (não depende do reset)
-    final pathSnapshot = List<LatLng>.from(_positions);
+    // ✅ lock real (evita dupla execução e mensagens conflitantes)
+    if (_savingRun) return;
+    _savingRun = true;
 
     try {
+      _calculatePaceAndCalories();
+
+      // ✅ snapshot IMEDIATO (fonte de verdade pra validação e salvamento)
+      final positionsSnapshot = List<LatLng>.from(_positions);
+      final distanceSnapshot = _totalDistance; // metros
+      final durationSnapshot = _stopwatch.elapsed.inSeconds;
+      final avgPaceSnapshot = _averagePace;
+      final caloriesSnapshot = _caloriesBurned;
+      final avgSpeedSnapshot = _avgSpeedKmh;
+      final currentSpeedSnapshot = _currentSpeedKmh;
+      final elevationGainSnapshot = _elevationGain;
+      final minElevationSnapshot = _minElevation;
+      final maxElevationSnapshot = _maxElevation;
+
+      final distanceMeters = distanceSnapshot;
+      final distanceKm = distanceMeters / 1000.0;
+
+      final endTime = DateTime.now();
+
+      // ✅ lastPos vem do snapshot (não do estado vivo)
+      final lastPos = positionsSnapshot.isNotEmpty ? positionsSnapshot.last : null;
+
+      if (loading) return;
+      setState(() => loading = true);
+
+      int capturedInThisRun = 0;
+
+      if (context.mounted) _showLoadingOverlay(context);
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        if (context.mounted) _hideLoadingOverlay(context);
+        if (context.mounted && !wearMode) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Usuário não autenticado. Login necessário para salvar.")),
+          );
+        }
+        setState(() => loading = false);
+        return;
+      }
+
+      // ✅ validação SOMENTE por snapshot
+      if (distanceSnapshot < 10 || positionsSnapshot.length < 2 || durationSnapshot <= 0) {
+        if (context.mounted) _hideLoadingOverlay(context);
+        if (context.mounted && !wearMode) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Corrida muito curta para ser salva.")),
+          );
+        }
+        setState(() => loading = false);
+        return;
+      }
+
+
+
+      RunWeather? weather;
+      if (lastPos != null) {
+        weather = await WeatherService.fetchForRun(
+          lat: lastPos.latitude,
+          lng: lastPos.longitude,
+          endTime: endTime,
+        );
+      }
+
+      final runData = {
+        'userId': user.uid,
+        'startTime': _startTime?.toIso8601String(),
+        'endTime': endTime.toIso8601String(),
+        'duration': durationSnapshot,
+        'distance': distanceMeters,
+        'calories': caloriesSnapshot,
+        'pace': avgPaceSnapshot,
+        'path': positionsSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'avgSpeedKmh': avgSpeedSnapshot,
+        'currentSpeedKmh': currentSpeedSnapshot,
+        'elevationGain': elevationGainSnapshot,
+        'minElevation': minElevationSnapshot,
+        'maxElevation': maxElevationSnapshot,
+        'weather': weather?.toMap(),
+      };
+
+      // ✅ rota pra território sempre do snapshot
+      final pathSnapshot = List<LatLng>.from(positionsSnapshot);
+
       // ✅ Salva corrida
       final runRef = await FirebaseFirestore.instance.collection('corridas').add(runData);
       final runId = runRef.id;
 
       final corridaModel = RunModel(
-        id: runId, // ✅ runId nasce aqui
+        id: runId,
         userId: user.uid,
         distance: distanceMeters,
-        duration: _stopwatch.elapsed.inSeconds,
-        pace: _averagePace,
-        calories: _caloriesBurned,
+        duration: durationSnapshot,
+        pace: avgPaceSnapshot,
+        calories: caloriesSnapshot,
         date: DateTime.now(),
-        route: _positions
-            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
-            .toList(),
+        route: pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
       );
 
-
-      // ✅ (1) TENTAR CAPTURAR TERRITÓRIOS EXISTENTES PRIMEIRO
+      // ✅ (1) Capturar territórios existentes
       if (!_isFreeMode && pathSnapshot.length >= 3) {
         try {
           capturedInThisRun = await TerritoryService().checkTerritoryDominance(
             userId: user.uid,
-            pace: _averagePace,
+            pace: avgPaceSnapshot,
             route: pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
             context: context,
-            activeDisputeTerritoryId: _activeDisputeTerritoryId, // se você tiver
+            activeDisputeTerritoryId: _activeDisputeTerritoryId,
           );
-
 
           debugPrint("[TERRITORY] Capturados nesta corrida: $capturedInThisRun");
         } catch (e) {
@@ -3772,36 +3785,54 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         }
       }
 
-      // 🗺️ Cria NOVO território se:
-// - não está em modo livre
-// - tem área nova válida
-// - e NÃO cruzou nenhum território existente (>=60%)
-// (independente de ter capturado outros territórios)
+      // ✅ (2) Criar NOVO território se não cruzou existente
+      // ✅ depois de capturar territórios existentes, você pode criar expansão
       if (!_isFreeMode && pathSnapshot.length >= 3 && _areaCaptured > 0) {
-        final route = pathSnapshot
-            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
-            .toList();
 
-        final crossedExisting = await TerritoryService().crossedAnyTerritory(route: route);
+        final route = pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList();
 
-        if (!crossedExisting) {
-          await FirebaseFirestore.instance.collection('territorios').add({
+        // ✅ pega só os pontos que ficaram FORA de territórios existentes
+        final outsideRoute = await TerritoryService().extractOutsideRoute(route: route);
+
+        // regra anti “território lixo”
+        const int minOutsidePoints = 6;
+
+        if (outsideRoute.length >= minOutsidePoints) {
+          final terrRef = await FirebaseFirestore.instance.collection('territorios').add({
             'userId': user.uid,
-            'points': pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
-            'area': _areaCaptured,
+            'points': outsideRoute,
+            'area': _areaCaptured, // se você tiver cálculo real da área fora, melhor ainda
             'capturedAt': FieldValue.serverTimestamp(),
             'createdAt': FieldValue.serverTimestamp(),
+            'type': 'expand', // opcional
           });
 
+          await terrRef.collection('ownership').add({
+            'previousOwner': null,
+            'newOwner': user.uid,
+            'progress': 1.0,
+            'pace': _averagePace,
+            'timestamp': FieldValue.serverTimestamp(),
+            'type': 'expand',
+          });
+
+          // ✅ incrementa contadores também (novo território criado)
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'territories': {
+              'activeCount': FieldValue.increment(1),
+              'capturedCount': FieldValue.increment(1),
+            }
+          }, SetOptions(merge: true));
+
+          debugPrint("🧩 [TERRITORY] Expansão criada com pontos fora: ${outsideRoute.length}");
           await _loadTerritories();
-          debugPrint("🆕 [TERRITORY] Novo território criado (área livre).");
         } else {
-          debugPrint("🚫 [TERRITORY] Não criou novo — rota cruzou território existente.");
+          debugPrint("🚫 [TERRITORY] Sem expansão: poucos pontos fora (${outsideRoute.length})");
         }
-      } else {
+      }
+      else {
         debugPrint('[TERRITORY] Novo território NÃO criado. free=$_isFreeMode pts=${pathSnapshot.length} area=$_areaCaptured');
       }
-
 
       // 🏆 Checa conquistas
       try {
@@ -3811,7 +3842,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         debugPrint('Erro ao verificar conquistas: $e');
       }
 
-      // 🏅 XP automático no salvamento (seu sistema de pontos)
+      // 🏅 XP automático no salvamento
       try {
         int baseXP = (distanceKm * 10).floor() + 5;
         double xpMultiplier = 1.0;
@@ -3824,8 +3855,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         final totalXP = (baseXP * xpMultiplier).round();
 
-        final secs = _stopwatch.elapsed.inSeconds;
-        final minutes = (secs / 60).floor();
+        final minutes = (durationSnapshot / 60).floor();
 
         await GamificationService().addPoints(
           points: totalXP,
@@ -3833,9 +3863,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em $minutes min",
           meta: {
             'distanciaKm': distanceKm,
-            'duracaoSeg': secs,
+            'duracaoSeg': durationSnapshot,
             'duracaoMin': minutes,
-            'calorias': _caloriesBurned,
+            'calorias': caloriesSnapshot,
           },
           context: context,
         );
@@ -3851,57 +3881,53 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           const SnackBar(content: Text('🏁 Corrida salva com sucesso!')),
         );
         await _applyRunDistanceToActiveChallenges(distanceMeters: distanceMeters);
-        // ... seu bloco do challenge ativo continua aqui
       }
 
-      // ✅ Atualiza mapa no final, se quiser
       await _loadTerritories();
 
       final samplesSnapshot = List<Map<String, dynamic>>.from(_runSamples);
-
-      await _saveRunSamples(
-        runRef: runRef,
-        samples: samplesSnapshot,
-      );
+      await _saveRunSamples(runRef: runRef, samples: samplesSnapshot);
 
       if (context.mounted && !wearMode) {
-
         _hideLoadingOverlay(context);
         await Future.delayed(const Duration(milliseconds: 30));
-
         if (!context.mounted) return;
+
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corridaModel)),
         );
       }
-
-
-
     } catch (e) {
       if (context.mounted && !wearMode) {
-        if (context.mounted) _hideLoadingOverlay(context);
+        _hideLoadingOverlay(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Erro ao salvar corrida: $e")),
         );
       }
     } finally {
       if (context.mounted) _hideLoadingOverlay(context);
-      setState(() => loading = false);
 
-      setState(() {
-        _seconds = 0;
-        _totalDistance = 0;
-        _caloriesBurned = 0;
-        _averagePace = 0;
-        _positions.clear();
+      if (mounted) {
+        setState(() => loading = false);
 
-        if (!isWearOS) {
-          _polylines.clear();
-          _markers.clear();
-        }
-      });
+        setState(() {
+          _seconds = 0;
+          _totalDistance = 0;
+          _caloriesBurned = 0;
+          _averagePace = 0;
+          _positions.clear();
+
+          if (!isWearOS) {
+            _polylines.clear();
+            _markers.clear();
+          }
+        });
+      }
 
       await _setInitialLocation();
+
+      // ✅ libera lock
+      _savingRun = false;
     }
   }
 
