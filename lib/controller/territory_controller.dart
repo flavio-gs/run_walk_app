@@ -143,9 +143,31 @@ class _Territory {
   final String ownerId;
   final List<LatLng> points;
 
-  const _Territory({
+  // ✅ novo: disputa do Firestore
+  final Map<String, dynamic>? dispute;
+
+  _Territory({
     required this.id,
     required this.ownerId,
     required this.points,
+    this.dispute,
   });
+
+  bool get hasActiveDispute => (dispute?['status'] == 'active');
+
+  String? get attackerId => dispute?['attackerId'] as String?;
+  String? get defenderId => dispute?['defenderId'] as String?;
+
+  double get lastProgress {
+    final v = dispute?['lastProgress'];
+    if (v is num) return v.toDouble();
+    return 0.0;
+  }
+
+  DateTime? get startedAt {
+    final ts = dispute?['startedAt'];
+    if (ts is Timestamp) return ts.toDate();
+    return null;
+  }
 }
+

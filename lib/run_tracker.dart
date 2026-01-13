@@ -23,6 +23,7 @@ import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:lottie/lottie.dart' hide Marker;
+import 'package:run_walk_app/service/weather_service.dart';
 import 'UI/territory_toggle.dart';
 import 'controller/territory_controller.dart';
 import 'enums/territory_mode.dart';
@@ -100,12 +101,51 @@ class Character3D extends StatelessWidget {
   }
 }
 
+class _TerritoryDispute {
+  final String status;
+  final String attackerId;
+  final String defenderId;
+  final double? lastProgress;
+  final Timestamp? startedAt;
+
+  const _TerritoryDispute({
+    required this.status,
+    required this.attackerId,
+    required this.defenderId,
+    this.lastProgress,
+    this.startedAt,
+  });
+
+  static _TerritoryDispute? fromMap(dynamic raw) {
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw as Map);
+
+    return _TerritoryDispute(
+      status: (m['status'] ?? '') as String,
+      attackerId: (m['attackerId'] ?? '') as String,
+      defenderId: (m['defenderId'] ?? '') as String,
+      lastProgress: (m['lastProgress'] is num) ? (m['lastProgress'] as num).toDouble() : null,
+      startedAt: (m['startedAt'] is Timestamp) ? m['startedAt'] as Timestamp : null,
+    );
+  }
+}
+
 class _Territory {
   final String id;
   final String ownerId;
   final List<LatLng> points;
-  const _Territory({required this.id, required this.ownerId, required this.points});
+
+  // ✅ NOVO
+  final _TerritoryDispute? dispute;
+
+  const _Territory({
+    required this.id,
+    required this.ownerId,
+    required this.points,
+    this.dispute,
+  });
 }
+
 
 final List<_Territory> _territories = [];
 
@@ -314,10 +354,41 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _challengeStream;
   Map<String, dynamic>? _activeChallengeData;
 
+  // ─────────────────────────────
+// 📈 MÉTRICAS NOVAS (GPS)
+// ─────────────────────────────
+  final List<double> _altitudes = [];
+  double _elevationGain = 0.0;     // soma somente das subidas (m)
+  double _minElevation = 0.0;
+  double _maxElevation = 0.0;
+
+  double? _lastAltFiltered;        // para filtro
+  double _currentSpeedMps = 0.0;   // velocidade instantânea m/s
+  double _currentSpeedKmh = 0.0;   // velocidade instantânea km/h
+  double _avgSpeedKmh = 0.0;       // velocidade média km/h
+
+// opcional: amostras para gráficos (tempo, speed, altitude)
+  final List<Map<String, dynamic>> _runSamples = [];
+// exemplo de sample: {t: secondsFromStart, lat, lng, alt, speedMps, distTotal}
+
+  double _userWeightKg = 70.0; // fallback
+
+  bool _overlayOpen = false;
+  BuildContext? _overlayCtx;
+
+  static const String _kLoadingRouteName = '__loading_overlay__';
+
+  int _lastSampleSecond = -999;
+
+
   void _clearDisputeMarker() {
-    _markers.removeWhere((m) => m.markerId.value.startsWith('dispute_'));
+    _markers.removeWhere((m) =>
+    m.markerId.value.startsWith('dispute_') ||
+        m.markerId.value.startsWith('my_dispute_')
+    );
     _activeDisputeTerritoryId = null;
   }
+
 
   Future<BitmapDescriptor> _createVsDisputeIcon({
     required String leftName,
@@ -459,6 +530,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return BitmapDescriptor.fromBytes(bytes!.buffer.asUint8List());
   }
 
+  Future<void> _loadUserWeight() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    final w = snap.data()?['weight'];
+    if (w is num && w > 0) {
+      _userWeightKg = w.toDouble();
+    }
+  }
+
+
   Future<void> _showDisputeVsMarker({
     required _Territory territory,
   }) async {
@@ -501,18 +588,189 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       _markers.add(
         Marker(
-          markerId: MarkerId('dispute_${territory.id}'),
+          markerId: MarkerId('my_dispute_${territory.id}'),
           position: center,
           icon: icon,
-          anchor: const Offset(0.5, 0.5), // centralizado
-          zIndex: 9998, // acima dos donos e abaixo do currentLocation (10000)
+          anchor: const Offset(0.5, 0.5),
+          zIndex: 9998,
+          onTap: () {
+            _showDisputeDetailsSheet(
+              context: context,
+              territory: territory,
+            );
+          },
         ),
       );
+
     });
   }
 
+  void _showDisputeDetailsSheet({
+    required BuildContext context,
+    required _Territory territory,
+  }) {
+    final dispute = territory.dispute;
+    if (dispute == null) return;
 
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E0E12),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // drag handle
+              Container(
+                width: 42,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
 
+              const Text(
+                "⚔️ Disputa de Território",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 12),
+
+              _DisputeUserRow(
+                leftId: dispute.attackerId,
+                rightId: dispute.defenderId,
+                progress: dispute.lastProgress,
+              ),
+
+              const SizedBox(height: 16),
+
+              LinearProgressIndicator(
+                value: (dispute.lastProgress ?? 0).clamp(0, 1),
+                backgroundColor: Colors.white12,
+                color: Colors.orange,
+                minHeight: 10,
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                "${((dispute.lastProgress ?? 0) * 100).toStringAsFixed(1)}% conquistado",
+                style: const TextStyle(color: Colors.white70),
+              ),
+
+              const SizedBox(height: 16),
+
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text("Fechar"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _DisputeUserRow({
+    required String leftId,
+    required String rightId,
+    required double? progress,
+  }) {
+    Widget userChip(String uid) {
+      return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
+        builder: (_, snap) {
+          final data = snap.data?.data();
+          final name = (data?['displayName'] as String?) ?? 'Jogador';
+          final photo = (data?['photoURL'] as String?);
+
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: Colors.white12,
+                backgroundImage: (photo != null && photo.isNotEmpty) ? NetworkImage(photo) : null,
+                child: (photo == null || photo.isEmpty)
+                    ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900))
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Text(
+                  name,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    final pct = ((progress ?? 0) * 100).clamp(0, 100).toStringAsFixed(0);
+
+    return Row(
+      children: [
+        Expanded(child: userChip(leftId)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Column(
+            children: [
+              const Text("VS", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text("$pct%", style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
+        Expanded(child: Align(alignment: Alignment.centerRight, child: userChip(rightId))),
+      ],
+    );
+  }
+
+  Widget _territoryOwnerLabel(String ownerId, {String? territoryId}) {
+    if (ownerId.isEmpty) {
+      return Text(
+        territoryId != null ? "Território: $territoryId" : "Território",
+        style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+      );
+    }
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.collection('users').doc(ownerId).get(),
+      builder: (_, snap) {
+        final data = snap.data?.data();
+        final name = (data?['displayName'] as String?)?.trim();
+
+        final label = (name != null && name.isNotEmpty)
+            ? "Território de $name"
+            : (territoryId != null ? "Território: $territoryId" : "Território");
+
+        return Text(
+          label,
+          style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+        );
+      },
+    );
+  }
 
   _Territory? _enemyTerritoryAt(LatLng pos, String myUid) {
     for (final t in _territories) {
@@ -1006,6 +1264,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
 
+    // ✅ se já tem disputa ativa, não mostra mensagem de iniciar disputa
+    final alreadyDisputed = await _isTerritoryAlreadyInDispute(enemy.id);
+    if (alreadyDisputed) {
+      return;
+    }
+
     // ✅ evita repetir o mesmo alerta sem sair do território
     if (_lastEnemyTerritoryId == enemy.id) return;
 
@@ -1030,6 +1294,31 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
   }
+
+  Future<bool> _isTerritoryAlreadyInDispute(String territoryId) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('territorios')
+          .doc(territoryId)
+          .get();
+
+      if (!doc.exists) return false;
+
+      final data = doc.data() ?? {};
+      final dispute = data['dispute'];
+
+      if (dispute is Map) {
+        final status = dispute['status'];
+        return status == 'active';
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint("Erro ao checar disputa do território: $e");
+      return false;
+    }
+  }
+
 
 
   Future<void> _setInitialLocation() async {
@@ -1228,14 +1517,359 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           anchor: const Offset(0.5, 0.5),
           zIndex: 9998,
           onTap: () {
-            // opcional: abrir card do atacante/defensor ou mostrar detalhes
-            debugPrint("⚔️ Disputa em ${territory.id}: $attackerId vs $defenderId");
+            if (!mounted) return;
+            _showGlobalDisputeSheet(
+              territoryId: territory.id,
+              attackerId: attackerId,
+              defenderId: defenderId,
+            );
           },
         ),
       );
     });
   }
 
+  void _showGlobalDisputeSheet({
+    required String territoryId,
+    required String attackerId,
+    required String defenderId,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) {
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('territorios')
+              .doc(territoryId)
+              .snapshots(),
+          builder: (context, snap) {
+            final data = snap.data?.data();
+            final dispute = data?['dispute'];
+
+            double progress = 0.0;
+            String status = 'unknown';
+
+            // 🔹 ids reais (se o doc mudou, a sheet acompanha)
+            String liveAttackerId = attackerId;
+            String liveDefenderId = defenderId;
+
+            if (dispute is Map) {
+              status = (dispute['status'] ?? 'unknown').toString();
+
+              final lp = dispute['lastProgress'];
+              if (lp is num) progress = lp.toDouble().clamp(0.0, 1.0);
+
+              final atk = dispute['attackerId'];
+              final def = dispute['defenderId'];
+              if (atk is String && atk.isNotEmpty) liveAttackerId = atk;
+              if (def is String && def.isNotEmpty) liveDefenderId = def;
+            }
+
+            final me = FirebaseAuth.instance.currentUser;
+            final myUid = me?.uid ?? "";
+
+            final bool isActive = status == 'active';
+            final bool isMine = (myUid.isNotEmpty && liveAttackerId == myUid);
+
+            Future<void> confirmAndCancel() async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  backgroundColor: const Color(0xFF0E0E12),
+                  title: const Text(
+                    "Cancelar disputa?",
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                  ),
+                  content: const Text(
+                    "Se você cancelar, a disputa some do mapa e ninguém mais pode disputar até iniciar de novo.",
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text("Voltar", style: TextStyle(color: Colors.white70)),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text("Cancelar disputa"),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed != true) return;
+
+              await _cancelGlobalDispute(territoryId);
+
+              if (!mounted) return;
+
+              // ✅ se essa disputa era “a sua” ativa, limpa o estado local
+              if (_activeDisputeTerritoryId == territoryId) {
+                setState(() {
+                  _activeDisputeTerritoryId = null;
+
+                  // remove marker global desse território
+                  _markers.removeWhere((m) => m.markerId.value == 'dispute_$territoryId');
+
+                  // remove marker “my_dispute_...” se você estiver usando também
+                  _markers.removeWhere((m) => m.markerId.value == 'my_dispute_$territoryId');
+                });
+              } else {
+                // ainda remove markers por garantia
+                setState(() {
+                  _markers.removeWhere((m) => m.markerId.value == 'dispute_$territoryId');
+                  _markers.removeWhere((m) => m.markerId.value == 'my_dispute_$territoryId');
+                });
+              }
+
+              // fecha a sheet
+              if (Navigator.canPop(context)) Navigator.pop(context);
+
+              // snack
+              if (mounted) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  const SnackBar(content: Text("❌ Disputa cancelada")),
+                );
+              }
+            }
+
+            return Container(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                24 + MediaQuery.of(context).padding.bottom,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0E0E12),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+
+                  const Text(
+                    "⚔️ Disputa de Território",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white),
+                  ),
+                  const SizedBox(height: 8),
+
+                  _DisputeUserRow(
+                    leftId: liveAttackerId,
+                    rightId: liveDefenderId,
+                    progress: progress,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.white12,
+                    color: Colors.orange,
+                    minHeight: 10,
+                  ),
+                  const SizedBox(height: 10),
+
+                  Text(
+                    "${(progress * 100).toStringAsFixed(1)}% conquistado • status: $status",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
+                      // ✅ botão cancelar (só se for minha disputa e ainda estiver ativa)
+                      if (isMine && isActive) ...[
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            onPressed: confirmAndCancel,
+                            child: const Text("Cancelar disputa"),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+
+                      Expanded(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text("Fechar"),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> upsertDisputeMarker({
+    required String territoryId,
+    required LatLng pos,
+    required double progress,
+    required bool isMine,
+  }) async {
+    final marker = await buildDisputeMarker(
+      territoryId: territoryId,
+      position: pos,
+      progress: progress,
+      isMine: isMine,
+      onTap: () => _showGlobalDisputeSheet(
+        territoryId: territoryId,
+        attackerId: isMine ? FirebaseAuth.instance.currentUser!.uid : '',
+        defenderId: '',
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _markers.removeWhere((m) => m.markerId.value == 'dispute_$territoryId');
+      _markers.add(marker);
+    });
+  }
+
+
+  Future<Marker> buildDisputeMarker({
+    required String territoryId,
+    required LatLng position,
+    required double progress,
+    required bool isMine,
+    required VoidCallback onTap,
+  }) async {
+    final icon = await buildDisputeMarkerIcon(
+      size: 150,         // 👈 aumenta
+      progress: progress,
+      isMine: isMine,
+    );
+
+    return Marker(
+      markerId: MarkerId('dispute_$territoryId'),
+      position: position,
+      icon: icon,
+      anchor: const Offset(0.5, 0.5), // 👈 centro (testa 0.5,0.6 se quiser “peso” pra baixo)
+      zIndex: 999,                    // 👈 fica acima dos outros
+      consumeTapEvents: true,
+      onTap: onTap,
+    );
+  }
+
+
+  Future<BitmapDescriptor> buildDisputeMarkerIcon({
+    double size = 140,          // 👈 aumenta aqui (120–180 fica ótimo)
+    double progress = 0.0,      // 0..1
+    bool isMine = false,
+  }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    final center = Offset(size / 2, size / 2);
+    final radius = size * 0.34;
+
+    // --- Shadow / glow ---
+    final glowPaint = Paint()
+      ..color = (isMine ? Colors.orangeAccent : Colors.deepOrangeAccent).withOpacity(0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+    canvas.drawCircle(center, radius * 1.45, glowPaint);
+
+    // --- Outer ring ---
+    final ringPaint = Paint()
+      ..color = Colors.white.withOpacity(0.20)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.06;
+    canvas.drawCircle(center, radius * 1.05, ringPaint);
+
+    // --- Progress arc (opcional, mas dá vida) ---
+    final arcPaint = Paint()
+      ..color = (isMine ? Colors.orange : Colors.deepOrange)
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = size * 0.09;
+
+    final rect = Rect.fromCircle(center: center, radius: radius * 1.05);
+    const startAngle = -1.55; // quase no topo
+    final sweep = (progress.clamp(0.0, 1.0)) * 6.283185307179586; // 2*pi
+    canvas.drawArc(rect, startAngle, sweep, false, arcPaint);
+
+    // --- Main badge (fundo) ---
+    final badgePaint = Paint()
+      ..color = const Color(0xFF0E0E12);
+    canvas.drawCircle(center, radius, badgePaint);
+
+    // --- Border ---
+    final borderPaint = Paint()
+      ..color = Colors.black.withOpacity(0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = size * 0.05;
+    canvas.drawCircle(center, radius, borderPaint);
+
+    // --- Emoji / Icon text (⚔️) ---
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '⚔️',
+        style: TextStyle(
+          fontSize: size * 0.34,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+
+    // --- Percent tiny label (opcional) ---
+    final percent = (progress * 100).clamp(0, 100).toStringAsFixed(0);
+    final tp2 = TextPainter(
+      text: TextSpan(
+        text: '$percent%',
+        style: TextStyle(
+          fontSize: size * 0.16,
+          fontWeight: FontWeight.w900,
+          color: Colors.white.withOpacity(0.92),
+          shadows: const [Shadow(blurRadius: 6, color: Colors.black87)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    tp2.paint(
+      canvas,
+      Offset(center.dx - tp2.width / 2, center.dy + radius * 0.35),
+    );
+
+    // Export image
+    final picture = recorder.endRecording();
+    final img = await picture.toImage(size.toInt(), size.toInt());
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
+  }
 
   Future<void> _loadTerritories() async {
     // ✅ sempre cancela o listener anterior
@@ -1270,10 +1904,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ))
               .toList();
 
+          final disputeObj = _TerritoryDispute.fromMap(data['dispute']);
+
           return _Territory(
             id: d.id,
             ownerId: (data['userId'] ?? '') as String,
             points: pts,
+            dispute: disputeObj, // ✅ agora territory.dispute existe
           );
         }));
 
@@ -1541,6 +2178,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _startRun() async {
 
+    await _loadUserWeight();
+
+
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
     FlutterBackgroundService().startService();
@@ -1571,6 +2211,17 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _distanceSinceLastXP = 0;
     _nextXPThreshold = 100;
 
+    _altitudes.clear();
+    _elevationGain = 0.0;
+    _minElevation = 0.0;
+    _maxElevation = 0.0;
+    _lastAltFiltered = null;
+
+    _currentSpeedMps = 0.0;
+    _currentSpeedKmh = 0.0;
+    _avgSpeedKmh = 0.0;
+    _runSamples.clear();
+
     _stopwatch.reset();
     _stopwatch.start();
     _startTime = DateTime.now();
@@ -1598,6 +2249,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _startPositionStream() {
     _positionStream?.cancel();
+
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.best,
@@ -1606,20 +2258,43 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     ).listen((position) {
       final latLngPos = LatLng(position.latitude, position.longitude);
 
-      setState(() {
-        if (_positions.isNotEmpty) {
-          final d = Geolocator.distanceBetween(
-            _positions.last.latitude, _positions.last.longitude,
-            latLngPos.latitude, latLngPos.longitude,
-          );
+      // tempo decorrido (fora do setState pra ficar consistente)
+      final secs = _stopwatch.elapsed.inSeconds;
 
+      // velocidade instantânea (m/s -> km/h)
+      final rawSpeed = position.speed;
+      final currentSpeedMps = (rawSpeed.isFinite && rawSpeed >= 0) ? rawSpeed : 0.0;
+      final currentSpeedKmh = currentSpeedMps * 3.6;
+
+      // elevação + filtro simples (EMA)
+      final alt = position.altitude;
+      const alpha = 0.15;
+      final filteredAlt = (_lastAltFiltered == null)
+          ? alt
+          : (_lastAltFiltered! + alpha * (alt - _lastAltFiltered!));
+
+      // distância incremental
+      double d = 0.0;
+      if (_positions.isNotEmpty) {
+        d = Geolocator.distanceBetween(
+          _positions.last.latitude, _positions.last.longitude,
+          latLngPos.latitude, latLngPos.longitude,
+        );
+      }
+
+      // ✅ Atualiza estado/UI
+      setState(() {
+        // 1) distância + rota
+        if (_positions.isEmpty) {
+          _positions.add(latLngPos);
+        } else {
           if (d > 0.5) {
-            _totalDistance += d;         // metros
+            _totalDistance += d;
             _positions.add(latLngPos);
 
-            // 🎯 Sistema de XP em tempo real
+            // XP em tempo real
             _distanceSinceLastXP += d;
-            if (_distanceSinceLastXP >= 100) { // a cada 100m = +1 XP
+            if (_distanceSinceLastXP >= 100) {
               _distanceSinceLastXP -= 100;
               _sessionXP += 1;
               _showXPGainEffect("+1 XP");
@@ -1633,10 +2308,58 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
             if (!isWearOS) _updatePolyline();
           }
-        } else {
-          _positions.add(latLngPos);
         }
 
+        // 2) velocidade média
+        _currentSpeedMps = currentSpeedMps;
+        _currentSpeedKmh = currentSpeedKmh;
+
+        if (secs > 0) {
+          final avgMps = _totalDistance / secs;
+          _avgSpeedKmh = avgMps * 3.6;
+        } else {
+          _avgSpeedKmh = 0.0;
+        }
+
+        // 3) ganho de elevação
+        const minStep = 1.5;
+        if (_lastAltFiltered != null) {
+          final diff = filteredAlt - _lastAltFiltered!;
+          if (diff.abs() >= minStep && diff > 0) {
+            _elevationGain += diff;
+          }
+        }
+
+        _lastAltFiltered = filteredAlt;
+        _altitudes.add(filteredAlt);
+
+        if (_altitudes.length == 1) {
+          _minElevation = filteredAlt;
+          _maxElevation = filteredAlt;
+        } else {
+          if (filteredAlt < _minElevation) _minElevation = filteredAlt;
+          if (filteredAlt > _maxElevation) _maxElevation = filteredAlt;
+        }
+
+        // ✅ 4) Samples (AGORA NÃO DEPENDE DE BATER EXATAMENTE NO 5,10,15…)
+        // grava a cada 5s desde o último sample
+        if (secs - _lastSampleSecond >= 5) {
+          _lastSampleSecond = secs;
+
+          _runSamples.add({
+            't': secs,
+            'lat': latLngPos.latitude,
+            'lng': latLngPos.longitude,
+            'alt': filteredAlt,
+            'speedKmh': _currentSpeedKmh,
+            'distTotalM': _totalDistance,
+          });
+
+          // debug rápido pra você ver funcionando
+          // debugPrint("🧪 sample+ t=$secs total=${_runSamples.length}");
+        }
+
+        // 5) animação / tracking
         _previousPosition = _currentPosition;
         _animatedPosition = latLngPos;
       });
@@ -1648,6 +2371,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     });
   }
+
+
 
   void _pauseRun() {
     if (!_isRunning || _isPaused) return;
@@ -1803,137 +2528,46 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     FlutterBackgroundService().invoke('stopService');
 
     // 🚫 Evita corrida inválida
-    if (_totalDistance < 10) { // menos de 10 metros
-      debugPrint("[XP] Corrida muito curta (${_totalDistance.toStringAsFixed(2)} m) — sem XP concedido.");
+    if (_totalDistance < 10) {
+      debugPrint("[RUN] Corrida muito curta (${_totalDistance.toStringAsFixed(2)} m) — não salva.");
       return;
     }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    // 🔹 Garante que o pace e as calorias estão atualizados
-    _calculatePaceAndCalories();
-
-    // 🔹 MONTA A ROTA A PARTIR DE _positions
-    final routeList = _positions
-        .map((p) => {
-      'lat': p.latitude,
-      'lng': p.longitude,
-    })
-        .toList();
-
-    // 🔹 Monta os dados da corrida atual
-    final runData = {
-      'userId': user.uid,
-      'distance': _totalDistance, // em metros
-      'pace': _averagePace,       // min/km
-      'duration': _stopwatch.elapsed.inSeconds,
-      'calories': _caloriesBurned,
-      'date': DateTime.now(),
-      'route': routeList,
-    };
-
-    // ⭐ RunModel que a DetalheCorridaPage espera
-    final corridaModel = RunModel(
-      userId: user.uid,
-      distance: _totalDistance,
-      duration: _stopwatch.elapsed.inSeconds,
-      pace: _averagePace,
-      calories: _caloriesBurned,
-      date: DateTime.now(),
-      route: routeList,
-    );
-
-    // 🔹 XP proporcional
-    await AchievementService().addXP(
-      _totalDistance * 0.1, // 0.1 XP por metro = 100 XP por km
-      context: context,
-      source: 'run',
-      description: 'Corrida concluída',
-    );
-
-    // 🔹 Território (somente se NÃO estiver em modo livre)
-    final isFreeMode = _territoryController.mode == MapTerritoryMode.livre;
-
-    if (!isFreeMode) {
-      await TerritoryService().checkTerritoryDominance(
-        userId: user.uid,
-        pace: _averagePace,
-        route: (runData['route'] as List)
-            .map((e) => Map<String, double>.from(e))
-            .toList(),
-
-        // ✅ se tiver disputa ativa, só ela pode ser capturada
-        activeDisputeTerritoryId: _activeDisputeTerritoryId,
-
-        // ✅ quando capturar, finaliza disputa e remove o VS marker
-        onTerritoryCaptured: ({
-          required String territoryId,
-          required String oldUserId,
-          required String newUserId,
-          required double progress,
-        }) async {
-          if (!mounted) return;
-
-          // só finaliza se era a disputa ativa
-          if (_activeDisputeTerritoryId == territoryId) {
-            setState(() {
-              _activeDisputeTerritoryId = null;
-
-              // remove o marker VS
-              _markers.removeWhere((m) => m.markerId.value == 'dispute_$territoryId');
-            });
-
-            debugPrint("✅ Disputa finalizada — território $territoryId conquistado.");
-          }
-        },
-      );
-
-
-      await _loadTerritories();
-      if (mounted) setState(() {});
-
-    } else {
-      debugPrint("🕊️ Modo LIVRE ativo — não domina território ao finalizar corrida.");
-    }
-
-
-    // 🔹 Conquistas
-    await AchievementService().checkAchievements(
-      runData: {
-        'distance': _totalDistance / 1000,
-        'pace': _averagePace,
-        'territoriesCaptured': 1,
-      },
-      context: context,
-    );
-
-    debugPrint("🏁 Corrida finalizada com ${_totalDistance.toStringAsFixed(1)} m e pace $_averagePace.");
-
     if (!mounted) return;
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => DetalheCorridaPage(
-          corrida: corridaModel,
-        ),
-      ),
-    );
+    // ✅ garante métricas finais atualizadas antes de salvar
+    _calculatePaceAndCalories();
+
+    // ✅ AQUI salva (e ele mesmo navega pro detalhe)
+    await _saveRun(wearMode: isWearOS);
   }
+
 
 
   void _calculatePaceAndCalories() {
     final dMeters = _totalDistance;
-    final secs = _seconds;
+    final secs = _stopwatch.elapsed.inSeconds;
 
     if (secs > 0 && dMeters > 1) {
-      _averagePace = (secs / 60) / (dMeters / 1000.0); // min/km
-      _caloriesBurned = dMeters * 0.05; // ~50 kcal por km
+      final km = dMeters / 1000.0;
+
+      // 🏃 Pace médio (min/km)
+      _averagePace = (secs / 60.0) / km;
+
+      // 🚀 Velocidade média (km/h)
+      _avgSpeedKmh = km / (secs / 3600.0);
+
+      // 🔥 Calorias realistas com peso
+      // fator 1.0 = corrida moderada
+      _caloriesBurned = km * _userWeightKg * 1.0;
     } else {
-      _averagePace = 0;
-      _caloriesBurned = 0;
+      _averagePace = 0.0;
+      _avgSpeedKmh = 0.0;
+      _caloriesBurned = 0.0;
     }
   }
+
+
 
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -3024,21 +3658,25 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
+
   // ===== Persistência =====
   Future<void> _saveRun({bool wearMode = false}) async {
+    _calculatePaceAndCalories();
+
     if (loading) return;
     setState(() => loading = true);
 
-    // 🔸 Mostra o loading visual
+    // ✅ sempre zera no começo (evita reaproveitar valor antigo)
+    int capturedInThisRun = 0;
+
     if (context.mounted) _showLoadingOverlay(context);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      if (context.mounted) Navigator.pop(context);
+      if (context.mounted) _hideLoadingOverlay(context);
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Usuário não autenticado. Login necessário para salvar.")),
+          const SnackBar(content: Text("Usuário não autenticado. Login necessário para salvar.")),
         );
       }
       setState(() => loading = false);
@@ -3046,9 +3684,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
     if (_totalDistance < 10) {
-      if (context.mounted) Navigator.pop(context);
+      if (context.mounted) _hideLoadingOverlay(context);
       if (context.mounted && !wearMode) {
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Corrida muito curta para ser salva.")),
         );
@@ -3057,9 +3694,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
 
-    // ✅ Define a distância antes de qualquer reset
     final distanceMeters = _totalDistance;
     final distanceKm = distanceMeters / 1000.0;
+
+    final endTime = DateTime.now();
+
+// pega last lat/lng
+    final lastPos = _positions.isNotEmpty ? _positions.last : null;
+
+    RunWeather? weather;
+    if (lastPos != null) {
+      weather = await WeatherService.fetchForRun(
+        lat: lastPos.latitude,
+        lng: lastPos.longitude,
+        endTime: endTime,
+      );
+    }
 
     final runData = {
       'userId': user.uid,
@@ -3069,32 +3719,99 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       'distance': distanceMeters,
       'calories': _caloriesBurned,
       'pace': _averagePace,
-      'path': _positions
-          .map((point) => {'lat': point.latitude, 'lng': point.longitude})
-          .toList(),
+      'path': _positions.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
       'createdAt': FieldValue.serverTimestamp(),
+      'avgSpeedKmh': _avgSpeedKmh,
+      'currentSpeedKmh': _currentSpeedKmh, // opcional (última)
+      'elevationGain': _elevationGain,
+      'minElevation': _minElevation,
+      'maxElevation': _maxElevation,
+      // ✅ clima salvo (snapshot)
+      'weather': weather?.toMap(), // pode ser null (sem internet)
+
+
     };
 
+    // ✅ snapshot da rota (não depende do reset)
     final pathSnapshot = List<LatLng>.from(_positions);
 
     try {
       // ✅ Salva corrida
-      await FirebaseFirestore.instance.collection('corridas').add(runData);
+      final runRef = await FirebaseFirestore.instance.collection('corridas').add(runData);
+      final runId = runRef.id;
 
-// 🏆 Checa conquistas (Primeira Corrida, 5K etc.)
+      final corridaModel = RunModel(
+        id: runId, // ✅ runId nasce aqui
+        userId: user.uid,
+        distance: distanceMeters,
+        duration: _stopwatch.elapsed.inSeconds,
+        pace: _averagePace,
+        calories: _caloriesBurned,
+        date: DateTime.now(),
+        route: _positions
+            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+            .toList(),
+      );
+
+
+      // ✅ (1) TENTAR CAPTURAR TERRITÓRIOS EXISTENTES PRIMEIRO
+      if (!_isFreeMode && pathSnapshot.length >= 3) {
+        try {
+          capturedInThisRun = await TerritoryService().checkTerritoryDominance(
+            userId: user.uid,
+            pace: _averagePace,
+            route: pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+            context: context,
+            activeDisputeTerritoryId: _activeDisputeTerritoryId, // se você tiver
+          );
+
+
+          debugPrint("[TERRITORY] Capturados nesta corrida: $capturedInThisRun");
+        } catch (e) {
+          debugPrint("[TERRITORY] Erro no checkTerritoryDominance: $e");
+        }
+      }
+
+      // 🗺️ Cria NOVO território se:
+// - não está em modo livre
+// - tem área nova válida
+// - e NÃO cruzou nenhum território existente (>=60%)
+// (independente de ter capturado outros territórios)
+      if (!_isFreeMode && pathSnapshot.length >= 3 && _areaCaptured > 0) {
+        final route = pathSnapshot
+            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+            .toList();
+
+        final crossedExisting = await TerritoryService().crossedAnyTerritory(route: route);
+
+        if (!crossedExisting) {
+          await FirebaseFirestore.instance.collection('territorios').add({
+            'userId': user.uid,
+            'points': pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+            'area': _areaCaptured,
+            'capturedAt': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          await _loadTerritories();
+          debugPrint("🆕 [TERRITORY] Novo território criado (área livre).");
+        } else {
+          debugPrint("🚫 [TERRITORY] Não criou novo — rota cruzou território existente.");
+        }
+      } else {
+        debugPrint('[TERRITORY] Novo território NÃO criado. free=$_isFreeMode pts=${pathSnapshot.length} area=$_areaCaptured');
+      }
+
+
+      // 🏆 Checa conquistas
       try {
-        // dá um pequeno tempo pra garantir sincronização
         await Future.delayed(const Duration(milliseconds: 600));
-
-        await AchievementService().checkAchievements(
-          runData: runData,
-          context: context,
-        );
+        await AchievementService().checkAchievements(runData: runData, context: context);
       } catch (e) {
         debugPrint('Erro ao verificar conquistas: $e');
       }
 
-// 🏅 XP automático no salvamento
+      // 🏅 XP automático no salvamento (seu sistema de pontos)
       try {
         int baseXP = (distanceKm * 10).floor() + 5;
         double xpMultiplier = 1.0;
@@ -3107,18 +3824,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         final totalXP = (baseXP * xpMultiplier).round();
 
+        final secs = _stopwatch.elapsed.inSeconds;
+        final minutes = (secs / 60).floor();
+
         await GamificationService().addPoints(
           points: totalXP,
           source: "Corrida",
-          description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em ${_timer} min",
+          description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em $minutes min",
           meta: {
             'distanciaKm': distanceKm,
-            'duracao': _timer,
+            'duracaoSeg': secs,
+            'duracaoMin': minutes,
             'calorias': _caloriesBurned,
           },
           context: context,
         );
-
 
         _showXPAnimation("+$totalXP XP");
         await _updateLeaderboard();
@@ -3126,51 +3846,48 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         debugPrint('Erro ao conceder XP no _saveRun: $e');
       }
 
-
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('🏁 Corrida salva com sucesso!')),
         );
         await _applyRunDistanceToActiveChallenges(distanceMeters: distanceMeters);
-        // 🔥 Atualiza visualmente o card de desafio ativo instantaneamente
-        if (_activeChallengeId != null) {
-          final docRef = FirebaseFirestore.instance.collection('posts').doc(_activeChallengeId!);
-          final snapshot = await docRef.get();
-
-          if (snapshot.exists) {
-            final data = snapshot.data();
-            if (data != null && mounted) {
-              setState(() {
-                _activeChallengeData = data;
-                _challengeStream = docRef.snapshots();
-              });
-            }
-          }
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text("🎯 Progresso do desafio atualizado!"),
-                duration: Duration(seconds: 2),
-                backgroundColor: Colors.deepOrangeAccent,
-              ),
-            );
-          }
-        }
-
+        // ... seu bloco do challenge ativo continua aqui
       }
+
+      // ✅ Atualiza mapa no final, se quiser
+      await _loadTerritories();
+
+      final samplesSnapshot = List<Map<String, dynamic>>.from(_runSamples);
+
+      await _saveRunSamples(
+        runRef: runRef,
+        samples: samplesSnapshot,
+      );
+
+      if (context.mounted && !wearMode) {
+
+        _hideLoadingOverlay(context);
+        await Future.delayed(const Duration(milliseconds: 30));
+
+        if (!context.mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corridaModel)),
+        );
+      }
+
+
+
     } catch (e) {
       if (context.mounted && !wearMode) {
-        if (context.mounted) Navigator.pop(context);
+        if (context.mounted) _hideLoadingOverlay(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Erro ao salvar corrida: $e")),
         );
       }
     } finally {
-      // ✅ fecha o loading assim que tudo termina
-      if (context.mounted) Navigator.pop(context);
+      if (context.mounted) _hideLoadingOverlay(context);
       setState(() => loading = false);
 
-      // 🔹 Reseta UI e variáveis
       setState(() {
         _seconds = 0;
         _totalDistance = 0;
@@ -3186,25 +3903,59 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       await _setInitialLocation();
     }
+  }
 
 
-    // 🗺️ Salva território conquistado (somente se NÃO estiver em modo livre)
-    if (!_isFreeMode && pathSnapshot.length >= 3 && _areaCaptured > 0) {
-      await FirebaseFirestore.instance.collection('territorios').add({
-        'userId': user.uid,
-        'points': pathSnapshot
-            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
-            .toList(),
-        'area': _areaCaptured,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
 
-      await _loadTerritories();
-    } else {
-      debugPrint('[TERRITORY] Ignorado: modo livre=$_isFreeMode, pts=${pathSnapshot.length}, area=$_areaCaptured');
+  Future<void> _saveRunSamples({
+    required DocumentReference runRef,
+    required List<Map<String, dynamic>> samples,
+  }) async {
+    if (samples.isEmpty) {
+      debugPrint("⚠️ _saveRunSamples: vazio");
+      return;
     }
 
+    debugPrint("🧪 Salvando ${samples.length} samples em corridas/${runRef.id}/samples");
+
+    final col = runRef.collection('samples');
+    const chunkSize = 450;
+
+    try {
+      for (int i = 0; i < samples.length; i += chunkSize) {
+        final chunk = samples.sublist(i, min(i + chunkSize, samples.length));
+        final batch = FirebaseFirestore.instance.batch();
+
+        for (final s in chunk) {
+          // ✅ SANITIZA: só tipos simples
+          final data = <String, dynamic>{
+            't': (s['t'] as num?)?.toInt() ?? 0,
+            'lat': (s['lat'] as num?)?.toDouble() ?? 0.0,
+            'lng': (s['lng'] as num?)?.toDouble() ?? 0.0,
+            'alt': (s['alt'] as num?)?.toDouble() ?? 0.0,
+            'speedMps': (s['speedMps'] as num?)?.toDouble() ?? 0.0,
+            'speedKmh': (s['speedKmh'] as num?)?.toDouble() ?? 0.0,
+            'distTotalM': (s['distTotalM'] as num?)?.toDouble() ?? 0.0,
+            'createdAt': FieldValue.serverTimestamp(),
+          };
+
+          batch.set(col.doc(), data);
+        }
+
+        await batch.commit();
+        debugPrint("✅ batch commit ok: ${chunk.length} (offset=$i)");
+      }
+
+      debugPrint("🏁 Samples salvos com sucesso!");
+    } catch (e, st) {
+      debugPrint("❌ ERRO salvando samples: $e");
+      debugPrint(st.toString());
+      rethrow; // pra cair no catch do _saveRun
+    }
   }
+
+
+
 
 
   Future<void> _updateLeaderboard() async {
@@ -3525,7 +4276,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         onTap: () async {
           HapticFeedback.lightImpact();
           _showLoadingOverlay(context);
-          await Future.delayed(const Duration(milliseconds: 700));
+          await Future.delayed(const Duration(milliseconds: 300));
           if (!context.mounted) return;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (context.mounted) {
@@ -3770,19 +4521,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   void _showLoadingOverlay(BuildContext context) {
-    // 🎲 Sorteia um dos Lotties
+    // evita abrir 2 vezes
+    if (_overlayOpen) return;
+    _overlayOpen = true;
+
     final lotties = [
       'assets/lottie/running1.json',
       'assets/lottie/running2.json',
     ];
-    final random = Random();
-    final selectedLottie = lotties[random.nextInt(lotties.length)];
+    final selectedLottie = lotties[Random().nextInt(lotties.length)];
 
-    showDialog(
+    showGeneralDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.white.withOpacity(0.55), // fundo escurecido suave
-      builder: (context) {
+      barrierLabel: 'loading',
+      barrierColor: Colors.white.withOpacity(0.55),
+      transitionDuration: const Duration(milliseconds: 180),
+      routeSettings: const RouteSettings(name: _kLoadingRouteName),
+      pageBuilder: (dialogCtx, _, __) {
+        _overlayCtx = dialogCtx;
+
         return Center(
           child: TweenAnimationBuilder<double>(
             tween: Tween(begin: 0, end: 1),
@@ -3824,7 +4582,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // 🔸 Anel de progresso laranja
                             SizedBox(
                               height: 80,
                               width: 80,
@@ -3836,8 +4593,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                 backgroundColor: Colors.white.withOpacity(0.08),
                               ),
                             ),
-
-                            // 🏃‍♂️ Ícone Lottie random
                             Lottie.asset(
                               selectedLottie,
                               height: 90,
@@ -3846,8 +4601,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               repeat: true,
                               animate: true,
                             ),
-
-                            // ✨ brilho pulsante
                             Positioned.fill(
                               child: AnimatedOpacity(
                                 duration: const Duration(seconds: 1),
@@ -3877,8 +4630,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      _overlayOpen = false;
+      _overlayCtx = null;
+    });
   }
+
+
+
+  void _hideLoadingOverlay(BuildContext context) {
+    final nav = Navigator.of(context, rootNavigator: true);
+
+    // popa até remover a rota do overlay, se ela estiver no topo
+    nav.popUntil((route) {
+      // enquanto o topo for o overlay, continua “poppando”
+      return route.settings.name != _kLoadingRouteName;
+    });
+  }
+
 
   void _showPlayerInfo(String name, String? photoUrl, {String? userId}) {
     final currentUser = FirebaseAuth.instance.currentUser!;

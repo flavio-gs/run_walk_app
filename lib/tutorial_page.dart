@@ -705,7 +705,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                 // highlight
                 Positioned(
                   left: pos.dx - 8,
-                  top: pos.dy - 8,
+                  top: pos.dy - 3,
                   width: size.width + 16,
                   height: size.height + 16,
                   child: IgnorePointer(

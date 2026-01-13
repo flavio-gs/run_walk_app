@@ -697,14 +697,33 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   }
 
   // ITEM DO FEED
+  // ITEM DO FEED
   Widget _buildPostItem(DocumentSnapshot post) {
     final data = post.data() as Map<String, dynamic>;
-    final type = data['type'] ?? 'post';
 
-    final authorId = data['authorId'] as String;
     final postId = post.id;
     final postTime =
         (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+    final type = (data['type'] ?? 'post').toString();
+    final authorId = (data['authorId'] ?? '').toString();
+
+    // ✅ TERRITORY BATTLE (VS)
+    if (type == 'territory' &&
+        (data['loserId'] != null || data['previousOwner'] != null)) {
+      return TerritoryBattlePostCard(
+        postId: postId,
+        data: data,
+        postTime: postTime,
+        onComment: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                CommentsPage(postId: postId, postAuthorId: authorId),
+          ),
+        ),
+      );
+    }
 
     return StreamBuilder<DocumentSnapshot>(
       stream:
@@ -717,11 +736,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
         if (type == 'challenge') {
           return ChallengePostCard(
-            postId: post.id,
+            postId: postId,
             data: data,
             currentUserId: _currentUserId,
           );
         }
+
         if (type == 'achievement') {
           return _AchievementPostCard(data: data);
         }
@@ -737,14 +757,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 ? 'video'
                 : (imageUrl != null && imageUrl.isNotEmpty ? 'image' : 'none'));
 
-        final resolvedUrl = resolvedType == 'video'
-            ? (mediaUrl ?? videoUrl)
-            : (mediaUrl ?? imageUrl);
+        final resolvedUrl =
+        resolvedType == 'video' ? (mediaUrl ?? videoUrl) : (mediaUrl ?? imageUrl);
 
         // 🏃‍♂️ resumo da corrida (opcional)
         final hasRun = data['hasRun'] == true;
-        final runSummaryRaw =
-        data['runSummary'] as Map<String, dynamic>?; // pode ser null
+        final runSummaryRaw = data['runSummary'] as Map<String, dynamic>?;
 
         double? distanceKm;
         int? durationSec;
@@ -782,7 +800,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           imageUrl: imageUrl,
           mediaType: resolvedType,
           mediaUrl: resolvedUrl,
-          caption: data['text'],
+          caption: (data['text'] ?? data['title'] ?? '').toString(),
 
           // corrida
           hasRun: hasRun,
@@ -795,8 +813,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           locLat: locLat,
           locLng: locLng,
 
-          onLikeTap: (myReaction) =>
-              _toggleLike(postId, authorId, myReaction),
+          onLikeTap: (myReaction) => _toggleLike(postId, authorId, myReaction),
           onComment: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -808,6 +825,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       },
     );
   }
+
 
   Widget _emptyFeedMessage() {
     return Center(
@@ -2805,3 +2823,406 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 }
+
+class TerritoryBattlePostCard extends StatelessWidget {
+  final String postId;
+  final Map<String, dynamic> data;
+  final DateTime postTime;
+  final VoidCallback onComment;
+
+  const TerritoryBattlePostCard({
+    super.key,
+    required this.postId,
+    required this.data,
+    required this.postTime,
+    required this.onComment,
+  });
+
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+
+  @override
+  Widget build(BuildContext context) {
+    final winnerName = (data['winnerName'] ?? data['authorName'] ?? 'Jogador').toString();
+    final winnerPhoto = (data['winnerPhoto'] ?? data['authorPhoto'] ?? '').toString();
+
+    final loserName = (data['loserName'] ?? 'Jogador').toString();
+    final loserPhoto = (data['loserPhoto'] ?? '').toString();
+
+    final progressRaw = data['progress'];
+    final double progress = (progressRaw is num) ? progressRaw.toDouble().clamp(0.0, 1.0) : 0.0;
+
+    final territoryId = (data['territoryId'] ?? '').toString();
+    final battleTitle = (data['battleTitle'] ?? data['text'] ?? data['title'] ?? '').toString();
+
+    // 🔥 barras estilo luta
+    final double winnerBar = (0.55 + (progress * 0.45)).clamp(0.0, 1.0);
+    final double loserBar = (1.0 - winnerBar).clamp(0.0, 1.0);
+
+    final reactionsCol = FirebaseFirestore.instance
+        .collection('posts')
+        .doc(postId)
+        .collection('reactions');
+
+    final myDoc = reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.35),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // topo
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: kOrange.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: kOrange.withOpacity(0.45)),
+                    ),
+                    child: const Text(
+                      'BATALHA',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: kOrange,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    timeago.format(postTime, locale: 'pt_BR'),
+                    style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+
+            // VS header (fundo gamer)
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.06),
+                    Colors.white.withOpacity(0.02),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: const Border(
+                  top: BorderSide(color: Colors.white10),
+                  bottom: BorderSide(color: Colors.white10),
+                ),
+              ),
+              child: Row(
+                children: [
+                  _fighter(
+                    name: winnerName,
+                    photoUrl: winnerPhoto,
+                    sideLabel: "WIN",
+                    sideColor: Colors.greenAccent,
+                  ),
+                  const SizedBox(width: 10),
+                  _vsCenter(progress: progress),
+                  const SizedBox(width: 10),
+                  _fighter(
+                    name: loserName,
+                    photoUrl: loserPhoto,
+                    sideLabel: "LOSE",
+                    sideColor: Colors.redAccent,
+                    alignRight: true,
+                  ),
+                ],
+              ),
+            ),
+
+            // barras de vida
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+              child: Column(
+                children: [
+                  _hpBar(
+                    label: winnerName,
+                    value: winnerBar,
+                    alignRight: false,
+                  ),
+                  const SizedBox(height: 8),
+                  _hpBar(
+                    label: loserName,
+                    value: loserBar,
+                    alignRight: true,
+                  ),
+                ],
+              ),
+            ),
+
+            // texto gamer
+            if (battleTitle.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
+                child: Text(
+                  battleTitle,
+                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, height: 1.2),
+                ),
+              ),
+
+            // extra info
+            if (territoryId.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
+                child: Text(
+                  'Território: $territoryId',
+                  style: const TextStyle(color: Colors.white38, fontWeight: FontWeight.w700, fontSize: 12),
+                ),
+              ),
+
+            // ações (curtir + comentar)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
+              child: Row(
+                children: [
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: myDoc,
+                    builder: (context, snap) {
+                      final myType =
+                      (snap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
+                      final isLiked = myType == 'like' || myType == 'love';
+
+                      return IconButton(
+                        icon: Icon(
+                          isLiked ? Icons.favorite_rounded : Icons.favorite_border,
+                          color: isLiked ? Colors.redAccent : Colors.white70,
+                        ),
+                        onPressed: () async {
+                          final uid = FirebaseAuth.instance.currentUser!.uid;
+                          final ref = FirebaseFirestore.instance
+                              .collection('posts')
+                              .doc(postId)
+                              .collection('reactions')
+                              .doc(uid);
+
+                          if (myType != null) {
+                            await ref.delete();
+                          } else {
+                            await ref.set({
+                              'type': 'like',
+                              'timestamp': FieldValue.serverTimestamp(),
+                            });
+                          }
+                          HapticFeedback.selectionClick();
+                        },
+                      );
+                    },
+                  ),
+
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('posts')
+                        .doc(postId)
+                        .collection('comments')
+                        .snapshots(),
+                    builder: (context, snap) {
+                      final count = snap.data?.docs.length ?? 0;
+                      return TextButton.icon(
+                        onPressed: onComment,
+                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                        label: Text(
+                          count.toString(),
+                          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vsCenter({required double progress}) {
+    final pct = (progress * 100).round();
+    final isFull = progress >= 0.999;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'VS',
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.9),
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            letterSpacing: 1.6,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Text(
+            isFull ? 'KO!' : '$pct%',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _fighter({
+    required String name,
+    required String photoUrl,
+    required String sideLabel,
+    required Color sideColor,
+    bool alignRight = false,
+  }) {
+    final avatar = CircleAvatar(
+      radius: 22,
+      backgroundColor: Colors.white10,
+      backgroundImage: (photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
+      child: (photoUrl.isEmpty)
+          ? const Icon(Icons.person, color: Colors.white54)
+          : null,
+    );
+
+    final label = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: sideColor.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: sideColor.withOpacity(0.5)),
+      ),
+      child: Text(
+        sideLabel,
+        style: TextStyle(
+          color: sideColor,
+          fontWeight: FontWeight.w900,
+          fontSize: 10,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+
+    final nameText = Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: alignRight ? TextAlign.right : TextAlign.left,
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+    );
+
+    return Expanded(
+      child: Row(
+        mainAxisAlignment: alignRight ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: alignRight
+            ? [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              label,
+              const SizedBox(height: 6),
+              SizedBox(width: 120, child: nameText),
+            ],
+          ),
+          const SizedBox(width: 10),
+          avatar,
+        ]
+            : [
+          avatar,
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              label,
+              const SizedBox(height: 6),
+              SizedBox(width: 120, child: nameText),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _hpBar({
+    required String label,
+    required double value,
+    required bool alignRight,
+  }) {
+    final v = value.clamp(0.0, 1.0);
+    return Row(
+      children: [
+        if (!alignRight)
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
+        Expanded(
+          flex: 2,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: v,
+              minHeight: 10,
+              backgroundColor: Colors.white10,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                alignRight ? Colors.redAccent : Colors.greenAccent,
+              ),
+            ),
+          ),
+        ),
+        if (alignRight)
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+}
+

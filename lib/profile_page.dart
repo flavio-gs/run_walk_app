@@ -11,6 +11,8 @@ import 'package:run_walk_app/points_details_page.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
+import 'package:run_walk_app/territories_gallery_page.dart';
+import 'package:run_walk_app/territory_details_page.dart';
 import 'package:run_walk_app/widgets/achievement_overlay.dart';
 import 'detalhe_corrida_page.dart';
 import 'help_page.dart';
@@ -390,7 +392,7 @@ class _ProfilePageState extends State<ProfilePage> {
           fit: StackFit.expand,
           children: [
             Image.network(
-              coverPhotoURL ?? 'https://images.unsplash.com/photo-1605287449435-3a8d1be9a401?auto=format&fit=crop&w=1200&q=60',
+              coverPhotoURL ?? 'https://play-lh.googleusercontent.com/yf1-mu5GFf-eUu7uyV1GpNwbsPmXNY_J2PFZBjl7tNx6qVL5I_fnOkfSusFmzSZrbRiZu1CwYS2y7La7WQmhpg=w240-h480-rw',
               fit: BoxFit.cover,
             ),
             Container(decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.black.withOpacity(0.55), Colors.transparent], begin: Alignment.bottomCenter, end: Alignment.center))),
@@ -848,6 +850,14 @@ class _StatsTabState extends State<_StatsTab> {
             ],
           ),
 
+          const SizedBox(height: 12),
+
+// 🌍 Territórios dominados
+          _DominatedTerritoriesSection(
+            userId: widget.userId,
+            isOwner: widget.isOwner,
+          ),
+
           const SizedBox(height: 10),
 
           InkWell(
@@ -968,10 +978,20 @@ class _HistoryTab extends StatelessWidget {
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 14),
           itemCount: docs.length,
           itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
+            final doc = docs[index];
+            final data = doc.data() as Map<String, dynamic>;
+
             data['route'] ??= (data['path'] ?? const []);
-            return _RunCard(corrida: RunModel.fromMap(data));
+
+            final corrida = RunModel.fromMap({
+              ...data,
+              'id': doc.id, // ✅ injeta o id aqui
+            });
+
+            return _RunCard(corrida: corrida);
           },
+
+
         );
       },
     );
@@ -1057,3 +1077,211 @@ class _RoutePainter extends CustomPainter {
   }
   @override bool shouldRepaint(covariant CustomPainter old) => false;
 }
+
+class _DominatedTerritoriesSection extends StatelessWidget {
+  final String userId;
+  final bool isOwner;
+
+  const _DominatedTerritoriesSection({
+    required this.userId,
+    required this.isOwner,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final query = FirebaseFirestore.instance
+        .collection('territorios')
+        .where('userId', isEqualTo: userId);
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: query.snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.all(14),
+            child: const Row(
+              children: [
+                Icon(Icons.public, color: Color(0xFFFF6D00), size: 28),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "Carregando territórios...",
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                SizedBox(
+                  height: 16,
+                  width: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final docs = snap.data!.docs;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.public, color: Color(0xFFFF6D00), size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      "Territórios dominados",
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TerritoriesGalleryPage(
+                            userId: userId,
+                            isOwner: isOwner,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text(
+                      "VER TODOS →",
+                      style: TextStyle(
+                        color: Color(0xFFFF6D00),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              if (docs.isEmpty)
+                Text(
+                  isOwner
+                      ? "Você ainda não domina nenhum território. Faça uma corrida e conquiste áreas no mapa 👑"
+                      : "Este usuário ainda não domina nenhum território.",
+                  style: const TextStyle(color: Colors.black54),
+                )
+              else
+                SizedBox(
+                  height: 86,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: docs.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, i) {
+                      final data = docs[i].data() as Map<String, dynamic>;
+                      final territoryId = docs[i].id;
+
+                      final title = (data['customName'] ??
+                          data['name'] ??
+                          data['title'] ??
+                          data['territoryName'] ??
+                          "Território")
+                          .toString();
+
+                      final difficulty = (data['difficulty'] is num)
+                          ? (data['difficulty'] as num).toInt()
+                          : null;
+
+                      final safety = (data['safety'] ?? '').toString();
+
+                      final badge = safety.isNotEmpty
+                          ? (safety == 'safe'
+                          ? 'Tranquilo'
+                          : (safety == 'danger'
+                          ? 'Perigoso'
+                          : safety))
+                          : (difficulty != null ? 'Dificuldade $difficulty/5' : 'Domínio ativo');
+
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TerritoryDetailsPage(
+                                  territoryId: territoryId,
+                                  isOwner: isOwner,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Container(
+                            width: 180,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F7F7),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.black12),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  height: 44,
+                                  width: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF6D00).withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.flag, color: Color(0xFFFF6D00)),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        badge,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.black54,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+
+

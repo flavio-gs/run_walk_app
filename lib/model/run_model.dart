@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class RunModel {
+  final String? id; // 👈 runId do Firestore
   final String userId;
   final DateTime date;
   final double distance; // em metros
@@ -10,6 +11,7 @@ class RunModel {
   final double? pace; // ritmo médio (min/km)
 
   RunModel({
+    this.id,
     required this.userId,
     required this.date,
     required this.distance,
@@ -41,15 +43,22 @@ class RunModel {
     final rawDate = map['date'] ?? map['createdAt'];
     final rawRoute = map['route'] ?? map['path'];
 
-    if (rawDate == null || map['distance'] == null || map['duration'] == null || rawRoute == null) {
+    if (rawDate == null ||
+        map['distance'] == null ||
+        map['duration'] == null ||
+        rawRoute == null) {
       throw Exception('Dados inválidos no documento: $map');
     }
 
+    final distance = (map['distance'] as num).toDouble();
+    final duration = (map['duration'] as num).toInt();
+
     return RunModel(
-      userId: map['userId'] ?? '', // 🔹 garante compatibilidade
+      id: map['id']?.toString(), // ✅ AQUI (doc.id entra por fora)
+      userId: map['userId'] ?? '',
       date: parseDate(rawDate),
-      distance: (map['distance'] as num).toDouble(),
-      duration: (map['duration'] as num).toInt(),
+      distance: distance,
+      duration: duration,
       route: List<Map<String, double>>.from(
         (rawRoute as List).map((p) => {
           'lat': (p['lat'] as num).toDouble(),
@@ -58,10 +67,11 @@ class RunModel {
       ),
       calories: (map['calories'] != null)
           ? (map['calories'] as num).toDouble()
-          : (map['distance'] as num).toDouble() * 0.06,
+          : distance * 0.06,
       pace: (map['pace'] != null)
           ? (map['pace'] as num).toDouble()
-          : ((map['duration'] as num) / 60) / ((map['distance'] as num) / 1000),
+          : ((duration / 60) / (distance / 1000)),
     );
   }
+
 }

@@ -219,7 +219,7 @@ class AchievementService {
     double longestHoldHours = ((runData['longestHoldHours'] ?? 0.0) as num).toDouble();
 
     // Se não veio nada no runData, tenta buscar agregados rápidos do Firestore
-    if (territoriesCaptured == 0 || longestHoldHours == 0.0) {
+    if (territoriesCaptured == 0 || activeTerritories == 0 || longestHoldHours == 0.0) {
       try {
         final agg = await _firestore.collection('users').doc(user.uid).get();
         final data = (agg.data() ?? {})['territories'] as Map<String, dynamic>?;
@@ -303,7 +303,7 @@ class AchievementService {
         await Future.delayed(const Duration(milliseconds: 300)); // evita sobreposição com popup
         await GamificationService().addPoints(
           points: 100, // 💰 cada conquista dá 100 pontos
-          source: 'achievement',
+          source: 'Conquista',
           description: 'Desbloqueou a conquista ${ach['title']}',
           context: context,
         );
@@ -513,6 +513,75 @@ class AchievementService {
 
     debugPrint("[XP] +$xpGanho XP por $source | Total: ${totalXP.toStringAsFixed(1)} | Nível: $level");
   }
+
+  Future<void> removeXPForUser(
+      String targetUserId,
+      double xpPerdido, {
+        String source = 'territory_loss',
+        String? description,
+        BuildContext? context, // só faz sentido se o targetUserId for o user logado
+      }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 🔹 tenta ler XP local (só funciona pro user logado)
+    final me = _auth.currentUser;
+    bool isMe = (me != null && me.uid == targetUserId);
+
+    double totalXP;
+
+    if (isMe) {
+      totalXP = prefs.getDouble('total_xp_${targetUserId}') ?? 0.0;
+    } else {
+      // ✅ Para outro usuário, usa Firestore como fonte de verdade
+      final snap = await _firestore.collection('users').doc(targetUserId).get();
+      totalXP = ((snap.data()?['xp'] ?? 0) as num).toDouble();
+    }
+
+    totalXP -= xpPerdido;
+    if (totalXP < 0) totalXP = 0;
+
+    final newLevel = _calculateLevel(totalXP);
+
+    // ✅ Atualiza local somente se for o usuário logado
+    if (isMe) {
+      await prefs.setDouble('total_xp_${targetUserId}', totalXP);
+
+      final oldLevel = prefs.getInt('user_level_${targetUserId}') ?? newLevel;
+      if (newLevel < oldLevel) {
+        await prefs.setInt('user_level_${targetUserId}', newLevel);
+
+        if (context != null && context.mounted) {
+          await showAchievementPopup(
+            context,
+            title: 'Você foi rebaixado para o nível $newLevel 😞',
+            icon: '⬇️',
+          );
+          _showSnack(context, "⚠️ Você perdeu XP e caiu para o nível $newLevel.");
+        }
+      }
+    }
+
+    // ✅ Atualiza Firestore SEMPRE
+    await _firestore.collection('users').doc(targetUserId).set({
+      'xp': totalXP,
+      'level': newLevel,
+    }, SetOptions(merge: true));
+
+    // histórico do alvo
+    await _firestore
+        .collection('users')
+        .doc(targetUserId)
+        .collection('xp_history')
+        .add({
+      'amount': -xpPerdido,
+      'source': source,
+      'description': description ?? "Perda de XP",
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint("[XP] 🔻 -$xpPerdido XP (user=$targetUserId) | Total: ${totalXP.toStringAsFixed(1)} | Nível: $newLevel");
+  }
+
 
   Future<void> removeXP(
       double xpPerdido, {
