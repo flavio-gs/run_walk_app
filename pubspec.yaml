@@ -49,6 +49,7 @@ dependencies:
   # Localização e GPS
   location: ^5.0.3
   geolocator: ^10.1.0
+  flutter_geo_hash: ^0.0.6
 
   introduction_screen: ^3.1.12
 
@@ -75,8 +76,10 @@ dependencies:
   lottie: ^3.1.0
 
   share_plus: ^10.0.2
+  qr_flutter: ^4.1.0
   model_viewer_plus: ^1.9.1
   flutter_launcher_icons: ^0.14.4
+
 
 dev_dependencies:
   flutter_test:

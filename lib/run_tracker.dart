@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -22,20 +21,22 @@ import 'dart:math';
 import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
-import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/weather_service.dart';
+import 'package:run_walk_app/territory_danger_map_page.dart';
 import 'UI/territory_toggle.dart';
 import 'controller/territory_controller.dart';
 import 'enums/territory_mode.dart';
 import 'model/run_model.dart';
-
-
-
 import 'detalhe_corrida_page.dart';
 import 'widgets/main_scaffold.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
 
-// Som (apenas Wear OS usará)
-import 'package:audioplayers/audioplayers.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+
+import 'package:cloud_firestore/cloud_firestore.dart' as fs;
+
 
 
 
@@ -71,6 +72,136 @@ final List<Map<String, String>> preRunPhrases = [
     "audio": "audio/pre_run_7.mp3"
   },
 ];
+
+class SimpleGeoHash {
+  static const _base32 = '0123456789bcdefghjkmnpqrstuvwxyz';
+  static final _decodeMap = {
+    for (int i = 0; i < _base32.length; i++) _base32[i]: i
+  };
+
+  String encode(double lat, double lng, {int precision = 9}) {
+    double minLat = -90, maxLat = 90;
+    double minLng = -180, maxLng = 180;
+
+    final sb = StringBuffer();
+    bool evenBit = true;
+    int bit = 0;
+    int ch = 0;
+
+    while (sb.length < precision) {
+      if (evenBit) {
+        final mid = (minLng + maxLng) / 2;
+        if (lng >= mid) {
+          ch |= 1 << (4 - bit);
+          minLng = mid;
+        } else {
+          maxLng = mid;
+        }
+      } else {
+        final mid = (minLat + maxLat) / 2;
+        if (lat >= mid) {
+          ch |= 1 << (4 - bit);
+          minLat = mid;
+        } else {
+          maxLat = mid;
+        }
+      }
+
+      evenBit = !evenBit;
+
+      if (bit < 4) {
+        bit++;
+      } else {
+        sb.write(_base32[ch]);
+        bit = 0;
+        ch = 0;
+      }
+    }
+
+    return sb.toString();
+  }
+
+  /// aproximação: escolhe o tamanho do geohash conforme raio
+  int precisionForRadius(double radiusMeters) {
+    if (radiusMeters <= 20) return 8;
+    if (radiusMeters <= 76) return 7;
+    if (radiusMeters <= 610) return 6;
+    if (radiusMeters <= 2400) return 5;
+    if (radiusMeters <= 20000) return 4;
+    if (radiusMeters <= 78000) return 3;
+    if (radiusMeters <= 630000) return 2;
+    return 1;
+  }
+
+  /// retorna 9 hashes (centro + 8 vizinhos)
+  List<String> neighbors9(String hash) {
+    final n = _neighbor(hash, 'n');
+    final s = _neighbor(hash, 's');
+    final e = _neighbor(hash, 'e');
+    final w = _neighbor(hash, 'w');
+
+    final ne = _neighbor(n, 'e');
+    final nw = _neighbor(n, 'w');
+    final se = _neighbor(s, 'e');
+    final sw = _neighbor(s, 'w');
+
+    return [hash, n, s, e, w, ne, nw, se, sw].toSet().toList();
+  }
+
+  /// bounds tipo geofire: [start, end] usando "~" como char final alto
+  List<List<String>> queryBounds(LatLng center, double radiusMeters) {
+    final p = precisionForRadius(radiusMeters);
+    final h = encode(center.latitude, center.longitude, precision: p);
+    final hashes = neighbors9(h);
+
+    return hashes.map((x) => [x, '$x~']).toList();
+  }
+
+  // --- neighbor internals (tabela padrão geohash) ---
+  static const _neighbors = {
+    'n': {
+      'even': 'p0r21436x8zb9dcf5h7kjnmqesgutwvy',
+      'odd':  'bc01fg45238967deuvhjyznpkmstqrwx'
+    },
+    's': {
+      'even': '14365h7k9dcfesgujnmqp0r2twvyx8zb',
+      'odd':  '238967debc01fg45kmstqrwxuvhjyznp'
+    },
+    'e': {
+      'even': 'bc01fg45238967deuvhjyznpkmstqrwx',
+      'odd':  'p0r21436x8zb9dcf5h7kjnmqesgutwvy'
+    },
+    'w': {
+      'even': '238967debc01fg45kmstqrwxuvhjyznp',
+      'odd':  '14365h7k9dcfesgujnmqp0r2twvyx8zb'
+    },
+  };
+
+  static const _borders = {
+    'n': {'even': 'prxz',     'odd': 'bcfguvyz'},
+    's': {'even': '028b',     'odd': '0145hjnp'},
+    'e': {'even': 'bcfguvyz', 'odd': 'prxz'},
+    'w': {'even': '0145hjnp', 'odd': '028b'},
+  };
+
+  String _neighbor(String hash, String dir) {
+    hash = hash.toLowerCase();
+    final last = hash[hash.length - 1];
+    final type = (hash.length % 2 == 0) ? 'even' : 'odd';
+    final base = hash.substring(0, hash.length - 1);
+
+    final border = _borders[dir]![type]!;
+    final neighbor = _neighbors[dir]![type]!;
+
+    final newBase = (base.isNotEmpty && border.contains(last))
+        ? _neighbor(base, dir)
+        : base;
+
+    final lastIndex = neighbor.indexOf(last);
+    return newBase + _base32[lastIndex];
+  }
+}
+
 
 class Character3D extends StatelessWidget {
   final double bearing;
@@ -293,17 +424,13 @@ class RunTrackingPage extends StatefulWidget {
 
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin {
-  List<LatLng> _recordedRoute = [];
 
   final TerritoryController _territoryController =
   TerritoryController(
     currentUserId: FirebaseAuth.instance.currentUser!.uid,
   );
 
-
   StreamSubscription<QuerySnapshot>? _territoriesSub;
-  int _territoryEpoch = 0;
-
 
 
   // ✅ Token para cancelar "carregamentos antigos" (async) quando trocar de modo
@@ -330,8 +457,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   bool _mapReady = false;
   bool _followUser = true; // 🔓 controla se o mapa deve seguir automaticamente
-  bool _isProgrammaticCameraMove = false; // 👈 controla se o movimento é automático
-  bool _userIsMovingMap = false;
+
 
   Map<String, dynamic>? _activeChallenge;
   String? _activeChallengeId;
@@ -376,12 +502,46 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   bool _overlayOpen = false;
   BuildContext? _overlayCtx;
 
+  bool _navigatingToDetails = false;
+
+
   static const String _kLoadingRouteName = '__loading_overlay__';
 
   int _lastSampleSecond = -999;
 
   bool _savingRun = false;
 
+  final _geo = SimpleGeoHash();
+
+  StreamSubscription<Position>? _posSub;
+
+// em vez de 1 listener, agora serão vários (um por bound)
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _territoryBoundsSubs = [];
+
+// buffer/merge dos docs vindos de múltiplos listeners
+  final Map<String, DocumentSnapshot<Map<String, dynamic>>> _territoryDocsById = {};
+
+// para evitar reload a cada micro-movimento
+  LatLng? _lastQueryCenter;
+
+  bool _territoryPaused = false;
+
+// reaplica SEM consultar banco (instantâneo)
+  void _reapplyTerritoryCacheToMap() {
+    // ✅ polígonos: mantém o mesmo Set final (não reatribui)
+    _territoryController.territoryPolygons
+      ..clear()
+      ..addAll(_polygonsByTerritory.values);
+
+    // ✅ markers: se você guarda tudo em _markers, aqui você re-insere os de owner do cache
+    // (se _addTerritoryOwnerMarker já coloca no _markers, então você precisa ter cache de Marker pronto)
+    // Se você NÃO tem marker pronto no cache, deixa só polygons por enquanto.
+    // Exemplo se tiver Marker pronto:
+    for (final m in _ownerMarkersByTerritory.values) {
+      _markers.removeWhere((x) => x.markerId == m.markerId);
+      _markers.add(m);
+    }
+  }
 
   void _clearDisputeMarker() {
     _markers.removeWhere((m) =>
@@ -390,6 +550,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
     _activeDisputeTerritoryId = null;
   }
+
+  Future<void> _cancelTerritoryBoundsSubs() async {
+    for (final s in _territoryBoundsSubs) {
+      await s.cancel();
+    }
+    _territoryBoundsSubs.clear();
+    _territoryDocsById.clear();
+  }
+
 
 
   Future<BitmapDescriptor> _createVsDisputeIcon({
@@ -1337,132 +1506,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       await _updateMarker();
 
       if (!isWearOS && _followUser && _mapReady) {
-        _isProgrammaticCameraMove = true;
         await _googleMapController?.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(target: _currentPosition, zoom: 17),
           ),
         );
         Future.delayed(const Duration(milliseconds: 300), () {
-          _isProgrammaticCameraMove = false;
         });
       }
 
     } catch (e) {
       setState(() => _loadingLocation = false);
     }
-  }
-
-
-
-  Future<void> _loadSavedRuns() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final runs = await FirebaseFirestore.instance
-          .collection('corridas')
-          .orderBy('createdAt', descending: true)
-          .get();
-
-      // 🗺️ Carrega todos os territórios para saber quem é o dono atual
-      final territoriesSnap =
-      await FirebaseFirestore.instance.collection('territorios').get();
-
-      final territories = territoriesSnap.docs.map((d) {
-        final data = d.data();
-        final points = (data['points'] as List)
-            .map((p) => LatLng((p['lat'] as num).toDouble(),
-            (p['lng'] as num).toDouble()))
-            .toList();
-        return {
-          'id': d.id,
-          'ownerId': data['userId'],
-          'points': points,
-        };
-      }).toList();
-
-      final colorPalette = [
-        Colors.orangeAccent,
-        Colors.cyanAccent,
-        Colors.purpleAccent,
-        Colors.amberAccent,
-        Colors.pinkAccent,
-        Colors.lightGreenAccent,
-        Colors.blueAccent,
-      ];
-
-      final userColors = <String, Color>{};
-      int colorIndex = 0;
-
-      for (var doc in runs.docs) {
-        final data = doc.data();
-        final userId = data['userId'];
-
-        if (data['path'] == null || (data['path'] as List).isEmpty) continue;
-
-        // 🔹 Caminho da corrida
-        final path = (data['path'] as List)
-            .map((p) => LatLng(
-          (p['lat'] as num).toDouble(),
-          (p['lng'] as num).toDouble(),
-        ))
-            .toList();
-
-        // 🔹 Descobre se o início da corrida está dentro de um território dominado
-        bool isDominated = false;
-        String? ownerId;
-        for (final t in territories) {
-          if (_pointInPolygon(path.first, t['points'] as List<LatLng>)) {
-            ownerId = t['ownerId'];
-            if (ownerId != null && ownerId != userId) {
-              isDominated = true;
-            }
-            break;
-          }
-        }
-
-        // 🔹 Define cor
-        final baseColor = _baseColorForUser(userId);
-
-        final color = isDominated
-            ? Colors.grey.withOpacity(0.3) // corrida em território perdido
-            : baseColor.withOpacity(0.85);
-
-        // 🔹 Desenha o traçado
-        final polyline = Polyline(
-          polylineId: PolylineId('run_${doc.id}'),
-          points: path,
-          color: color,
-          width: isDominated ? 3 : 6,
-          jointType: JointType.round,
-        );
-        _polylines.add(polyline);
-
-        // 🔹 Só adiciona marcador se o corredor ainda for dono ou está fora de território
-        if (!isDominated) {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(userId)
-              .get();
-
-          final userName = userDoc.data()?['displayName'] ?? 'Jogador';
-          final photoUrl = userDoc.data()?['photoURL'];
-
-          await _addRunMarker(
-            position: path.first,
-            userName: userId == user.uid ? 'Você' : userName,
-            photoUrl: photoUrl,
-            runData: data,
-          );
-        }
-      }
-
-      setState(() {});
-    } catch (e) {
-      debugPrint("Erro ao carregar corridas: $e");
-    }
-
   }
 
   void _syncDisputeMarkers(Set<String> activeTerritoryIds) {
@@ -1873,32 +1928,238 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return BitmapDescriptor.bytes(bytes!.buffer.asUint8List());
   }
 
+  // ==============================
+// TERRITÓRIOS - LOAD / LISTEN / MERGE (COPIAR E COLAR)
+// ==============================
+
+// ✅ caches incrementais (não precisa recarregar tudo toda hora)
+  final Map<String, Marker> _ownerMarkersByTerritory = {};
+  final Map<String, Polygon> _polygonsByTerritory = {};
+  final Map<String, String> _territorySig = {}; // id -> assinatura (pra saber se mudou visualmente)
+
+// ✅ loading banner
+  bool _loadingTerritoryMarkers = false;
+  int _markersDone = 0;
+  int _markersTotal = 0;
+
+// ✅ token pra descartar merges antigos (quando troca modo, muda centro, etc)
+  int _mergeToken = 0;
+
+
+// ==============================
+// LOAD PRINCIPAL
+// ==============================
   Future<void> _loadTerritories() async {
-    // ✅ sempre cancela o listener anterior
+    // ✅ cancela listeners antigos
     await _territoriesSub?.cancel();
     _territoriesSub = null;
 
-    // ✅ se estiver em modo livre: limpa e sai
+    await _posSub?.cancel();
+    _posSub = null;
+
+    await _cancelTerritoryBoundsSubs();
+
+    // ✅ modo livre: limpa e sai
     if (_territoryController.mode == MapTerritoryMode.livre) {
+      _territoryDocsById.clear();
+      _ownerMarkersByTerritory.clear();
+      _polygonsByTerritory.clear();
+      _territorySig.clear();
+
       _territories.clear();
       _territoryPolygons.clear();
       _polygons.clear();
       _areaCaptured = 0;
       _areaCapturedFormatted = "0 m²";
+
+      // ✅ garante que loading não fica travado
+      _loadingTerritoryMarkers = false;
+      _markersDone = 0;
+      _markersTotal = 0;
+
       if (mounted) setState(() {});
       return;
     }
 
-    _territoriesSub = FirebaseFirestore.instance
-        .collection('territorios')
-        .snapshots()
-        .listen((snap) async {
+    // ✅ força refazer query ao voltar do modo livre
+    _lastQueryCenter = null;
+
+    // ✅ pega posição atual
+    final current = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    const double radiusMeters = 3000;
+
+    // ✅ mostra loading imediato ao entrar no modo territórios
+    _startTerritoryLoadingSoft();
+
+    await _listenTerritoriesInRadius(
+      center: LatLng(current.latitude, current.longitude),
+      radiusMeters: radiusMeters,
+    );
+
+    // ✅ acompanha movimento (só dispara quando andar X metros)
+    _posSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 250, // 🔥 recomendo >= 200
+      ),
+    ).listen((pos) async {
       if (!mounted) return;
 
+      if (_territoryController.mode == MapTerritoryMode.livre) return;
+
+      await _listenTerritoriesInRadius(
+        center: LatLng(pos.latitude, pos.longitude),
+        radiusMeters: radiusMeters,
+      );
+    });
+  }
+
+// banner "soft" (evita travar sem feedback)
+  void _startTerritoryLoadingSoft() {
+    if (!mounted) return;
+    setState(() {
+      _loadingTerritoryMarkers = true;
+      _markersDone = 0;
+      _markersTotal = 0;
+    });
+
+    // fallback: se por algum motivo não vier snapshot, não fica travado
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      if (_territoryController.mode == MapTerritoryMode.livre) return;
+      if (_loadingTerritoryMarkers && _markersTotal == 0) {
+        setState(() {
+          _loadingTerritoryMarkers = false;
+        });
+      }
+    });
+  }
+
+// ==============================
+// LISTEN POR RAIO (GEOHASH BOUNDS)
+// ==============================
+  Future<void> _listenTerritoriesInRadius({
+    required LatLng center,
+    required double radiusMeters,
+  }) async {
+    // ✅ evita recriar listeners se o centro mudou pouco
+    if (_lastQueryCenter != null) {
+      final d = _distMeters(_lastQueryCenter!, center);
+      if (d < 150) return; // só refaz se moveu ~150m
+    }
+
+    _lastQueryCenter = center;
+
+    await _cancelTerritoryBoundsSubs();
+
+    final bounds = _geo.queryBounds(center, radiusMeters);
+
+    // ✅ token novo: merges antigos serão descartados
+    final int myToken = ++_mergeToken;
+
+    for (final b in bounds) {
+      final start = b[0];
+      final end = b[1];
+
+      final sub = FirebaseFirestore.instance
+          .collection('territorios')
+          .orderBy('geohash')
+          .startAt([start])
+          .endAt([end])
+          .snapshots()
+          .listen((snap) async {
+        if (_territoryPaused) return;
+        if (_territoryController.mode == MapTerritoryMode.livre) return;
+        if (!mounted) return;
+        if (myToken != _mergeToken) return; // ✅ listener velho
+
+        bool changed = false;
+
+        // ✅ update incremental (só se mudou algo)
+        for (final ch in snap.docChanges) {
+          final id = ch.doc.id;
+
+          if (ch.type == DocumentChangeType.removed) {
+            if (_territoryDocsById.remove(id) != null) {
+              _territorySig.remove(id);
+              _polygonsByTerritory.remove(id);
+              _ownerMarkersByTerritory.remove(id);
+              changed = true;
+            }
+          } else {
+            _territoryDocsById[id] = ch.doc;
+            changed = true;
+          }
+        }
+
+        if (!changed) return;
+
+        await _applyTerritoryDocsMerged(
+          center: center,
+          radiusMeters: radiusMeters,
+          token: myToken,
+        );
+      });
+
+      _territoryBoundsSubs.add(sub);
+    }
+  }
+
+// ==============================
+// MERGE (SÓ ATUALIZA O QUE MUDOU)
+// ==============================
+  Future<void> _applyTerritoryDocsMerged({
+    required LatLng center,
+    required double radiusMeters,
+    required int token,
+  }) async {
+    if (token != _mergeToken) return;
+    if (_territoryController.mode == MapTerritoryMode.livre) return;
+
+    try {
+      if (mounted) {
+        setState(() {
+          _loadingTerritoryMarkers = true;
+          _markersDone = 0;
+          _markersTotal = 0;
+        });
+      }
+
+      final docs = _territoryDocsById.values.toList();
+      final filtered = <DocumentSnapshot<Map<String, dynamic>>>[];
+
+      // ✅ filtro por distância real
+      for (final d in docs) {
+        final data = d.data();
+        if (data == null) continue;
+
+        final clat = (data['centerLat'] as num?)?.toDouble();
+        final clng = (data['centerLng'] as num?)?.toDouble();
+        if (clat == null || clng == null) continue;
+
+        final dist = _distMeters(center, LatLng(clat, clng));
+        if (dist <= radiusMeters) filtered.add(d);
+      }
+
+      // ✅ remove territórios que saíram do raio
+      final newIds = filtered.map((d) => d.id).toSet();
+      final oldIds = _polygonsByTerritory.keys.toSet();
+      final removedIds = oldIds.difference(newIds);
+
+      for (final id in removedIds) {
+        _polygonsByTerritory.remove(id);
+        _ownerMarkersByTerritory.remove(id);
+        _territorySig.remove(id);
+      }
+
+      // ✅ atualiza lista base de territórios
       _territories
         ..clear()
-        ..addAll(snap.docs.map((d) {
-          final data = d.data();
+        ..addAll(filtered.map((d) {
+          final data = d.data()!;
           final pts = (data['points'] as List? ?? [])
               .map((p) => LatLng(
             (p['lat'] as num).toDouble(),
@@ -1906,57 +2167,79 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           ))
               .toList();
 
-          final disputeObj = _TerritoryDispute.fromMap(data['dispute']);
-
           return _Territory(
             id: d.id,
             ownerId: (data['userId'] ?? '') as String,
             points: pts,
-            dispute: disputeObj, // ✅ agora territory.dispute existe
+            dispute: _TerritoryDispute.fromMap(data['dispute']),
           );
         }));
 
-      // ✅ polígonos de território (seu código)
-      _territoryPolygons
-        ..clear()
-        ..addAll(_territories.map((t) {
-          final fill = _territoryFillForOwner(t.ownerId);
-          final stroke = _territoryStrokeForOwner(t.ownerId);
-          return Polygon(
-            polygonId: PolygonId('territorio_${t.id}'),
-            points: t.points,
-            fillColor: fill,
-            strokeColor: stroke,
-            strokeWidth: 2,
-          );
-        }));
+      final owners = _territories.where((t) => t.ownerId.isNotEmpty).toList();
+      _markersTotal = owners.length;
 
-      // ✅ remove markers antigos e cria markers centralizados pro dono
-      _clearTerritoryOwnerMarkers();
+      // ✅ atualiza polígonos apenas se mudou assinatura
       for (final t in _territories) {
-        if (t.ownerId.isEmpty) continue;
+        final doc = _territoryDocsById[t.id];
+        if (doc == null) continue;
+
+        final data = doc.data();
+        if (data == null) continue;
+
+        final sig = _makeTerritorySig(data);
+        if (_territorySig[t.id] == sig) continue;
+
+        _territorySig[t.id] = sig;
+
+        _polygonsByTerritory[t.id] = Polygon(
+          polygonId: PolygonId('territorio_${t.id}'),
+          points: t.points,
+          fillColor: _territoryFillForOwner(t.ownerId),
+          strokeColor: _territoryStrokeForOwner(t.ownerId),
+          strokeWidth: 2,
+        );
+      }
+
+      // ✅ markers do dono — só cria se não existir
+      for (final t in owners) {
+        if (token != _mergeToken) return;
+
+        if (_ownerMarkersByTerritory.containsKey(t.id)) {
+          _markersDone++;
+          if (mounted) setState(() {});
+          continue;
+        }
+
         await _addTerritoryOwnerMarker(
           territoryId: t.id,
           ownerId: t.ownerId,
           territoryPoints: t.points,
         );
+
+        _markersDone++;
+        if (mounted) setState(() {});
       }
 
-      // ✅ DISPUTAS GLOBAIS: identifica quais territórios estão em disputa
+      // ✅ atualiza controller com cache final
+      _territoryController.territoryPolygons
+        ..clear()
+        ..addAll(_polygonsByTerritory.values);
+
+      // ✅ disputas globais (inalterado)
       final activeDisputes = <String, Map<String, dynamic>>{};
-      for (final d in snap.docs) {
+      for (final d in filtered) {
         final data = d.data();
+        if (data == null) continue;
+
         final dispute = data['dispute'];
-        if (dispute is Map<String, dynamic> && dispute['status'] == 'active') {
+        if (dispute is Map<String, dynamic> &&
+            dispute['status'] == 'active') {
           activeDisputes[d.id] = dispute;
         }
       }
 
-      // ✅ remove markers de disputa que não existem mais
       _syncDisputeMarkers(activeDisputes.keys.toSet());
 
-      // ✅ cria/atualiza markers de disputa ativos
-      // (sem await em setState: faz antes, depois dá 1 setState final)
       for (final entry in activeDisputes.entries) {
         final tid = entry.key;
         final dispute = entry.value;
@@ -1969,9 +2252,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               (x) => x.id == tid,
           orElse: () => const _Territory(id: '', ownerId: '', points: []),
         );
-        if (t.id.isEmpty || t.points.length < 3) continue;
+        if (t.points.length < 3) continue;
 
-        // ⚠️ isso faz fetch de users (ok pra MVP). Depois a gente cacheia.
         await _upsertGlobalDisputeMarker(
           territory: t,
           attackerId: attackerId,
@@ -1980,12 +2262,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
 
       _pruneLoserMarkers();
-      if (mounted) setState(() {});
-    });
-
+    } catch (e) {
+      debugPrint("❌ _applyTerritoryDocsMerged erro: $e");
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _loadingTerritoryMarkers = false;
+      });
+    }
   }
 
 
+// ==============================
+// ASSINATURA DO TERRITÓRIO (DETECTA MUDANÇA VISUAL)
+// ==============================
+  String _makeTerritorySig(Map<String, dynamic> data) {
+    final owner = (data['userId'] ?? '').toString();
+    final pts = (data['points'] as List? ?? []);
+    final ptsLen = pts.length;
+
+    // se você tiver updatedAt no doc, melhor ainda
+    final updated = (data['updatedAt'] ?? data['capturedAt'] ?? data['createdAt'] ?? '').toString();
+
+    // disputa muda ícone/marker? então entra na assinatura também
+    final dispute = data['dispute'];
+    final disputeStatus = (dispute is Map) ? (dispute['status'] ?? '').toString() : '';
+
+    return "$owner|$ptsLen|$updated|$disputeStatus";
+  }
+
+// ==============================
+// DISTÂNCIA
+// ==============================
+  double _distMeters(LatLng a, LatLng b) {
+    const r = 6371000.0;
+    final dLat = (b.latitude - a.latitude) * pi / 180.0;
+    final dLon = (b.longitude - a.longitude) * pi / 180.0;
+
+    final lat1 = a.latitude * pi / 180.0;
+    final lat2 = b.latitude * pi / 180.0;
+
+    final h = sin(dLat / 2) * sin(dLat / 2) +
+        cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
+
+    return 2 * r * atan2(sqrt(h), sqrt(1 - h));
+  }
 
 
   bool _pointInPolygon(LatLng p, List<LatLng> polygon) {
@@ -2179,6 +2500,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _startRun() async {
+    _runFinalized = false;      // ✅ libera salvar novamente
+    _navigatingToDetails = false;
 
     await _loadUserWeight();
 
@@ -2693,152 +3016,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // Wear OS: UI leve, sem Google Map
   // 🕶️ -------- WEAR OS BODY (cronômetro + botão central + métricas) --------
-  Widget _buildWearBody() {
-    final size = MediaQuery.of(context).size;
-    final shortest = size.shortestSide;
-    final scale = (shortest / 390).clamp(0.7, 1.0); // escala adaptável p/ relógios menores
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-
-          alignment: Alignment.center,
-          children: [
-            // Fundo animado sutil
-            IgnorePointer(
-              ignoring: true,
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      Color.fromARGB(100, 0, 143, 200),
-                      Color.fromARGB(40, 14, 60, 112),
-                      Colors.transparent,
-                    ],
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                  ),
-                ),
-              ),
-            ),
-
-
-            // Conteúdo principal
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // ⏱️ Cronômetro centralizado
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Transform.scale(
-                    scale: scale * 0.95,
-                    child: FuturisticChrono(
-                      seconds: _seconds,
-                      fontSize: 48 * scale,
-                    ),
-                  ),
-                ),
-
-
-                // 📊 Métricas
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildMetricWear(Icons.route,
-                        (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                    _buildMetricWear(
-                        Icons.timer, _formatPace(_averagePace), "Ritmo"),
-                  ],
-                ),
-                SizedBox(height: 14 * scale),
-
-                if (_challengeStream != null)
-                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: _challengeStream,
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
-
-                      final data = snapshot.data!.data();
-                      if (data == null) return const SizedBox();
-
-                      final participants = (data['participants'] ?? []) as List;
-                      final userId = FirebaseAuth.instance.currentUser!.uid;
-                      final isAuthor = data['authorId'] == userId;
-
-                      // Se não for participante nem autor, oculta
-                      if (!participants.contains(userId) && !isAuthor) return const SizedBox();
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 25, top: 15),
-                        child: _buildActiveChallengePanel(data, snapshot.data!.id),
-                      );
-                    },
-                  ),
-
-
-
-
-                // ▶️ Botão principal
-
-                GestureDetector(
-                  onTap: _isRunning
-                      ? () async {
-                    _stopRun();
-                    await _saveRun(wearMode: true);
-                  }
-                      : _showPreRunCountdown,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    height: 90 * scale,
-                    width: 90 * scale,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: _isRunning
-                            ? [Colors.redAccent, const Color(0xFFFF6D00)]
-                            : [const Color(0xFF00C853), const Color(0xFFFF6D00)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (_isRunning
-                              ? const Color(0xFFFF3B30)
-                              : const Color(0xFF007AFF))
-                              .withOpacity(0.55),
-                          blurRadius: 25,
-                          spreadRadius: 6,
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      _isRunning ? Icons.stop_rounded : Icons.play_arrow_rounded,
-                      color: Colors.white,
-                      size: 40 * scale,
-                    ),
-                  ),
-                ),
-
-                // 🔴 Estado da corrida
-                const SizedBox(height: 10),
-                Text(
-                  _isRunning ? "Correndo..." : "Toque para começar",
-                  style: TextStyle(
-                    color: _isRunning
-                        ? Colors.redAccent.withOpacity(0.9)
-                        : Colors.white70,
-                    fontSize: 12 * scale,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildActiveChallengePanel(Map<String, dynamic> challenge, String challengeId) {
     final title = challenge['title'] ?? 'Desafio sem nome';
@@ -3211,13 +3389,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               child: TerritoryModeToggle(
                 mode: _territoryController.mode,
                 onChange: (newMode) async {
-                  // se clicar no modo que já está ativo, não faz nada
                   if (newMode == _territoryController.mode) return;
 
-                  // ✅ invalida jobs async antigos (polylines/markers/territories)
                   _invalidateOverlayJobs();
 
-                  // ✅ atualiza o controller (se você usa ele pra mode/territoryPolygons)
                   _territoryController.setMode(
                     newMode,
                     onUpdate: () {
@@ -3226,26 +3401,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   );
 
                   if (newMode == MapTerritoryMode.livre) {
-                    debugPrint("polygonsLocal=${_polygons.length} territoryPolygons=${_territoryPolygons.length}");
-                    // ✅ cancela listener de territórios do RunTrackingPage
-                    await _territoriesSub?.cancel();
-                    _territoriesSub = null;
+                    // ✅ PAUSA (não cancela listeners)
+                    _territoryPaused = true;
 
-                    if (!mounted) return;
-                    setState(() {
-                      _clearMapOverlaysForFreeMode();
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _loadingTerritoryMarkers = false;
+                        _markersDone = 0;
+                        _markersTotal = 0;
+                        _clearMapOverlaysForFreeMode(); // some do mapa
+                      });
+                    }
 
-                    if (!isWearOS) _updateMarker(); // mantém só seu pin
-                  } else {
-                    await _loadTerritories();        // territórios (listener)
-                    await _restoreGlobalOverlays();  // corridas + marcador
-                    if (mounted) setState(() {});
-                    debugPrint("polygonsLocal=${_polygons.length} territoryPolygons=${_territoryPolygons.length}");
-
+                    if (!isWearOS) _updateMarker();
+                    return;
                   }
 
+                  // ==========================
+                  // ✅ VOLTOU PRO TERRITÓRIO/GLOBAL
+                  // ==========================
+
+                  _territoryPaused = false;
+
+                  // ✅ reaplica cache instantâneo (sem loading)
+                  if (mounted) {
+                    setState(() {
+                      _loadingTerritoryMarkers = false;
+                      _markersDone = 0;
+                      _markersTotal = 0;
+                      _reapplyTerritoryCacheToMap();
+                    });
+                  }
+
+                  // ✅ restaura overlays globais (pin/corrida)
+                  await _restoreGlobalOverlays();
+
+                  // ✅ opcional: refresh silencioso (sem banner)
+                  // Só se quiser garantir que pegou mudanças enquanto estava no Livre.
+                  // Não precisa setar loading!
+                  _lastQueryCenter = null;
+                  await _loadTerritories();
+
+                  if (mounted) setState(() {});
                 },
+
+
               ),
             ),
           ),
@@ -3420,10 +3620,52 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+          if (_loadingTerritoryMarkers)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 290, // acima do toggle
+              left: 12,
+              right: 12,
+              child: _buildTerritoryLoadingBanner(),
+            ),
         ],
       ),
     );
   }
+
+  Widget _buildTerritoryLoadingBanner() {
+    final text = (_markersTotal <= 0)
+        ? "Carregando territórios…"
+        : "Carregando marcadores… $_markersDone/$_markersTotal";
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildSlideToStopButton() {
     final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
@@ -3616,7 +3858,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   Widget build(BuildContext context) {
-    return isWearOS ? _buildWearBody() : _buildMobileBody();
+    return _buildMobileBody();
   }
 
   // 🔲 Cards de métricas — branco com texto preto e fonte Adidas
@@ -3660,11 +3902,35 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
+  LatLng _computeCenterFromPoints(List<Map<String, dynamic>> pts) {
+    // média simples (boa o suficiente pro “raio” e muito estável)
+    double lat = 0, lng = 0;
+    for (final p in pts) {
+      lat += (p['lat'] as num).toDouble();
+      lng += (p['lng'] as num).toDouble();
+    }
+    final n = pts.isEmpty ? 1 : pts.length;
+    return LatLng(lat / n, lng / n);
+  }
+
+  String _geohashOf(LatLng c) {
+    final p = _geo.precisionForRadius(250); // ou o raio que você usa no app
+    return _geo.encode(c.latitude, c.longitude, precision: p);
+  }
+
+  bool _runFinalized = false;
 
   // ===== Persistência =====
   Future<void> _saveRun({bool wearMode = false}) async {
-    // ✅ lock real (evita dupla execução e mensagens conflitantes)
+    // ✅ impede dupla execução
     if (_savingRun) return;
+
+    // ✅ impede disparar de novo ao voltar da tela de detalhes (lifecycle/stream/etc)
+    if (_runFinalized) {
+      debugPrint("🚫 _saveRun ignorado: runFinalized=true (aguardando nova corrida)");
+      return;
+    }
+
     _savingRun = true;
 
     try {
@@ -3681,6 +3947,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final elevationGainSnapshot = _elevationGain;
       final minElevationSnapshot = _minElevation;
       final maxElevationSnapshot = _maxElevation;
+
+      final List<String> capturedTerritoryIds = [];
+      final List<String> claimedTerritoryIds = []; // se quiser separar "sem dono"
+      final List<String> newTerritoryIds = [];     // expansões criadas
+
 
       final distanceMeters = distanceSnapshot;
       final distanceKm = distanceMeters / 1000.0;
@@ -3708,20 +3979,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         setState(() => loading = false);
         return;
       }
-
-      // ✅ validação SOMENTE por snapshot
-      if (distanceSnapshot < 10 || positionsSnapshot.length < 2 || durationSnapshot <= 0) {
-        if (context.mounted) _hideLoadingOverlay(context);
-        if (context.mounted && !wearMode) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Corrida muito curta para ser salva.")),
-          );
-        }
-        setState(() => loading = false);
-        return;
-      }
-
-
 
       RunWeather? weather;
       if (lastPos != null) {
@@ -3777,7 +4034,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             route: pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
             context: context,
             activeDisputeTerritoryId: _activeDisputeTerritoryId,
+            onTerritoryCaptured: ({
+              required String territoryId,
+              required String oldUserId,
+              required String newUserId,
+              required double progress,
+            }) async {
+              // ✅ se tinha dono -> foi captura de outro jogador
+              if (oldUserId.isNotEmpty) {
+                capturedTerritoryIds.add(territoryId);
+              } else {
+                // ✅ sem dono -> claim
+                claimedTerritoryIds.add(territoryId);
+              }
+            },
           );
+
+
 
           debugPrint("[TERRITORY] Capturados nesta corrida: $capturedInThisRun");
         } catch (e) {
@@ -3798,14 +4071,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         const int minOutsidePoints = 6;
 
         if (outsideRoute.length >= minOutsidePoints) {
+          final center = _computeCenterFromPoints(
+            outsideRoute.map((e) => Map<String, dynamic>.from(e)).toList(),
+          );
+
+          final geohash = _geohashOf(center);
+
           final terrRef = await FirebaseFirestore.instance.collection('territorios').add({
             'userId': user.uid,
             'points': outsideRoute,
-            'area': _areaCaptured, // se você tiver cálculo real da área fora, melhor ainda
+            'geohash': geohash,
+            'center': GeoPoint(center.latitude, center.longitude), // opcional, mas útil
+            'area': _areaCaptured,
             'capturedAt': FieldValue.serverTimestamp(),
             'createdAt': FieldValue.serverTimestamp(),
-            'type': 'expand', // opcional
+            'type': 'expand',
+
+            // ✅ ESSENCIAIS pro “carregar no raio”
+            'centerLat': center.latitude,
+            'centerLng': center.longitude,
+            'geohash': geohash,
           });
+
+          newTerritoryIds.add(terrRef.id);
 
           await terrRef.collection('ownership').add({
             'previousOwner': null,
@@ -3889,14 +4177,71 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       await _saveRunSamples(runRef: runRef, samples: samplesSnapshot);
 
       if (context.mounted && !wearMode) {
+        // ✅ evita entrar duas vezes
+        if (_navigatingToDetails) return;
+        _navigatingToDetails = true;
+
+        // ✅ a partir daqui: NÃO deixa salvar de novo até o usuário iniciar outra corrida
+        _runFinalized = true;
+
         _hideLoadingOverlay(context);
-        await Future.delayed(const Duration(milliseconds: 30));
+
+        final capturedUnique = capturedTerritoryIds.toSet().toList();
+        final claimedUnique = claimedTerritoryIds.toSet().toList();
+        final newUnique = newTerritoryIds.toSet().toList();
+
+        for (final id in capturedUnique) {
+          await _promptNameTerritory(
+            context: context,
+            territoryId: id,
+            title: "🏴 Você dominou um território! Dê um nome",
+            onlyIfEmpty: false,
+          );
+        }
+
+        for (final id in claimedUnique) {
+          await _promptNameTerritory(
+            context: context,
+            territoryId: id,
+            title: "🗺️ Território conquistado! Como ele vai se chamar?",
+            onlyIfEmpty: true,
+          );
+        }
+
+        for (final id in newUnique) {
+          await _promptNameTerritory(
+            context: context,
+            territoryId: id,
+            title: "✨ Novo território criado! Como ele vai se chamar?",
+            onlyIfEmpty: true,
+          );
+        }
+
         if (!context.mounted) return;
 
-        Navigator.of(context).push(
+        // ✅ IMPORTANTE: aguarda a navegação (evita liberar lock e chamar de novo)
+        await Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corridaModel)),
         );
+
+        if (!mounted) return;
+
+// ✅ 1) garante que o listener existe de novo
+        await _loadTerritories();
+
+// ✅ 2) recria o seu pin/overlays globais (corridas + marcador)
+        await _restoreGlobalOverlays();
+        if (!isWearOS) await _updateMarker();
+
+// ✅ 3) força repaint
+        if (mounted) setState(() {});
+
+        // quando voltar da tela de detalhes, libera
+        _navigatingToDetails = false;
       }
+
+
+
     } catch (e) {
       if (context.mounted && !wearMode) {
         _hideLoadingOverlay(context);
@@ -3919,7 +4264,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           if (!isWearOS) {
             _polylines.clear();
-            _markers.clear();
+
+            // ✅ só limpa markers no modo LIVRE
+            if (_territoryController.mode == MapTerritoryMode.livre) {
+              _markers.clear();
+            }
           }
         });
       }
@@ -3931,7 +4280,64 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+  Future<void> _promptNameTerritory({
+    required BuildContext context,
+    required String territoryId,
+    required String title,
+    bool onlyIfEmpty = true,
+  }) async {
+    // ✅ opcional: só pedir se estiver sem nome
+    if (onlyIfEmpty) {
+      final d = await FirebaseFirestore.instance.collection('territorios').doc(territoryId).get();
+      final existing = (d.data()?['name'] ?? '').toString().trim();
+      if (existing.isNotEmpty) return;
+    }
 
+    final controller = TextEditingController();
+
+    final name = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+          content: TextField(
+            controller: controller,
+            textCapitalization: TextCapitalization.words,
+            maxLength: 26,
+            decoration: const InputDecoration(
+              hintText: "Ex: Reino da Penha",
+              counterText: "",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, null),
+              child: const Text("Pular"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final v = controller.text.trim();
+                if (v.length < 3) return;
+                Navigator.pop(dialogCtx, v);
+              },
+              child: const Text("Salvar"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (name == null) return;
+    final v = name.trim();
+    if (v.length < 3) return;
+
+    await FirebaseFirestore.instance.collection('territorios').doc(territoryId).set({
+      'name': v,
+      'namedAt': FieldValue.serverTimestamp(),
+      'namedBy': FirebaseAuth.instance.currentUser!.uid,
+    }, SetOptions(merge: true));
+  }
 
   Future<void> _saveRunSamples({
     required DocumentReference runRef,
@@ -3979,10 +4385,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       rethrow; // pra cair no catch do _saveRun
     }
   }
-
-
-
-
 
   Future<void> _updateLeaderboard() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -4311,6 +4713,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 context,
                 ownerId,
                 fromTerritory: true,
+                territoryId: territoryId,
               );
             }
           });
@@ -4358,153 +4761,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
     return candidate;
-  }
-
-
-
-  Future<void> _addRunMarker({
-    required LatLng position,
-    required String userName,
-    String? photoUrl,
-    required Map<String, dynamic> runData,
-  }) async {
-    if (isWearOS) return;
-
-    // ✅ snapshot do token atual
-    final int epoch = _overlayEpoch;
-
-    // ✅ se estiver livre, não cria marcador
-    if (_isFreeMode) return;
-
-    // ❗️ANTES de desenhar o marcador, valide o dono do território
-    final runUserId = (runData['userId'] ?? '') as String;
-
-    // Procura se a posição cai em algum território
-    final territory = _territories.firstWhere(
-          (t) => _pointInPolygon(position, t.points),
-      orElse: () => const _Territory(id: '', ownerId: '', points: []),
-    );
-
-    // Se está dentro de um território e o dono NÃO é o dono do marcador → NÃO adiciona
-    if (territory.id.isNotEmpty && territory.ownerId.isNotEmpty && territory.ownerId != runUserId) {
-      // Opcional: log
-      debugPrint("⛔ Marcador de $runUserId bloqueado dentro do território ${territory.id} do dono ${territory.ownerId}");
-      return;
-    }
-
-    try {
-      const double size = 80;
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder);
-      final paint = Paint()..isAntiAlias = true;
-
-      // 🔹 Fundo circular com borda de destaque
-      final center = Offset(size / 2, size / 2);
-      final radius = size / 2;
-
-      // Desenha um contorno (glow externo)
-      final glowPaint = Paint()
-        ..color = const Color(0xFFE66E0F).withOpacity(0.8)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10);
-      canvas.drawCircle(center, radius - 2, glowPaint);
-
-      // 🔹 Tenta carregar a imagem de perfil
-      ui.Image? profileImage;
-      if (photoUrl != null && photoUrl.isNotEmpty) {
-        try {
-          final imageData = await NetworkAssetBundle(Uri.parse(photoUrl)).load("");
-          final bytes = imageData.buffer.asUint8List();
-          profileImage = await decodeImageFromList(bytes);
-        } catch (e) {
-          debugPrint("⚠️ Erro ao carregar foto: $e");
-        }
-      }
-
-      // 🔹 Se não tiver foto, fundo cinza com inicial
-      if (profileImage == null) {
-        paint.color = Colors.grey.shade800;
-        canvas.drawCircle(center, radius - 4, paint);
-
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: userName.isNotEmpty ? userName[0].toUpperCase() : "?",
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          textAlign: TextAlign.center,
-          textDirection: TextDirection.ltr,
-        );
-        textPainter.layout();
-        textPainter.paint(
-          canvas,
-          Offset(center.dx - textPainter.width / 2, center.dy - textPainter.height / 2),
-        );
-      } else {
-        // 🔹 Desenha imagem cortada em círculo
-        final clipPath = Path()..addOval(Rect.fromCircle(center: center, radius: radius - 4));
-        canvas.save();
-        canvas.clipPath(clipPath);
-        paint.shader = ImageShader(
-          profileImage,
-          TileMode.clamp,
-          TileMode.clamp,
-          Matrix4.identity()
-              .scaled(size / profileImage.width, size / profileImage.height)
-              .storage,
-        );
-        canvas.drawCircle(center, radius - 4, paint);
-        canvas.restore();
-      }
-
-      // 🔹 Borda branca
-      paint
-        ..shader = null
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = Colors.white.withOpacity(0.9);
-      canvas.drawCircle(center, radius - 2, paint);
-
-      // 🔹 Finaliza imagem
-      final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
-      final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
-
-      final marker = Marker(
-        markerId: MarkerId("runner_${position.latitude}_${position.longitude}"),
-        position: position,
-        icon: BitmapDescriptor.fromBytes(bytes),
-        anchor: const Offset(0.5, 0.5),
-        zIndex: 9999,
-        onTap: () async {
-          HapticFeedback.lightImpact();
-          _showLoadingOverlay(context);
-          await Future.delayed(const Duration(milliseconds: 700));
-          if (!context.mounted) return;
-
-          final userId = runData['userId'] ?? '';
-          if (userId.isEmpty) {
-            debugPrint("⚠️ userId vazio — card não pode abrir");
-            return;
-          }
-
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) {
-              Navigator.pop(context);
-              _showPlayerCard(context, userId, runData: runData);
-            }
-          });
-        },
-        consumeTapEvents: false,
-      );
-
-      if (!mounted || epoch != _overlayEpoch || _isFreeMode) return;
-      setState(() => _markers.add(marker));
-      _markerGestures[position] = (userName, photoUrl, runData);
-    } catch (e) {
-      debugPrint("❌ Erro ao criar marcador com foto: $e");
-    }
   }
 
   void _pruneLoserMarkers() {
@@ -4674,383 +4930,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     });
   }
 
-
-  void _showPlayerInfo(String name, String? photoUrl, {String? userId}) {
-    final currentUser = FirebaseAuth.instance.currentUser!;
-    final followsRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser.uid)
-        .collection('following');
-
-    bool isFollowing = false;
-    int followersCount = 0;
-    int followingCount = 0;
-
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.6), // fundo levemente escurecido
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            // 🔹 Carrega status de follow e contadores
-            if (userId != null) {
-              followsRef.doc(userId).get().then((doc) {
-                if (doc.exists && !isFollowing) {
-                  setState(() => isFollowing = true);
-                }
-              });
-
-              FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(userId)
-                  .collection('followers')
-                  .get()
-                  .then((snapshot) {
-                setState(() => followersCount = snapshot.size);
-              });
-
-              FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(userId)
-                  .collection('following')
-                  .get()
-                  .then((snapshot) {
-                setState(() => followingCount = snapshot.size);
-              });
-            }
-
-            Future<void> toggleFollow() async {
-              if (userId == null || userId == currentUser.uid) return;
-
-              final targetUserRef =
-              FirebaseFirestore.instance.collection('users').doc(userId);
-              final currentUserRef =
-              FirebaseFirestore.instance.collection('users').doc(currentUser.uid);
-
-              if (isFollowing) {
-                await followsRef.doc(userId).delete();
-                await targetUserRef.collection('followers').doc(currentUser.uid).delete();
-                setState(() {
-                  isFollowing = false;
-                  followersCount = (followersCount > 0) ? followersCount - 1 : 0;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Deixou de seguir o jogador')),
-                );
-              } else {
-                await followsRef.doc(userId).set({'followedAt': Timestamp.now()});
-                await targetUserRef.collection('followers').doc(currentUser.uid).set({
-                  'followedAt': Timestamp.now(),
-                });
-                setState(() {
-                  isFollowing = true;
-                  followersCount += 1;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Agora você segue este jogador')),
-                );
-              }
-            }
-
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
-              shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(25),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(25),
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.12),
-                          Colors.white.withOpacity(0.05),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1.4,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.blueAccent.withOpacity(0.3),
-                          blurRadius: 20,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // 🔹 Avatar + nome + stats
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 40,
-                              backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
-                                  ? NetworkImage(photoUrl)
-                                  : null,
-                              backgroundColor: Colors.white,
-                              child: (photoUrl == null || photoUrl.isEmpty)
-                                  ? const Icon(Icons.person,
-                                  color: Colors.black, size: 40)
-                                  : null,
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: const TextStyle(
-                                      color: Colors.black,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        "$followersCount seguidores",
-                                        style: const TextStyle(
-                                          color: Colors.black12,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Text(
-                                        "$followingCount seguindo",
-                                        style: const TextStyle(
-                                          color: Colors.black12,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 25),
-
-                        // 🔹 Botão de seguir / seguindo
-                        if (userId != null && userId != currentUser.uid)
-                          ElevatedButton.icon(
-                            icon: Icon(
-                              isFollowing
-                                  ? Icons.check_rounded
-                                  : Icons.person_add_alt_1_rounded,
-                              color: Colors.white,
-                            ),
-                            label: Text(
-                              isFollowing ? "Seguindo" : "Seguir",
-                              style: const TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.w600),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              elevation: 0,
-                              backgroundColor: isFollowing
-                                  ? Colors.green.withOpacity(0.8)
-                                  : const Color(0xFF4A90E2).withOpacity(0.8),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 25, vertical: 10),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: toggleFollow,
-                          ),
-
-                        const SizedBox(height: 20),
-
-                        // 🔹 Botão de fechar
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text(
-                            "Fechar",
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showRunDetailsPopup(Map<String, dynamic> runData) {
-    if (isWearOS) return; // dialog é desconfortável no relógio
-
-    final distanceKm = (runData['distance'] / 1000).toStringAsFixed(2);
-    final duration = Duration(seconds: runData['duration'] ?? 0);
-    final timeFormatted =
-        "${duration.inHours.toString().padLeft(2, '0')}:${(duration.inMinutes % 60).toString().padLeft(2, '0')}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}";
-    final calories = runData['calories']?.round() ?? 0;
-    final pace = runData['pace'] ?? 0.0;
-    final date = DateTime.tryParse(runData['endTime'] ?? '') ?? DateTime.now();
-
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 25, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(25),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(25),
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.white.withOpacity(0.12),
-                    Colors.white.withOpacity(0.05),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.3),
-                  width: 1.3,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blueAccent.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 🏁 Título
-                  Text(
-                    "🏁 Corrida registrada",
-                    style: GoogleFonts.poppins(
-                      textStyle: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}",
-                    style: const TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 25),
-
-                  // 📊 Métricas principais
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildGlassMetric(Icons.route, "$distanceKm km"),
-                      _buildGlassMetric(Icons.timer, timeFormatted),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildGlassMetric(Icons.local_fire_department, "$calories kcal"),
-                      _buildGlassMetric(Icons.speed,
-                          "${pace.toStringAsFixed(2)} min/km"),
-                    ],
-                  ),
-
-                  const SizedBox(height: 30),
-
-                  // 🔹 Botão fechar
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    label: const Text(
-                      "Fechar",
-                      style: TextStyle(color: Colors.white, fontSize: 15),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      elevation: 0,
-                      backgroundColor: const Color(0xFFFF6D00).withOpacity(0.9),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 30, vertical: 12),
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  )
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGlassMetric(IconData icon, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: [
-            Colors.white.withOpacity(0.10),
-            Colors.white.withOpacity(0.04),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: Colors.deepOrangeAccent, size: 26),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              color: Colors.deepOrangeAccent,
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<Map<String, dynamic>> _getPlayerStats(String userId) async {
     try {
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
@@ -5082,15 +4961,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
-  void _showPlayerCard(
+  Future<void> _showPlayerCard(
       BuildContext context,
       String userId, {
         Map<String, dynamic>? runData,
         bool fromTerritory = false,
+        String? territoryId,
       }) async {
     runData ??= const <String, dynamic>{};
 
-    debugPrint("📊 Abrindo card para $userId | fromTerritory=$fromTerritory | keys=${runData.keys}");
+    debugPrint(
+      "📊 Abrindo card para $userId | fromTerritory=$fromTerritory | keys=${runData.keys}",
+    );
 
     final stats = await _getPlayerStats(userId);
     if (stats.isEmpty) {
@@ -5098,12 +4980,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return;
     }
 
-    // --- prepara métricas da corrida selecionada (só se não for território) ---
-    final distanceKm = ((runData['distance'] ?? 0) / 1000).toStringAsFixed(2);
-    final durationSec = (runData['duration'] ?? 0) as int;
-    final pace = (runData['pace'] ?? 0.0) as double;
-    final calories = (runData['calories'] ?? 0).round();
-    final when = DateTime.tryParse(runData['endTime'] ?? '') ?? DateTime.now();
+    // ✅ só mantém "when" se você ainda quiser mostrar a data (opcional)
+    final when = DateTime.tryParse((runData['endTime'] ?? '').toString()) ?? DateTime.now();
+
+    Map<String, dynamic>? territory;
+    Map<String, dynamic>? conquestRun;
 
     String _fmt2(int n) => n.toString().padLeft(2, '0');
     String _fmtDuration(int s) => "${_fmt2(s ~/ 3600)}:${_fmt2((s % 3600) ~/ 60)}:${_fmt2(s % 60)}";
@@ -5114,7 +4995,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       return "${_fmt2(m)}:${_fmt2(s)}";
     }
 
-    // --- follow state (para botão seguir + contadores) ---
+    // --- follow state (botão seguir + contadores) ---
     final currentUser = FirebaseAuth.instance.currentUser!;
     final followsRef = FirebaseFirestore.instance
         .collection('users')
@@ -5125,22 +5006,28 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     int followersCount = 0;
     int followingCount = 0;
 
-    // pré-carrega status/contadores
     try {
       final doc = await followsRef.doc(userId).get();
       isFollowing = doc.exists;
 
       final followersSnap = await FirebaseFirestore.instance
-          .collection('users').doc(userId).collection('followers').get();
+          .collection('users')
+          .doc(userId)
+          .collection('followers')
+          .get();
       followersCount = followersSnap.size;
 
       final followingSnap = await FirebaseFirestore.instance
-          .collection('users').doc(userId).collection('following').get();
+          .collection('users')
+          .doc(userId)
+          .collection('following')
+          .get();
       followingCount = followingSnap.size;
     } catch (_) {}
 
     Future<void> toggleFollow(StateSetter setStateDialog) async {
-      if (userId == currentUser.uid) return; // não segue a si mesmo
+      if (userId == currentUser.uid) return;
+
       final targetRef = FirebaseFirestore.instance.collection('users').doc(userId);
 
       if (isFollowing) {
@@ -5172,7 +5059,39 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     }
 
-    // --- dialog central com efeito glass ---
+    // --- se veio de território: carrega dados do território + corrida da conquista ---
+    if (fromTerritory && territoryId != null) {
+      final terrDoc = await FirebaseFirestore.instance.collection('territorios').doc(territoryId).get();
+      territory = terrDoc.data();
+
+      final ownSnap = await FirebaseFirestore.instance
+          .collection('territorios')
+          .doc(territoryId)
+          .collection('ownership')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .get();
+
+      if (ownSnap.docs.isNotEmpty) {
+        final own = ownSnap.docs.first.data();
+        conquestRun = {
+          'distance': (own['distance'] ?? 0),
+          'duration': (own['duration'] ?? 0),
+          'pace': (own['pace'] ?? 0.0),
+          'calories': (own['calories'] ?? 0),
+          'endTime': (own['timestamp'] is Timestamp)
+              ? (own['timestamp'] as Timestamp).toDate().toIso8601String()
+              : '',
+        };
+
+        final runId = (own['runId'] ?? '').toString();
+        if (runId.isNotEmpty) {
+          final runDoc = await FirebaseFirestore.instance.collection('corridas').doc(runId).get();
+          if (runDoc.exists) conquestRun = runDoc.data();
+        }
+      }
+    }
+
     await showGeneralDialog(
       context: context,
       barrierColor: Colors.black54,
@@ -5185,6 +5104,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             final screenHeight = MediaQuery.of(context).size.height;
             final screenWidth = MediaQuery.of(context).size.width;
 
+            final terrName = (territory?['name'] ?? territory?['customName'] ?? 'Território').toString();
+            final difficulty = (territory?['difficulty'] ?? 1);
+            final safety = (territory?['safety'] ?? 'unknown').toString();
+
+            final dangerRaw = (territory?['dangerPoints'] as List?) ?? const [];
+            final dangerPoints = dangerRaw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+
+            String safetyLabel(String s) {
+              if (s == 'danger') return 'Perigoso';
+              if (s == 'safe') return 'Seguro';
+              return 'Desconhecido';
+            }
+
             return Center(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
@@ -5192,18 +5124,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   child: Container(
                     width: screenWidth * 0.9,
-                    constraints: BoxConstraints(
-                      maxHeight: screenHeight * 0.6, // ⛔ impede que ultrapasse a tela
-                    ),
+                    constraints: BoxConstraints(maxHeight: screenHeight * 0.6),
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.5),
                       border: Border.all(color: Colors.white),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.white
-                        ),
-                      ],
+                      boxShadow: const [BoxShadow(color: Colors.white)],
                     ),
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
@@ -5211,11 +5137,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // 🔹 Cabeçalho com botão Fechar no canto superior direito
+                          // 🔹 Cabeçalho
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const SizedBox(width: 40), // mantém alinhamento do avatar
+                              const SizedBox(width: 40),
                               Text(
                                 "Perfil do Jogador",
                                 style: GoogleFonts.poppins(
@@ -5240,7 +5166,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                 alignment: Alignment.center,
                                 clipBehavior: Clip.none,
                                 children: [
-                                  // Avatar levemente menor
                                   Positioned(
                                     top: 5,
                                     child: CircleAvatar(
@@ -5254,8 +5179,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                           : null,
                                     ),
                                   ),
-
-                                  // Moldura animada (Lottie)
                                   SizedBox(
                                     height: 85,
                                     width: 150,
@@ -5267,7 +5190,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                   ),
                                 ],
                               ),
-
                               const SizedBox(width: 16),
                               Expanded(
                                 child: Column(
@@ -5278,18 +5200,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                       child: InkWell(
                                         borderRadius: BorderRadius.circular(8),
                                         onTap: () {
-                                          Navigator.pop(context); // fecha o card primeiro (opcional)
+                                          Navigator.pop(context);
                                           Navigator.push(
                                             context,
-                                            MaterialPageRoute(
-                                              builder: (_) => ProfilePage(userId: userId),
-                                            ),
+                                            MaterialPageRoute(builder: (_) => ProfilePage(userId: userId)),
                                           );
                                         },
                                         child: Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 2), // aumenta área clicável
+                                          padding: const EdgeInsets.symmetric(vertical: 2),
                                           child: Text(
-                                            stats['displayName'],
+                                            (stats['displayName'] ?? 'Jogador').toString(),
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 1,
                                             style: GoogleFonts.poppins(
@@ -5301,8 +5221,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                         ),
                                       ),
                                     ),
-
-
                                     const SizedBox(height: 6),
                                     Row(
                                       children: [
@@ -5310,7 +5228,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                         const SizedBox(width: 6),
                                         Text(
                                           "${(stats['xp'] as num).toStringAsFixed(0)} XP • Nível ${stats['level']}",
-
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.poppins(
                                             color: Colors.black87,
@@ -5328,7 +5245,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                           const SizedBox(height: 20),
 
-                          // 👥 Seguidores / seguindo + botão seguir
+                          // ✅ Seguidores/seguindo + BOTÃO SEGUIR (sempre disponível)
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -5356,14 +5273,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                   ),
                                   style: ElevatedButton.styleFrom(
                                     elevation: 0,
-                                    backgroundColor: isFollowing
-                                        ? const Color(0xFFFF6D00)
-                                        : Colors.black,
-                                    padding:
-                                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
+                                    backgroundColor: isFollowing ? const Color(0xFFFF6D00) : Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                   ),
                                   onPressed: () => toggleFollow(setStateDialog),
                                 ),
@@ -5373,17 +5285,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           const SizedBox(height: 24),
 
                           // 🏅 Conquistas recentes
-                          if ((stats['achievements'] as List).isNotEmpty)
+                          if ((stats['achievements'] as List?)?.isNotEmpty == true)
                             Wrap(
                               alignment: WrapAlignment.center,
                               spacing: 10,
                               runSpacing: 8,
                               children: (stats['achievements'] as List)
-                                  .map<Widget>((icon) => AnimatedScale(
-                                scale: 1.08,
-                                duration: const Duration(milliseconds: 400),
-                                child: Text(icon, style: const TextStyle(fontSize: 28)),
-                              ))
+                                  .map<Widget>(
+                                    (icon) => AnimatedScale(
+                                  scale: 1.08,
+                                  duration: const Duration(milliseconds: 400),
+                                  child: Text(icon.toString(), style: const TextStyle(fontSize: 28)),
+                                ),
+                              )
                                   .toList(),
                             )
                           else
@@ -5396,56 +5310,77 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               ),
                             ),
 
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 16),
 
-                          if (!fromTerritory) ...[
-                            // 📊 NOVA SEÇÃO DE MÉTRICAS — organizada em GRID simétrica
+                          // ✅ Se veio de território, mantém card do território + métricas da conquista
+                          if (fromTerritory) ...[
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                              child: GridView.count(
-                                crossAxisCount: 2,
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                mainAxisSpacing: 12,
-                                crossAxisSpacing: 12,
-                                children: [
-                                  _buildMetricCard(Icons.route, "$distanceKm km", "Distância"),
-                                  _buildMetricCard(Icons.timer, _fmtDuration(durationSec), "Tempo"),
-                                  _buildMetricCard(Icons.local_fire_department, "$calories kcal", "Calorias"),
-                                  _buildMetricCard(Icons.speed, "${_fmtPace(pace)} min/km", "Ritmo"),
-                                ],
-                              ),
-                            ),
-                          ] else ...[
-                            // 🏰 Versão quando o card foi aberto pelo território
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.25),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(color: Colors.white.withOpacity(0.7)),
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(Icons.shield, color: Colors.black87),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    "Dono do território",
-                                    style: GoogleFonts.poppins(
-                                      color: Colors.black87,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.public, color: Colors.black87),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          terrName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.black87,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      _pill("Dificuldade: $difficulty", Icons.trending_up),
+                                      _pill("Segurança: ${safetyLabel(safety)}", Icons.shield),
+                                      _pill("Pontos: ${dangerPoints.length}", Icons.warning_amber_rounded),
+                                    ],
+                                  ),
+                                  if (dangerPoints.isNotEmpty) ...[
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        icon: const Icon(Icons.map_outlined),
+                                        label: const Text("Ver pontos de atenção no mapa"),
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => TerritoryDangerMapPage(
+                                                territoryName: terrName,
+                                                points: dangerPoints,
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
                           ],
 
-
+                          // ✅ (Opcional) data — remova se não quiser mais mostrar nada de corrida aqui
                           const SizedBox(height: 10),
-
                           Text(
                             "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
                             style: GoogleFonts.poppins(
@@ -5454,12 +5389,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-
-                          const SizedBox(height: 5),
                         ],
                       ),
                     ),
-
                   ),
                 ),
               ),
@@ -5471,17 +5403,41 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         return FadeTransition(
           opacity: anim1,
           child: ScaleTransition(
-            scale: CurvedAnimation(
-              parent: anim1,
-              curve: Curves.easeOutBack,
-            ),
+            scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
             child: child,
           ),
         );
       },
     );
-
   }
+
+
+  Widget _pill(String text, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.85)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: Colors.black87),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: GoogleFonts.poppins(
+              color: Colors.black87,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Future<void> _applyRunDistanceToActiveChallenges({required double distanceMeters}) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -5534,14 +5490,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
-
-
-  DateTime _getCurrentWeekStart() {
-    final now = DateTime.now();
-    return now.subtract(Duration(days: now.weekday - 1)); // segunda-feira da semana atual
-  }
-
-
 }
 
 Future<BitmapDescriptor> _createUserCircleIcon({
@@ -5569,3 +5517,65 @@ Future<BitmapDescriptor> _createUserCircleIcon({
   final data = await img.toByteData(format: ui.ImageByteFormat.png);
   return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
 }
+
+class MetricCard extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const MetricCard({
+    super.key,
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.85)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 18, color: Colors.black87), // ✅ menor
+          const SizedBox(height: 8),
+
+          // ✅ não deixa o texto “estourar”
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 2),
+
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+

@@ -142,6 +142,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         'city': _cityController.text.trim(),
         'state': _stateController.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
+        'isPro': true,
+        'veterano': true,
       }, SetOptions(merge: true));
 
       await user.updateDisplayName(_displayNameController.text.trim());

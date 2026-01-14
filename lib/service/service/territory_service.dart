@@ -20,6 +20,10 @@ class TerritoryService {
     required double pace,
     required List<Map<String, double>> route,
     BuildContext? context,
+    String? runId,
+    double? distance,
+    int? duration,
+    int? calories,
     String? activeDisputeTerritoryId,
     Future<void> Function({
     required String territoryId,

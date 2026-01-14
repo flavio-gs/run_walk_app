@@ -2943,7 +2943,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                     sideColor: Colors.greenAccent,
                   ),
                   const SizedBox(width: 10),
-                  _vsCenter(progress: progress),
+                  SizedBox(width: 56, child: _vsCenter(progress: progress)),
                   const SizedBox(width: 10),
                   _fighter(
                     name: loserName,
@@ -3148,37 +3148,39 @@ class TerritoryBattlePostCard extends StatelessWidget {
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
     );
 
+    final info = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        label,
+        const SizedBox(height: 6),
+        // ✅ nada de width fixa: ocupa o que der e corta com ellipsis
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 110), // ajuste se quiser
+          child: nameText,
+        ),
+      ],
+    );
+
     return Expanded(
       child: Row(
         mainAxisAlignment: alignRight ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: alignRight
             ? [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              label,
-              const SizedBox(height: 6),
-              SizedBox(width: 120, child: nameText),
-            ],
-          ),
-          const SizedBox(width: 10),
+          // ✅ deixa o texto encolher antes de cortar o avatar
+          Flexible(child: info),
+          const SizedBox(width: 8),
           avatar,
         ]
             : [
           avatar,
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              label,
-              const SizedBox(height: 6),
-              SizedBox(width: 120, child: nameText),
-            ],
-          ),
+          const SizedBox(width: 8),
+          Flexible(child: info),
         ],
       ),
     );
   }
+
 
   Widget _hpBar({
     required String label,

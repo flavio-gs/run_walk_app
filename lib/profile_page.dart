@@ -1130,7 +1130,7 @@ class _DominatedTerritoriesSection extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
