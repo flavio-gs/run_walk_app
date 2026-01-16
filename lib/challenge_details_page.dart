@@ -24,26 +24,74 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
   bool _loading = true;
   bool _participating = false;
   bool _isCreator = false;
-  bool _canJoin = true; 
+  bool _canJoin = true;
 
   late final TabController _tabController;
 
-  Map<String, Map<String, dynamic>> _userMap = {}; 
+  Map<String, Map<String, dynamic>> _userMap = {};
   List<String> _participants = [];
   List<Map<String, dynamic>> _goals = [];
   DateTime? _start, _end;
 
-  Map<String, Map<String, dynamic>> _stats = {};
-  Map<String, List<Map<String, dynamic>>> _ranking = {};
+  // ✅ Fonte de verdade (pós-entrada)
+  Map<String, Map<String, dynamic>> _progressByUser = {};
+  Map<int, String> _firstFinisherByGoal = {}; // goalIndex -> uid
+  String? _championUid;
+
+  List<Map<String, dynamic>> _goalRanking = [];
+
+  bool _joining = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
     _loadAll();
+  }
+
+  bool get _isClosed {
+    final data = _challenge?.data() as Map<String, dynamic>? ?? {};
+    final status = (data['status'] ?? 'active').toString();
+    // fallback: se não tiver status, fecha por data
+    final now = DateTime.now();
+    if (status == 'closed') return true;
+    if (_end != null && _end!.isBefore(now)) return true;
+    return false;
+  }
+
+  Future<void> _closeChallenge() async {
+    if (!_isCreator) return;
+    final ref = _firestore.collection('challenges').doc(widget.challengeId);
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+
+    try {
+      setState(() => _loading = true);
+
+      await ref.set({
+        'status': 'closed',
+        'closedAt': FieldValue.serverTimestamp(),
+        'closedBy': uid,
+      }, SetOptions(merge: true));
+
+      await _loadAll();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Desafio encerrado ✅')),
+      );
+    } catch (e) {
+      debugPrint("Erro ao fechar desafio: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao encerrar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _loadAll() async {
@@ -52,12 +100,16 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
 
       final doc = await _firestore.collection('challenges').doc(widget.challengeId).get();
       if (!doc.exists) {
-        if (mounted) setState(() { _challenge = null; _loading = false; });
+        if (mounted) setState(() {
+          _challenge = null;
+          _loading = false;
+        });
         return;
       }
 
       final data = doc.data()!;
       final uid = _auth.currentUser?.uid;
+
       final participants = List<String>.from(data['participants'] ?? []);
       final goals = List<Map<String, dynamic>>.from(data['goals'] ?? []);
       final start = (data['startDate'] as Timestamp?)?.toDate();
@@ -65,12 +117,13 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
       final createdBy = data['createdBy'] as String?;
       final isPublic = data['isPublic'] ?? true;
 
+      // ✅ fecha automaticamente se acabou (mas só se tiver status e não estiver fechado)
       final now = DateTime.now();
       if (end != null && end.isBefore(now) && (data['status'] ?? 'active') != 'closed') {
-        await _firestore.collection('challenges').doc(widget.challengeId).update({
+        await _firestore.collection('challenges').doc(widget.challengeId).set({
           'status': 'closed',
           'closedAt': Timestamp.fromDate(now),
-        });
+        }, SetOptions(merge: true));
         data['status'] = 'closed';
       }
 
@@ -79,6 +132,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
       _goals = goals;
       _start = start;
       _end = end;
+
       _participating = uid != null && participants.contains(uid);
       _isCreator = uid != null && createdBy == uid;
 
@@ -89,8 +143,8 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
       }
 
       await _loadParticipantProfiles(participants);
-      await _aggregateProgress(participants, start, end, data);
-      _computeRanking();
+      await _loadProgressDocs(participants); // ✅ fonte de verdade
+      _computeRanking(); // ✅ usa progress + champion
 
       if (mounted) setState(() => _loading = false);
     } catch (e) {
@@ -102,10 +156,15 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
   Future<void> _loadParticipantProfiles(List<String> uids) async {
     _userMap.clear();
     if (uids.isEmpty) return;
+
     const chunkSize = 10;
     for (int i = 0; i < uids.length; i += chunkSize) {
       final chunk = uids.sublist(i, min(i + chunkSize, uids.length));
-      final snap = await _firestore.collection('users').where(FieldPath.documentId, whereIn: chunk).get();
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+
       for (final d in snap.docs) {
         final m = d.data();
         _userMap[d.id] = {
@@ -117,112 +176,206 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
     }
   }
 
-  Future<void> _aggregateProgress(List<String> uids, DateTime? start, DateTime? end, Map<String, dynamic>? challengeData) async {
-    _stats.clear();
-    if (uids.isEmpty || start == null || end == null) return;
-    const chunkSize = 10;
-    final startTs = Timestamp.fromDate(start);
-    final endTs = Timestamp.fromDate(end);
-    for (int i = 0; i < uids.length; i += chunkSize) {
-      final chunk = uids.sublist(i, min(i + chunkSize, uids.length));
-      final snap = await _firestore.collection('corridas').where('userId', whereIn: chunk).where('createdAt', isGreaterThanOrEqualTo: startTs).where('createdAt', isLessThanOrEqualTo: endTs).get();
-      for (final uid in chunk) { _stats.putIfAbsent(uid, () => {'km': 0.0, 'xp': 0.0, 'runs': 0, 'steps': 0}); }
-      for (final d in snap.docs) {
-        final m = d.data() as Map<String, dynamic>;
-        final uid = m['userId'] as String?;
-        if (uid == null) continue;
-        final km = (m['distance'] ?? m['distanceKm'] ?? 0).toDouble() / 1000.0;
-        final duration = (m['duration'] ?? 0).toDouble();
-        final calories = (m['calories'] ?? 0).toDouble();
-        double xp = (km * 10) + (calories * 0.2) + (duration / 60);
-        final bucket = _stats[uid]!;
-        bucket['km'] = (bucket['km'] as num) + km;
-        bucket['xp'] = (bucket['xp'] as num) + xp;
-        bucket['runs'] = (bucket['runs'] as num) + 1;
-        bucket['steps'] = (bucket['steps'] as num) + (km * 1300);
-      }
+  Future<void> _loadProgressDocs(List<String> uids) async {
+    _progressByUser.clear();
+    _firstFinisherByGoal.clear();
+    _championUid = null;
+
+    if (uids.isEmpty) return;
+
+    // ✅ pega todos os progress do desafio
+    final snap = await _firestore
+        .collection('challenges')
+        .doc(widget.challengeId)
+        .collection('progress')
+        .get();
+
+    for (final d in snap.docs) {
+      _progressByUser[d.id] = Map<String, dynamic>.from(d.data());
     }
-    if (challengeData != null && challengeData['goals'] is List) {
-      final goals = (challengeData['goals'] as List).cast<Map<String, dynamic>>();
-      for (final uid in _stats.keys) {
-        final userStats = _stats[uid]!;
-        final metas = <Map<String, dynamic>>[];
-        for (final goal in goals) {
-          final metric = (goal['metric'] ?? '').toLowerCase();
-          final target = (goal['target'] ?? 0).toDouble();
-          double current = 0.0;
-          if (metric == 'km') current = userStats['km'] as double;
-          else if (metric == 'xp') current = userStats['xp'] as double;
-          else if (metric == 'steps') current = userStats['steps'] as double;
-          final progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
-          metas.add({
-            'label': goal['label'],
-            'metric': metric,
-            'target': target,
-            'current': current,
-            'progress': progress,
-            'goalReached': progress >= 1.0,
-          });
+
+    // ✅ primeiro a concluir cada goal (menor completedAt[i])
+    for (int i = 0; i < _goals.length; i++) {
+      Timestamp? bestTime;
+      String? bestUid;
+
+      for (final uid in uids) {
+        final p = _progressByUser[uid];
+        if (p == null) continue;
+
+        final completedAtRaw = p['completedAt'];
+        final Map<String, dynamic> completedAt = completedAtRaw is Map
+            ? Map<String, dynamic>.from(completedAtRaw)
+            : <String, dynamic>{};
+
+        final t = completedAt['$i'];
+        if (t is Timestamp) {
+          if (bestTime == null || t.compareTo(bestTime) < 0) {
+            bestTime = t;
+            bestUid = uid;
+          }
         }
-        userStats['goals'] = metas;
+      }
+
+      if (bestUid != null) _firstFinisherByGoal[i] = bestUid;
+    }
+
+    // ✅ campeão: concluiu tudo mais cedo
+    Timestamp? bestAll;
+    String? bestChampion;
+
+    for (final uid in uids) {
+      final p = _progressByUser[uid];
+      if (p == null) continue;
+
+      final isCompleted = (p['isCompleted'] ?? false) == true;
+      if (!isCompleted) continue;
+
+      final t = p['completedAtAll'];
+      if (t is Timestamp) {
+        if (bestAll == null || t.compareTo(bestAll) < 0) {
+          bestAll = t;
+          bestChampion = uid;
+        }
+      } else {
+        bestChampion ??= uid;
       }
     }
+
+    _championUid = bestChampion;
   }
 
   void _computeRanking() {
-    _ranking.clear();
-    if (_goals.isEmpty || _participants.isEmpty) return;
-    for (final goal in _goals) {
-      final metric = (goal['metric'] ?? 'km') as String;
-      final target = (goal['target'] ?? 0).toDouble();
-      final rows = <Map<String, dynamic>>[];
-      for (final uid in _participants) {
-        final s = _stats[uid] ?? {'km': 0.0, 'xp': 0.0, 'runs': 0, 'steps': 0};
-        final value = (s[metric] ?? 0) as num;
-        final progress = target > 0 ? (value / target).clamp(0, 1).toDouble() : 0.0;
-        rows.add({'uid': uid, 'value': value, 'progress': progress});
-      }
-      rows.sort((a, b) => (b['value'] as num).compareTo(a['value'] as num));
-      _ranking[metric] = rows;
-    }
-  }
+    _goalRanking = [];
 
-  String? _getUserTeam(String uid) {
-    final data = _challenge?.data() as Map<String, dynamic>? ?? {};
-    final teams = data['teams'] as Map<String, dynamic>?;
-    if (teams == null) return null;
-    final aMembers = List<String>.from(teams['timeA']?['members'] ?? []);
-    final bMembers = List<String>.from(teams['timeB']?['members'] ?? []);
-    if (aMembers.contains(uid)) return 'A';
-    if (bMembers.contains(uid)) return 'B';
-    return null;
+    for (final uid in _participants) {
+      final p = _progressByUser[uid] ?? {};
+      final completed = (p['completedGoalIndexes'] as List?) ?? [];
+      final completedCount = completed.length;
+
+      final isChampion = (_championUid != null && uid == _championUid);
+
+      _goalRanking.add({
+        'uid': uid,
+        'completedCount': completedCount,
+        'isChampion': isChampion,
+        'completedAtAll': p['completedAtAll'], // desempate
+      });
+    }
+
+    // ✅ campeão > mais metas > quem concluiu tudo mais cedo
+    _goalRanking.sort((a, b) {
+      final ac = (a['isChampion'] == true) ? 1 : 0;
+      final bc = (b['isChampion'] == true) ? 1 : 0;
+      if (ac != bc) return bc.compareTo(ac);
+
+      final aCount = (a['completedCount'] as int);
+      final bCount = (b['completedCount'] as int);
+      if (aCount != bCount) return bCount.compareTo(aCount);
+
+      final at = a['completedAtAll'];
+      final bt = b['completedAtAll'];
+      if (at is Timestamp && bt is Timestamp) return at.compareTo(bt);
+      if (at is Timestamp) return -1;
+      if (bt is Timestamp) return 1;
+
+      return 0;
+    });
   }
 
   Future<void> _toggleParticipation() async {
+    if (_joining) return;
+    _joining = true;
+
     final uid = _auth.currentUser?.uid;
-    if (uid == null || _challenge == null) return;
-    if (!_canJoin && !_participating) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Este desafio é restrito a seguidores 🔒')));
+    if (uid == null || _challenge == null) {
+      _joining = false;
       return;
     }
-    final ref = _firestore.collection('challenges').doc(widget.challengeId);
+
+    if (_isClosed && !_participating) {
+      _joining = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Este desafio já foi encerrado 🛑')),
+      );
+      return;
+    }
+
+    if (!_canJoin && !_participating) {
+      _joining = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Este desafio é restrito a seguidores 🔒')),
+      );
+      return;
+    }
+
+    final challengeRef = _firestore.collection('challenges').doc(widget.challengeId);
+    final progressRef = challengeRef.collection('progress').doc(uid);
     final isJoining = !_participating;
+
     try {
       setState(() => _loading = true);
+
       if (isJoining) {
-        await ref.update({'participants': FieldValue.arrayUnion([uid])});
+        await challengeRef.update({
+          'participants': FieldValue.arrayUnion([uid]),
+        });
+
+        final pSnap = await progressRef.get();
+        if (!pSnap.exists) {
+          final now = DateTime.now();
+          await progressRef.set({
+            'joinedAt': FieldValue.serverTimestamp(),
+            'joinedAtLocal': Timestamp.fromDate(now),
+            'runs': 0,
+            'km': 0.0,
+            'xp': 0,
+            'completedGoalIndexes': <int>[],
+            'completedAt': <String, dynamic>{},
+            'isCompleted': false,
+            'completedAtAll': null,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
       } else {
-        await ref.update({'participants': FieldValue.arrayRemove([uid])});
+        await challengeRef.update({
+          'participants': FieldValue.arrayRemove([uid]),
+        });
+        // opcional:
+        // await progressRef.delete();
       }
+
       await _loadAll();
-    } catch (e) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e'))); }
-    finally { if (mounted) setState(() => _loading = false); }
+    } catch (e) {
+      debugPrint("Erro toggleParticipation: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    } finally {
+      _joining = false;
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(backgroundColor: Colors.white, body: Center(child: CircularProgressIndicator(color: Color(0xFFFF6D00))));
-    if (_challenge == null || !_challenge!.exists) return const Scaffold(backgroundColor: Colors.white, body: Center(child: Text('Não encontrado')));
+    if (_loading) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFFFF6D00)),
+        ),
+      );
+    }
+
+    if (_challenge == null || !_challenge!.exists) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: Text('Não encontrado')),
+      );
+    }
 
     final data = _challenge!.data() as Map<String, dynamic>;
     final title = data['title'] ?? 'Desafio';
@@ -234,16 +387,40 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(title, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
+        actions: [
+          if (_isCreator)
+            IconButton(
+              tooltip: 'Encerrar desafio',
+              onPressed: _isClosed ? null : _closeChallenge,
+              icon: Icon(
+                Icons.lock_clock,
+                color: _isClosed ? Colors.black26 : Colors.black87,
+              ),
+            ),
+        ],
       ),
-      floatingActionButton: _tabController.index == 2 ? null : FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton.extended(
         backgroundColor: _participating ? Colors.redAccent : const Color(0xFFFF6D00),
-        onPressed: _toggleParticipation,
-        label: Text(_participating ? 'Sair' : (_canJoin ? 'Participar' : 'Restrito 🔒'), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        icon: Icon(_participating ? Icons.logout : (_canJoin ? Icons.flag : Icons.lock), color: Colors.white),
+        onPressed: (_loading || _joining || (_isClosed && !_participating))
+            ? null
+            : _toggleParticipation,
+        label: Text(
+          _isClosed && !_participating
+              ? 'Encerrado'
+              : (_participating ? 'Sair' : (_canJoin ? 'Participar' : 'Restrito 🔒')),
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        icon: Icon(
+          _participating ? Icons.logout : (_isClosed ? Icons.lock : (_canJoin ? Icons.flag : Icons.lock)),
+          color: Colors.white,
+        ),
       ),
       body: Column(
         children: [
@@ -257,15 +434,29 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
                 const SizedBox(height: 10),
                 Row(
                   children: [
-                    Chip(label: Text(type.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12)), backgroundColor: Colors.black87),
+                    Chip(
+                      label: Text(type.toUpperCase(),
+                          style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      backgroundColor: Colors.black87,
+                    ),
                     const SizedBox(width: 8),
                     Chip(
-                      label: Text(isPublic ? 'PÚBLICO' : 'RESTRITO', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      label: Text(isPublic ? 'PÚBLICO' : 'RESTRITO',
+                          style: const TextStyle(color: Colors.white, fontSize: 12)),
                       backgroundColor: isPublic ? Colors.green : Colors.orange,
+                    ),
+                    const SizedBox(width: 8),
+                    Chip(
+                      label: Text(_isClosed ? 'ENCERRADO' : 'ATIVO',
+                          style: const TextStyle(color: Colors.white, fontSize: 12)),
+                      backgroundColor: _isClosed ? Colors.redAccent : Colors.blueGrey,
                     ),
                     const Spacer(),
                     if (_start != null && _end != null)
-                      Text('${df.format(_start!)} - ${df.format(_end!)}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                      Text(
+                        '${df.format(_start!)} - ${df.format(_end!)}',
+                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
                   ],
                 ),
               ],
@@ -273,7 +464,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
           ),
           TabBar(
             controller: _tabController,
-            tabs: const [Tab(text: 'Visão geral'), Tab(text: 'Ranking'), Tab(text: 'Chat')],
+            tabs: const [Tab(text: 'Visão geral'), Tab(text: 'Ranking')],
             labelColor: Colors.black,
             unselectedLabelColor: Colors.black54,
             indicatorColor: const Color(0xFFFF6D00),
@@ -281,7 +472,7 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
           Expanded(
             child: TabBarView(
               controller: _tabController,
-              children: [_buildOverviewTab(), _buildRankingTab(), _buildChatTab()],
+              children: [_buildOverviewTab(), _buildRankingTab()],
             ),
           ),
         ],
@@ -293,18 +484,37 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Metas do Desafio', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black)),
+        const Text(
+          'Metas do Desafio',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black),
+        ),
         const SizedBox(height: 12),
-        ..._goals.map((g) {
+
+        ..._goals.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final g = entry.value;
+
           final label = g['label'] ?? 'Meta';
-          final metric = g['metric'] ?? 'km';
+          final metric = (g['metric'] ?? 'km').toString().toLowerCase();
           final target = (g['target'] ?? 0).toDouble();
-          
+
           num totalValue = 0;
           for (final uid in _participants) {
-            if (_stats[uid] != null && _stats[uid]![metric] != null) totalValue += (_stats[uid]![metric] as num);
+            final p = _progressByUser[uid] ?? {};
+            if (metric == 'km') totalValue += ((p['km'] ?? 0) as num);
+            if (metric == 'xp') totalValue += ((p['xp'] ?? 0) as num);
+            if (metric == 'runs') totalValue += ((p['runs'] ?? 0) as num);
+            if (metric == 'steps') totalValue += ((p['steps'] ?? 0) as num);
           }
-          final progress = target > 0 ? (totalValue / target).clamp(0.0, 1.0).toDouble() : 0.0;
+
+          final progress = target > 0
+              ? (totalValue / target).clamp(0.0, 1.0).toDouble()
+              : 0.0;
+
+          final finisherUid = _firstFinisherByGoal[idx];
+          final finisher = finisherUid != null ? _userMap[finisherUid] : null;
+          final finisherName = finisher?['displayName'] ?? '';
+          final finisherPhoto = finisher?['photoURL'];
 
           return Card(
             color: Colors.white,
@@ -315,31 +525,91 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-                  const SizedBox(height: 4),
-                  Text('Total: ${totalValue.toStringAsFixed(1)} / $target $metric', style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                        ),
+                      ),
+                      if (finisherUid != null)
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundImage: finisherPhoto != null ? NetworkImage(finisherPhoto) : null,
+                              backgroundColor: Colors.grey[200],
+                              child: finisherPhoto == null
+                                  ? const Icon(Icons.person, size: 16, color: Colors.grey)
+                                  : null,
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.emoji_events, size: 18, color: Colors.amber),
+                          ],
+                        ),
+                    ],
+                  ),
+                  if (finisherUid != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Concluída primeiro por $finisherName',
+                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                    ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Total: ${totalValue.toStringAsFixed(1)} / $target $metric',
+                    style: const TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
                   const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.grey[200], color: const Color(0xFFFF6D00)),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: Colors.grey[200],
+                      color: const Color(0xFFFF6D00),
+                    ),
                   ),
                 ],
               ),
             ),
           );
         }),
+
         const SizedBox(height: 20),
-        Text('Participantes (${_participants.length})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black)),
+        Text(
+          'Participantes (${_participants.length})',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black),
+        ),
         const SizedBox(height: 12),
+
         ..._participants.map((uid) {
           final user = _userMap[uid] ?? {};
           final name = user['displayName'] ?? 'Runner';
           final photo = user['photoURL'];
-          final s = _stats[uid] ?? {'km': 0.0, 'xp': 0.0};
+
+          final p = _progressByUser[uid] ?? {};
+          final km = ((p['km'] ?? 0) as num).toDouble();
+          final xp = ((p['xp'] ?? 0) as num).toInt();
+          final runs = ((p['runs'] ?? 0) as num).toInt();
+
           return ListTile(
-            leading: CircleAvatar(backgroundImage: photo != null ? NetworkImage(photo) : null, backgroundColor: Colors.grey[200], child: photo == null ? const Icon(Icons.person, color: Colors.grey) : null),
-            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black)),
-            subtitle: Text('${(s['km'] as double).toStringAsFixed(1)} km • ${(s['xp'] as double).toInt()} XP', style: const TextStyle(color: Colors.black54)),
+            leading: CircleAvatar(
+              backgroundImage: photo != null ? NetworkImage(photo) : null,
+              backgroundColor: Colors.grey[200],
+              child: photo == null ? const Icon(Icons.person, color: Colors.grey) : null,
+            ),
+            title: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black),
+            ),
+            subtitle: Text(
+              '${km.toStringAsFixed(1)} km • $xp XP • $runs corridas',
+              style: const TextStyle(color: Colors.black54),
+            ),
           );
         }),
       ],
@@ -347,35 +617,71 @@ class _ChallengeDetailsPageState extends State<ChallengeDetailsPage>
   }
 
   Widget _buildRankingTab() {
-    if (_ranking.isEmpty) return const Center(child: Text('Sem ranking disponível', style: TextStyle(color: Colors.black54)));
-    final firstMetric = _goals.isNotEmpty ? _goals.first['metric'] : 'km';
-    final current = _ranking[firstMetric] ?? [];
-    
+    if (_goalRanking.isEmpty) {
+      return const Center(
+        child: Text('Sem ranking disponível', style: TextStyle(color: Colors.black54)),
+      );
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: current.length,
+      itemCount: _goalRanking.length,
       itemBuilder: (context, i) {
-        final row = current[i];
+        final row = _goalRanking[i];
         final uid = row['uid'] as String;
         final user = _userMap[uid] ?? {};
         final name = user['displayName'] ?? 'Runner';
         final photo = user['photoURL'];
-        final value = row['value'] as num;
+
+        final completedCount = (row['completedCount'] as int);
+        final isChampion = row['isChampion'] == true;
 
         return Card(
           color: Colors.white,
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
-            leading: CircleAvatar(backgroundColor: i < 3 ? Colors.amber : Colors.grey[200], child: Text('${i + 1}', style: TextStyle(color: i < 3 ? Colors.white : Colors.black, fontWeight: FontWeight.bold))),
-            title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-            trailing: Text(value is double ? '${value.toStringAsFixed(1)}' : '$value', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF6D00), fontSize: 16)),
+            leading: CircleAvatar(
+              backgroundImage: photo != null ? NetworkImage(photo) : null,
+              backgroundColor: Colors.grey[200],
+              child: photo == null ? const Icon(Icons.person, color: Colors.grey) : null,
+            ),
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                ),
+                if (isChampion)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.amber,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      '🏆 CAMPEÃO',
+                      style: TextStyle(fontWeight: FontWeight.w900, color: Colors.black),
+                    ),
+                  ),
+              ],
+            ),
+            subtitle: Text(
+              'Metas concluídas: $completedCount / ${_goals.length}',
+              style: const TextStyle(color: Colors.black54),
+            ),
+            trailing: Text(
+              '$completedCount',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFF6D00),
+                fontSize: 18,
+              ),
+            ),
           ),
         );
       },
     );
-  }
-
-  Widget _buildChatTab() {
-    return const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.chat_bubble_outline, size: 50, color: Colors.grey), SizedBox(height: 10), Text('Chat disponível apenas para participantes', style: TextStyle(color: Colors.black54))]));
   }
 }

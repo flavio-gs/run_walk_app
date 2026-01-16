@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:run_walk_app/service/points_service.dart';
+
 
 class TerritoryDetailsPage extends StatefulWidget {
   final String territoryId;
@@ -39,6 +42,52 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
 
   static const _orange = Color(0xFFFF6D00);
 
+  bool _usePoints = false;
+  int _myPoints = 0;
+  bool _loadingPoints = false;
+
+  Widget _powerButton({
+    required String label,
+    required int cost,
+    required Future<void> Function() onTap,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onPressed: () async {
+          if (_myPoints < cost) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Pontos insuficientes 😭 (custa $cost)')),
+            );
+            return;
+          }
+          await onTap();
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+            Text('$cost pts', style: const TextStyle(fontWeight: FontWeight.w900)),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMyPoints();
+  }
+
+
   @override
   void dispose() {
     _nameCtrl.dispose();
@@ -75,24 +124,23 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
   }
 
   void _initFromDocOnce(Map<String, dynamic> data) {
-    // ✅ inicializa só uma vez (para não “desfazer” o que você escolhe na UI)
     if (_didInitFromDoc) return;
     _didInitFromDoc = true;
 
     final customName = (data['customName'] ?? '').toString().trim();
-    _nameCtrl.text = customName;
+
+    // ✅ fallback: name -> territoryName -> vazio
+    final baseName = (data['name'] ?? data['territoryName'] ?? '').toString().trim();
+
+    // ✅ se não tiver customName, mostra o nome base no campo
+    _nameCtrl.text = customName.isNotEmpty ? customName : baseName;
 
     final d = data['difficulty'];
-    if (d is num) {
-      _difficulty = d.toInt().clamp(1, 5);
-    } else {
-      _difficulty = 1;
-    }
+    _difficulty = (d is num) ? d.toInt().clamp(1, 5) : 1;
 
     final s = (data['safety'] ?? 'safe').toString();
     _safety = (s == 'danger' || s == 'safe') ? s : 'safe';
 
-    // Polígono
     final pts = (data['points'] as List?) ?? const [];
     _polygon = pts
         .whereType<Map>()
@@ -101,7 +149,6 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
         .whereType<LatLng>()
         .toList();
 
-    // Pontos perigosos com descrição
     _dangerPoints.clear();
     final dp = (data['dangerPoints'] as List?) ?? const [];
     for (final item in dp) {
@@ -109,16 +156,31 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
         final m = Map<String, dynamic>.from(item);
         final ll = _toLatLng(m);
         if (ll != null) {
-          _dangerPoints.add(
-            _DangerPoint(
-              pos: ll,
-              desc: (m['desc'] ?? '').toString().trim(),
-            ),
-          );
+          _dangerPoints.add(_DangerPoint(
+            pos: ll,
+            desc: (m['desc'] ?? '').toString().trim(),
+          ));
         }
       }
     }
   }
+
+  Future<void> _loadMyPoints() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    setState(() => _loadingPoints = true);
+    try {
+      final snap = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final data = snap.data() ?? {};
+      final p = data['totalPoints'];
+      _myPoints = (p is num) ? p.toInt() : 0;
+    } finally {
+      if (mounted) setState(() => _loadingPoints = false);
+    }
+  }
+
+
 
   Future<void> _save() async {
     if (!widget.isOwner) return;
@@ -538,6 +600,137 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                     : "Pontos marcados pelo dono do território.",
                 style: const TextStyle(color: Colors.black54),
               ),
+
+              const SizedBox(height: 12),
+
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.black12),
+                ),
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '⚡ Poderes do território',
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    ),
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              'Usar pontos',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            subtitle: Text(
+                              _loadingPoints ? 'Carregando...' : 'Você tem $_myPoints pontos',
+                              style: const TextStyle(color: Colors.black54),
+                            ),
+                            value: _usePoints,
+                            onChanged: (v) async {
+                              setState(() => _usePoints = v);
+                              if (v) await _loadMyPoints(); // atualiza saldo ao ligar
+                            },
+                            activeColor: _orange,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Atualizar saldo',
+                          onPressed: _loadMyPoints,
+                          icon: const Icon(Icons.refresh),
+                        )
+                      ],
+                    ),
+
+
+                    const SizedBox(height: 10),
+
+                    AnimatedOpacity(
+                      opacity: _usePoints ? 1 : 0.4,
+                      duration: const Duration(milliseconds: 200),
+                      child: IgnorePointer(
+                        ignoring: !_usePoints,
+                        child: Column(
+                          children: [
+                            _powerButton(
+                              label: '🛡️ Proteção 24h',
+                              cost: 120,
+                              onTap: () async {
+                                // chama o PointsService (abaixo)
+                                final ok = await PointsService().buyProtection(
+                                  territoryId: widget.territoryId,
+                                  hours: 24,
+                                  cost: 120,
+                                );
+                                if (ok) {
+                                  await _loadMyPoints();
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Proteção 24h ativada ✅')),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 10),
+
+                            _powerButton(
+                              label: '🛡️ Proteção 48h',
+                              cost: 220,
+                              onTap: () async {
+                                final ok = await PointsService().buyProtection(
+                                  territoryId: widget.territoryId,
+                                  hours: 48,
+                                  cost: 220,
+                                );
+                                if (ok) {
+                                  await _loadMyPoints();
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Proteção 48h ativada ✅')),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 10),
+
+                            _powerButton(
+                              label: '🔥 Aumentar dificuldade (24h)',
+                              cost: 160,
+                              onTap: () async {
+                                final ok = await PointsService().buyDifficultyBoost(
+                                  territoryId: widget.territoryId,
+                                  hours: 24,
+                                  extraDifficulty: 1, // +1 nível (ex)
+                                  cost: 160,
+                                );
+                                if (ok) {
+                                  await _loadMyPoints();
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Dificuldade aumentada ✅')),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+
+
             ],
           );
         },
@@ -545,3 +738,5 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     );
   }
 }
+
+

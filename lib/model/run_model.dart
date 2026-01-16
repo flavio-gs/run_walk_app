@@ -10,6 +10,15 @@ class RunModel {
   final double? calories; // calorias estimadas
   final double? pace; // ritmo médio (min/km)
 
+  final double? avgSpeedKmh;
+  final double? currentSpeedKmh;
+  final double? elevationGain;
+  final double? minElevation;
+  final double? maxElevation;
+  final Map<String, dynamic>? weather;
+  final DateTime? startTime;
+  final DateTime? endTime;
+
   RunModel({
     this.id,
     required this.userId,
@@ -19,6 +28,14 @@ class RunModel {
     required this.route,
     this.calories,
     this.pace,
+    this.avgSpeedKmh,
+    this.currentSpeedKmh,
+    this.elevationGain,
+    this.minElevation,
+    this.maxElevation,
+    this.weather,
+    this.startTime,
+    this.endTime,
   });
 
   Map<String, dynamic> toMap() {

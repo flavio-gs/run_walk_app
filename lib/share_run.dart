@@ -11,6 +11,8 @@ import 'model/run_model.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
+import 'run_share_overlay_editor.dart';
+
 
 
 class DetalheCorridaPageShare extends StatefulWidget {
@@ -524,39 +526,88 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
               ),
             ),
 
-            // 🔘 Botão fixo de compartilhar
+            // 🔘 Botões fixos (Compartilhar + Imagem Customizada)
             Container(
               padding: const EdgeInsets.symmetric(vertical: 20),
-              decoration: BoxDecoration(
-                border: const Border(
+              decoration: const BoxDecoration(
+                border: Border(
                   top: BorderSide(color: Colors.black12, width: 0.5),
                 ),
               ),
-              child: GestureDetector(
-                onTap: sharing ? null : _compartilhar,
-                child: Column(
-                  children: [
-                    Container(
-                      height: 60,
-                      width: 60,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: sharing ? Colors.grey[300] : const Color(0xFFFF6D00),
-                      ),
-                      child: const Icon(Icons.share, color: Colors.white, size: 26),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // ✅ Compartilhar (igual o seu)
+                  GestureDetector(
+                    onTap: sharing ? null : _compartilhar,
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 60,
+                          width: 60,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: sharing ? Colors.grey[300] : const Color(0xFFFF6D00),
+                          ),
+                          child: const Icon(Icons.share, color: Colors.white, size: 26),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "Compartilhar",
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      "Compartilhar",
-                      style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: Colors.black87,
-                          fontWeight: FontWeight.w600),
+                  ),
+
+                  const SizedBox(width: 28),
+
+                  // 🧩 Imagem Customizada
+                  GestureDetector(
+                    onTap: sharing
+                        ? null
+                        : () {
+                      // 👉 aqui você navega pro editor do PNG transparente / overlay
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RunShareOverlayEditor(corrida: widget.corrida),
+                        ),
+                      );
+                    },
+                    child: Column(
+                      children: [
+                        Container(
+                          height: 60,
+                          width: 60,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: sharing ? Colors.grey[300] : const Color(0xFF1E88E5), // azulzinho pra diferenciar
+                          ),
+                          child: const Icon(Icons.tune, color: Colors.white, size: 26),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "Transparência\nCustomizada",
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                            height: 1.1,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
+
           ],
         ),
       ),

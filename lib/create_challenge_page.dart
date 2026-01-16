@@ -126,12 +126,14 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
 
   Future<void> _saveChallenge() async {
     if (!_formKey.currentState!.validate()) return;
+
     if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Defina as datas do desafio.')),
       );
       return;
     }
+
     if (_goals.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Adicione pelo menos uma meta.')),
@@ -142,28 +144,59 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
     try {
       setState(() => _loading = true);
 
-      final uid = _auth.currentUser?.uid ?? 'anon';
+      final uid = _auth.currentUser?.uid;
+      if (uid == null) throw Exception('Usuário não autenticado');
+
       final now = DateTime.now();
 
-      final data = {
+      // 🔹 Documento do desafio
+      final challengeData = {
         'title': _titleController.text.trim(),
         'description': _descController.text.trim(),
-        'type': _type,
-        'isPublic': _isPublic, // 🔹 Salva a privacidade
+        'type': _type, // geral | grupo
+        'isPublic': _isPublic,
+        'status': 'active', // ✅ NOVO
         'createdBy': uid,
+        'createdAt': Timestamp.fromDate(now),
         'startDate': Timestamp.fromDate(_startDate!),
         'endDate': Timestamp.fromDate(_endDate!),
-        'createdAt': Timestamp.fromDate(now),
-        'participants': [uid], // 🔹 Criador já entra como participante
+
+        // 🔹 Criador já entra como participante
+        'participants': [uid],
+
+        // 🔹 Metas
         'goals': _goals,
+
         if (_type == 'grupo')
           'teams': {
-            'timeA': {'name': _teamAController.text.trim(), 'members': [uid]},
-            'timeB': {'name': _teamBController.text.trim(), 'members': []},
+            'timeA': {
+              'name': _teamAController.text.trim(),
+              'members': [uid],
+            },
+            'timeB': {
+              'name': _teamBController.text.trim(),
+              'members': [],
+            },
           },
       };
 
-      await _firestore.collection('challenges').add(data);
+      // 🔹 Cria o desafio
+      final challengeRef =
+      await _firestore.collection('challenges').add(challengeData);
+
+      // 🔹 Cria o progresso do criador (MARCO ZERO)
+      await challengeRef.collection('progress').doc(uid).set({
+        'joinedAt': FieldValue.serverTimestamp(),
+        'joinedAtLocal': Timestamp.fromDate(now), // fallback local
+        'runs': 0,
+        'km': 0.0,
+        'xp': 0,
+        'completedGoalIndexes': <int>[],
+        'completedAt': <String, dynamic>{},
+        'isCompleted': false,
+        'completedAtAll': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
       if (!mounted) return;
 
@@ -177,6 +210,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
         Navigator.pop(context, true);
       }
     } catch (e) {
+      debugPrint('Erro ao salvar desafio: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao salvar: $e')),
@@ -186,6 +220,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
       if (mounted) setState(() => _loading = false);
     }
   }
+
 
 
   @override

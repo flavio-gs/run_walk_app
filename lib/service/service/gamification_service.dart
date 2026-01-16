@@ -139,7 +139,145 @@ class GamificationService {
       },
       context: context,
     );
+
+    // ✅ Atualiza progresso de desafios (runs/km/xp)
+    await updateChallengesAfterRun(
+      distanciaKm: distanciaKm,
+      xpGanho: pontosFinais,
+      runCreatedAt: DateTime.now(),
+      context: context,
+    );
+
   }
+
+
+  /// ===========================================================
+  /// DESAFIOS DA COMUNIDADE
+  /// ===========================================================
+
+  // ✅ PUBLICO (pode chamar do _saveRun)
+  Future<void> updateChallengesAfterRun({
+    required double distanciaKm,
+    required int xpGanho,
+    DateTime? runCreatedAt,
+    BuildContext? context,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final connectivity = await Connectivity().checkConnectivity();
+    if (connectivity == ConnectivityResult.none) {
+      debugPrint("📴 Offline: desafio não atualizado agora.");
+      return;
+    }
+
+    final now = Timestamp.now();
+
+    final snap = await _firestore
+        .collection('challenges')
+        .where('participants', arrayContains: user.uid)
+        .get();
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+
+      final Timestamp? start = data['startDate'];
+      final Timestamp? end = data['endDate'];
+
+      if (start != null && start.compareTo(now) > 0) continue;
+      if (end != null && end.compareTo(now) < 0) continue;
+
+      final List goalsRaw = (data['goals'] as List?) ?? [];
+      if (goalsRaw.isEmpty) continue;
+
+      final progressRef = doc.reference.collection('progress').doc(user.uid);
+
+      await _firestore.runTransaction((tx) async {
+        final progressSnap = await tx.get(progressRef);
+
+        // ✅ se não tem progress => não entrou no desafio => não conta
+        if (!progressSnap.exists) {
+          debugPrint("🚫 Ignorando desafio ${doc.id}: progress inexistente.");
+          return;
+        }
+
+        final progress = Map<String, dynamic>.from(progressSnap.data() as Map);
+
+        // ✅ joinedAt (server) ou joinedAtLocal (fallback)
+        Timestamp? joinedAt;
+        final j = progress['joinedAt'];
+        final jl = progress['joinedAtLocal'];
+        if (j is Timestamp) joinedAt = j;
+        else if (jl is Timestamp) joinedAt = jl;
+
+        if (joinedAt == null) return;
+
+        // ✅ regra: só conta corridas após entrar
+        if (runCreatedAt != null && runCreatedAt.isBefore(joinedAt.toDate())) return;
+
+        final double currentKm = ((progress['km'] as num?) ?? 0).toDouble();
+        final int currentRuns = ((progress['runs'] as num?) ?? 0).toInt();
+        final int currentXp = ((progress['xp'] as num?) ?? 0).toInt();
+
+        final completedGoalIndexesRaw = (progress['completedGoalIndexes'] as List?) ?? [];
+        final completedGoalIndexes = completedGoalIndexesRaw.map((e) => (e as num).toInt()).toSet();
+
+        final newRuns = currentRuns + 1;
+        final newKm = currentKm + distanciaKm;
+        final newXp = currentXp + xpGanho;
+
+        // ✅ SEM FieldValue dentro do map (use Timestamp)
+        final Map<String, dynamic> completedAt =
+        Map<String, dynamic>.from((progress['completedAt'] as Map?) ?? {});
+        final List<int> newlyCompleted = [];
+
+        final Timestamp stamp = runCreatedAt != null
+            ? Timestamp.fromDate(runCreatedAt)
+            : Timestamp.now();
+
+        for (int i = 0; i < goalsRaw.length; i++) {
+          if (completedGoalIndexes.contains(i)) continue;
+
+          final g = Map<String, dynamic>.from(goalsRaw[i] as Map);
+          final metric = (g['metric'] ?? '').toString().toLowerCase();
+          final target = ((g['target'] as num?) ?? 0).toDouble();
+
+          bool done = false;
+          if (metric == 'runs') done = newRuns >= target;
+          else if (metric == 'km') done = newKm >= target;
+          else if (metric == 'xp') done = newXp >= target;
+
+          if (done) {
+            newlyCompleted.add(i);
+            completedGoalIndexes.add(i);
+            completedAt[i.toString()] = stamp;
+          }
+        }
+
+        final bool allDone = completedGoalIndexes.length == goalsRaw.length;
+
+        tx.set(progressRef, {
+          'runs': newRuns,
+          'km': newKm,
+          'xp': newXp,
+          'completedGoalIndexes': completedGoalIndexes.toList()..sort(),
+          'completedAt': completedAt,
+          'isCompleted': allDone,
+          'completedAtAll': allDone ? stamp : null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (newlyCompleted.isNotEmpty) {
+          debugPrint("🏁 Challenge ${doc.id}: goals concluídas=$newlyCompleted");
+        }
+      });
+
+      _showSnack(context, "🏁 Progresso de desafio atualizado (+1 corrida)");
+    }
+  }
+
+
+
 
   /// ===========================================================
   /// ☁️ SINCRONIZAÇÃO COM FIRESTORE
@@ -338,7 +476,7 @@ class GamificationService {
       debugPrint("[Gamification] Erro ao checar conquistas de streak: $e");
     }
 
-    _showSnack(context, "🔥 Combo diário ${streak}x! +$pontosFinais pontos");
+    _showSnack(context, "🔥 Combo diário usuário PRO ${streak}x! +$pontosFinais pontos");
   }
 
 

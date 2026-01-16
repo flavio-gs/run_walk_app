@@ -4,6 +4,31 @@ import 'package:flutter/material.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import '../../widgets/achievement_overlay.dart';
 
+enum TerritoryBlockReason { protected, insufficientProgress }
+
+class TerritoryBlockNotice {
+  final String territoryId;
+  final TerritoryBlockReason reason;
+  final double progress;          // 0..1
+  final double requiredThreshold; // 0..1
+  final DateTime? protectionUntil;
+
+  TerritoryBlockNotice({
+    required this.territoryId,
+    required this.reason,
+    required this.progress,
+    required this.requiredThreshold,
+    this.protectionUntil,
+  });
+}
+
+class TerritoryDominanceResult {
+  final int capturedCount;
+  final List<TerritoryBlockNotice> blocked;
+
+  TerritoryDominanceResult({required this.capturedCount, required this.blocked});
+}
+
 class TerritoryService {
   final _firestore = FirebaseFirestore.instance;
   final _achievements = AchievementService();
@@ -14,8 +39,48 @@ class TerritoryService {
   /// Percentual mínimo de pontos do território para considerar domínio parcial
   static const double partialThreshold = 0.6;
 
+  DateTime? _tsToDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    return null;
+  }
+
+  /// Retorna until se o powerup existir, ativo, e ainda válido
+  DateTime? _powerupUntil(Map<String, dynamic> powerups, String key) {
+    final m = powerups[key];
+    if (m is! Map) return null;
+    if (m['active'] != true) return null;
+    final until = _tsToDate(m['until']);
+    if (until == null) return null;
+    if (!until.isAfter(DateTime.now())) return null;
+    return until;
+  }
+
+  bool _isPowerupActive(Map<String, dynamic> powerups, String key) {
+    return _powerupUntil(powerups, key) != null;
+  }
+
+  /// Exemplo de aumento de dificuldade:
+  /// +10% por nível extra (clamp até 0.95)
+  double _applyDifficultyBoost({
+    required double baseThreshold,
+    required Map<String, dynamic> powerups,
+  }) {
+    final m = powerups['difficultyBoost'];
+    if (m is! Map) return baseThreshold;
+
+    final active = (m['active'] == true);
+    final until = _tsToDate(m['until']);
+    if (!active || until == null || !until.isAfter(DateTime.now())) return baseThreshold;
+
+    final extra = (m['extraDifficulty'] is num) ? (m['extraDifficulty'] as num).toInt() : 0;
+
+    final boosted = baseThreshold + (0.10 * extra);
+    return boosted.clamp(baseThreshold, 0.95);
+  }
+
   /// Verifica se o jogador dominou (total ou parcialmente) algum território durante a corrida
-  Future<int> checkTerritoryDominance({
+  Future<TerritoryDominanceResult> checkTerritoryDominance({
     required String userId,
     required double pace,
     required List<Map<String, double>> route,
@@ -33,7 +98,11 @@ class TerritoryService {
     })? onTerritoryCaptured,
   }) async {
     final snapshot = await _firestore.collection('territorios').get();
+
     int capturedCount = 0;
+
+    // ✅ lista de bloqueios (pra você mostrar a msg no _saveRun)
+    final List<TerritoryBlockNotice> blocked = [];
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
@@ -51,7 +120,28 @@ class TerritoryService {
           .length;
 
       final progress = pointsPassed / points.length;
-      if (progress < partialThreshold) continue;
+
+      // powerups
+      final powerupsRaw = data['powerups'];
+      final powerups = (powerupsRaw is Map)
+          ? Map<String, dynamic>.from(powerupsRaw as Map)
+          : <String, dynamic>{};
+
+      final requiredThreshold = _applyDifficultyBoost(
+        baseThreshold: partialThreshold,
+        powerups: powerups,
+      );
+
+      // ✅ Não bateu o threshold (já com boost)
+      if (progress < requiredThreshold) {
+        blocked.add(TerritoryBlockNotice(
+          territoryId: doc.id,
+          reason: TerritoryBlockReason.insufficientProgress,
+          progress: progress,
+          requiredThreshold: requiredThreshold,
+        ));
+        continue;
+      }
 
       final oldUserId = (data['userId'] ?? '').toString();
 
@@ -63,7 +153,22 @@ class TerritoryService {
       // ✅ Se já é seu, ignora
       if (oldUserId == userId) continue;
 
-      // ✅ TERRITÓRIO SEM DONO -> captura nova (claim)
+      // ✅ proteção (só bloqueia se tiver DONO)
+      final protectionActive = _isPowerupActive(powerups, 'protection');
+      final protectionUntil = _powerupUntil(powerups, 'protection');
+
+      if (protectionActive && oldUserId.isNotEmpty) {
+        blocked.add(TerritoryBlockNotice(
+          territoryId: doc.id,
+          reason: TerritoryBlockReason.protected,
+          progress: progress,
+          requiredThreshold: requiredThreshold,
+          protectionUntil: protectionUntil,
+        ));
+        continue;
+      }
+
+      // ✅ TERRITÓRIO SEM DONO -> claim permitido mesmo com proteção
       if (oldUserId.isEmpty) {
         await _claimUnownedTerritory(
           territoryId: doc.id,
@@ -121,7 +226,7 @@ class TerritoryService {
     if (capturedCount > 0) {
       await _achievements.checkAchievements(
         runData: {
-          'territoriesCaptured': capturedCount, // ✅ agora vai certo
+          'territoriesCaptured': capturedCount,
           'distance': 0.0,
           'pace': pace,
         },
@@ -129,12 +234,12 @@ class TerritoryService {
       );
     }
 
-    return capturedCount;
+    return TerritoryDominanceResult(capturedCount: capturedCount, blocked: blocked);
   }
 
   Future<bool> crossedAnyTerritory({
     required List<Map<String, double>> route,
-    double threshold = partialThreshold, // 0.6
+    double threshold = partialThreshold,
   }) async {
     final snapshot = await _firestore.collection('territorios').get();
 
@@ -153,9 +258,7 @@ class TerritoryService {
           .length;
 
       final progress = pointsPassed / points.length;
-      if (progress >= threshold) {
-        return true; // ✅ cruzou território existente o bastante
-      }
+      if (progress >= threshold) return true;
     }
 
     return false;
@@ -173,7 +276,6 @@ class TerritoryService {
   }) async {
     final docRef = _firestore.collection('territorios').doc(territoryId);
 
-    // ✅ seta dono (merge pra não perder pontos/area/etc)
     await docRef.set({
       'userId': newUserId,
       'capturedAt': FieldValue.serverTimestamp(),
@@ -181,7 +283,6 @@ class TerritoryService {
       'dispute': FieldValue.delete(),
     }, SetOptions(merge: true));
 
-    // ✅ histórico (sem previousOwner)
     await docRef.collection('ownership').add({
       'previousOwner': null,
       'newOwner': newUserId,
@@ -191,7 +292,6 @@ class TerritoryService {
       'type': 'claim',
     });
 
-    // ✅ agrega pro novo dono (cria territories se não existir)
     await _firestore.collection('users').doc(newUserId).set({
       'territories': {
         'capturedCount': FieldValue.increment(1),
@@ -199,7 +299,6 @@ class TerritoryService {
       }
     }, SetOptions(merge: true));
 
-    // 🧩 XP dinâmico
     final xpGanho = (progress * 150).clamp(50, 150).toDouble();
     await _achievements.addXP(
       xpGanho,
@@ -210,7 +309,6 @@ class TerritoryService {
           : "Reivindicou território completo",
     );
 
-    // 📢 Feed público (sem loser)
     await _postTerritoryToFeed(
       newUserId,
       oldUserId: '',
@@ -222,7 +320,6 @@ class TerritoryService {
       progress: progress,
     );
 
-    // 🎉 Pop-up visual
     if (context != null && context.mounted) {
       await showAchievementPopup(
         context,
@@ -235,7 +332,7 @@ class TerritoryService {
   }
 
   // ============================================================
-  // ⚙️ Lógica de domínio e transferência
+  // ⚙️ Transferência
   // ============================================================
 
   Future<void> _transferTerritory(
@@ -252,22 +349,19 @@ class TerritoryService {
 
     final now = DateTime.now();
 
-    // 🕒 Calcula duração do domínio anterior (só se tiver capturedAt e oldUserId válido)
     if (oldUserId.isNotEmpty && data['capturedAt'] != null) {
       final capturedAt = (data['capturedAt'] as Timestamp).toDate();
       final holdMs = now.difference(capturedAt).inMilliseconds;
       await _recordHoldDuration(oldUserId, territoryId, holdMs, context);
     }
 
-    // 🔹 Atualiza o território sem deletar (preserva histórico)
     await docRef.update({
       'userId': newUserId,
       'capturedAt': Timestamp.fromDate(now),
       'lastProgress': progress,
-      'dispute': FieldValue.delete(), // ✅ encerra a disputa global
+      'dispute': FieldValue.delete(),
     });
 
-    // 🔹 Adiciona registro ao histórico de ownership
     await docRef.collection('ownership').add({
       'previousOwner': oldUserId,
       'newOwner': newUserId,
@@ -277,7 +371,6 @@ class TerritoryService {
       'type': 'transfer',
     });
 
-    // ✅ agrega pro novo dono
     await _firestore.collection('users').doc(newUserId).set({
       'territories': {
         'capturedCount': FieldValue.increment(1),
@@ -285,16 +378,12 @@ class TerritoryService {
       }
     }, SetOptions(merge: true));
 
-    // ✅ reduz do antigo dono (activeCount)
     if (oldUserId.isNotEmpty && oldUserId != newUserId) {
       await _firestore.collection('users').doc(oldUserId).set({
-        'territories': {
-          'activeCount': FieldValue.increment(-1),
-        }
+        'territories': {'activeCount': FieldValue.increment(-1)}
       }, SetOptions(merge: true));
     }
 
-    // 🧩 XP dinâmico conforme domínio parcial
     final xpGanho = (progress * 150).clamp(50, 150).toDouble();
     await _achievements.addXP(
       xpGanho,
@@ -305,7 +394,6 @@ class TerritoryService {
           : "Conquistou território completo",
     );
 
-    // ✅ só remove XP se houver oldUserId
     if (oldUserId.isNotEmpty) {
       await _achievements.removeXPForUser(
         oldUserId,
@@ -315,7 +403,6 @@ class TerritoryService {
       );
     }
 
-    // 📢 Feed público
     await _postTerritoryToFeed(
       newUserId,
       oldUserId: oldUserId,
@@ -327,7 +414,6 @@ class TerritoryService {
       progress: progress,
     );
 
-    // 🎉 Pop-up visual
     if (context != null && context.mounted) {
       await showAchievementPopup(
         context,
@@ -336,13 +422,11 @@ class TerritoryService {
       );
     }
 
-    debugPrint(
-      "🏆 Território $territoryId dominado (${(progress * 100).toStringAsFixed(1)}%) por $newUserId",
-    );
+    debugPrint("🏆 Território $territoryId dominado (${(progress * 100).toStringAsFixed(1)}%) por $newUserId");
   }
 
   // ============================================================
-  // 🕒 Controle de tempo de domínio
+  // 🕒 Hold
   // ============================================================
 
   Future<void> _recordHoldDuration(
@@ -366,7 +450,7 @@ class TerritoryService {
   }
 
   // ============================================================
-  // 📍 Verificação de proximidade (Haversine)
+  // 📍 Proximidade
   // ============================================================
 
   bool _passedNearPoint(
@@ -383,7 +467,7 @@ class TerritoryService {
   }
 
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const R = 6371000; // raio da Terra em metros
+    const R = 6371000;
     final dLat = _degToRad(lat2 - lat1);
     final dLon = _degToRad(lon2 - lon1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
@@ -395,7 +479,7 @@ class TerritoryService {
   double _degToRad(double deg) => deg * pi / 180;
 
   // ============================================================
-  // 📢 Feed público de territórios
+  // 📢 Feed
   // ============================================================
 
   Future<void> _postTerritoryToFeed(
@@ -407,11 +491,9 @@ class TerritoryService {
         required double progress,
       }) async {
     try {
-      // winner (novo dono)
       final newOwnerDoc = await _firestore.collection('users').doc(userId).get();
       final newOwner = newOwnerDoc.data() ?? {};
 
-      // loser (antigo dono) — ✅ se oldUserId vazio, não busca
       Map<String, dynamic> oldOwner = {};
       if (oldUserId.isNotEmpty) {
         final oldOwnerDoc = await _firestore.collection('users').doc(oldUserId).get();
@@ -427,7 +509,6 @@ class TerritoryService {
       final p = progress.clamp(0.0, 1.0);
       final percent = (p * 100).round();
 
-      // 🎮 Texto gamer
       final battleTitle = oldUserId.isEmpty
           ? "📍 $winnerName reivindicou um novo território!"
           : (p < 1.0
@@ -446,16 +527,13 @@ class TerritoryService {
         'likes': 0,
         'commentsCount': 0,
         'text': battleTitle,
-
         'progress': p,
         'winnerId': userId,
         'winnerName': winnerName,
         'winnerPhoto': winnerPhoto,
-
         'loserId': oldUserId,
         'loserName': loserName,
         'loserPhoto': loserPhoto,
-
         'battleTitle': battleTitle,
         'battleType': oldUserId.isEmpty ? 'claim' : (p < 1.0 ? 'partial' : 'full'),
       });
@@ -466,7 +544,6 @@ class TerritoryService {
     }
   }
 
-  /// Popup de conquista visual
   Future<void> showAchievementPopup(
       BuildContext context, {
         required String title,
@@ -486,7 +563,6 @@ class TerritoryService {
   }) async {
     final snap = await _firestore.collection('territorios').get();
 
-    // carrega todos os pontos de todos territórios
     final List<Map<String, double>> allTerritoryPoints = [];
     for (final d in snap.docs) {
       final data = d.data();
@@ -510,10 +586,6 @@ class TerritoryService {
       return false;
     }
 
-    // retorna somente os pontos “fora”
     return route.where((r) => !isNearAnyTerritoryPoint(r)).toList();
   }
 }
-
-
-

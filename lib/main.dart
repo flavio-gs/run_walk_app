@@ -17,7 +17,6 @@ import 'package:run_walk_app/service/wear_offline_sync_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-
 // 🔹 Serviços
 import 'package:run_walk_app/service/background_tracking.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
@@ -37,6 +36,9 @@ import 'package:run_walk_app/run_tracker.dart';
 // 🔹 Página leve do Wear OS (só texto)
 import 'package:run_walk_app/wear_tutorial_page.dart';
 
+// ✅ SPLASH (vídeo)
+import 'package:run_walk_app/splash_page.dart';
+
 
 // ------------------------------------------------------------
 // 🔹 CHAVE GLOBAL (Permite Navegar de handlers de FCM)
@@ -44,7 +46,8 @@ import 'package:run_walk_app/wear_tutorial_page.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // Plugin para Notificações Locais (necessário para Foreground)
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+FlutterLocalNotificationsPlugin();
 
 
 // ------------------------------------------------------------
@@ -66,12 +69,10 @@ void handlePushNotificationClick(RemoteMessage message) {
 
   if (senderId != null) {
     debugPrint("📳 [FCM Click] Navegando para ProfilePage de ID: $senderId");
-    // Navega usando a GlobalKey para ProfilePage
-    // Usamos pushNamedAndRemoveUntil para limpar a pilha e garantir que a ProfilePage seja a nova rota principal
     navigatorKey.currentState?.pushNamedAndRemoveUntil(
-      '/perfil', // Usa a rota definida no MaterialApp
-          (route) => route.settings.name == '/main', // Mantém a main scaffold se necessário, ou remove tudo (false)
-      arguments: senderId, // Passa o senderId como argumento
+      '/perfil',
+          (route) => route.settings.name == '/main',
+      arguments: senderId,
     );
   }
 }
@@ -98,7 +99,8 @@ void showLocalNotification(RemoteMessage message) {
     priority: Priority.high,
   );
 
-  const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+  const NotificationDetails platformDetails =
+  NotificationDetails(android: androidDetails);
 
   flutterLocalNotificationsPlugin.show(
     0,
@@ -108,7 +110,6 @@ void showLocalNotification(RemoteMessage message) {
     payload: message.data.toString(),
   );
 }
-
 
 Future<void> setupFCM() async {
   if (await isWearOS()) return; // Não faz o setup do FCM no Wear OS
@@ -124,7 +125,9 @@ Future<void> setupFCM() async {
   String? token = await fcm.getToken();
 
   if (user != null && token != null) {
-    await FirebaseFirestore.instance.collection('users').doc(user.uid)
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
         .set({'fcmToken': token}, SetOptions(merge: true));
   }
 
@@ -147,7 +150,6 @@ Future<void> setupFCM() async {
     }
   });
 }
-
 
 // ------------------------------------------------------------
 // 🔹 DETECÇÃO DE WEAR OS (Mantido)
@@ -174,6 +176,7 @@ Future<void> main() async {
     if (await Permission.notification.isDenied) {
       await Permission.notification.request();
     }
+
     Future<void> ensureServiceStoppedIfNotTracking() async {
       final prefs = await SharedPreferences.getInstance();
       final isTracking = prefs.getBool('isTracking') ?? false;
@@ -186,6 +189,7 @@ Future<void> main() async {
         service.invoke('stopService');
       }
     }
+
     await ensureServiceStoppedIfNotTracking();
     await initializeBackgroundTracking();
 
@@ -201,7 +205,6 @@ Future<void> main() async {
 
     // 🚨 CHAMADA PRINCIPAL DO SETUP FCM AQUI
     await setupFCM();
-
   } else {
     debugPrint("⌚ [Main] Wear OS detectado — inicialização leve.");
   }
@@ -221,6 +224,7 @@ Future<void> main() async {
         ? const LoginWearPage()
         : const WearTextTutorialPage();
   } else {
+    // ✅ Continua igual: se não viu tutorial -> tutorial (e ao finalizar, ele vai pro splash)
     initialPage = hasSeenTutorial ? const AuthGate() : const MapTutorialPage();
   }
 
@@ -250,12 +254,14 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.orange,
         scaffoldBackgroundColor: Colors.black,
       ),
-      // 🚨 ATRIBUIÇÃO DA CHAVE GLOBAL AO NAVIGATOR
       navigatorKey: navigatorKey,
-      // ---------------------------------------------
       home: widget.initialPage,
       routes: {
         '/tutorial': (context) => const MapTutorialPage(),
+
+        // ✅ Splash (vídeo)
+        '/splash': (context) => const SplashPage(),
+
         '/main': (context) => const MainScaffold(),
         '/main_wear': (context) => const MainScaffoldWear(),
         '/complete_profile': (context) => const CompleteProfilePage(),
@@ -263,14 +269,14 @@ class _MyAppState extends State<MyApp> {
         '/tracker': (context) => const RunTrackingPage(),
         '/login': (context) => const LoginPage(),
         '/historico': (context) => const HistoricoPage(),
-        // 🚨 PROFILE PAGE (ATUALIZADA PARA LIDAR COM ARGUMENTOS DE ROTA)
+
         '/perfil': (context) {
-          // Extrai o userId dos argumentos da rota, que é passado pelo Push Notification handler
           final userId = ModalRoute.of(context)?.settings.arguments as String?;
-          // Se o argumento for nulo, usa o ID do usuário logado (default)
-          return ProfilePage(userId: userId ?? FirebaseAuth.instance.currentUser!.uid);
+          return ProfilePage(
+            userId: userId ?? FirebaseAuth.instance.currentUser!.uid,
+          );
         },
-        // -------------------------------------------------------------------
+
         '/tracker_wear': (context) => const RunTrackerWearPage(),
         '/login_wear': (context) => const LoginWearPage(),
       },

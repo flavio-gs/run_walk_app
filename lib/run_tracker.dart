@@ -443,6 +443,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _overlayEpoch++;
   }
 
+
   String? _lastEnemyTerritoryId;     // pra não repetir o mesmo alerta
   DateTime? _lastEnemyAlertAt;       // throttling
   bool _enemyAlertOpen = false;      // evita abrir vários dialogs
@@ -514,6 +515,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   final _geo = SimpleGeoHash();
 
   StreamSubscription<Position>? _posSub;
+
+  Timer? _powerupTicker;
+
+  final Map<String, DateTime> _protectionUntilByTerritory = {};
+  final Map<String, int> _boostExtraByTerritory = {};
+  final Map<String, Marker> _statusMarkersByTerritory = {};
+
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _activeChallengesStream;
+  List<String> _activeChallengeIds = [];
 
 // em vez de 1 listener, agora serão vários (um por bound)
   final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _territoryBoundsSubs = [];
@@ -917,32 +927,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     );
   }
 
-  Widget _territoryOwnerLabel(String ownerId, {String? territoryId}) {
-    if (ownerId.isEmpty) {
-      return Text(
-        territoryId != null ? "Território: $territoryId" : "Território",
-        style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
-      );
-    }
-
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance.collection('users').doc(ownerId).get(),
-      builder: (_, snap) {
-        final data = snap.data?.data();
-        final name = (data?['displayName'] as String?)?.trim();
-
-        final label = (name != null && name.isNotEmpty)
-            ? "Território de $name"
-            : (territoryId != null ? "Território: $territoryId" : "Território");
-
-        return Text(
-          label,
-          style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
-        );
-      },
-    );
-  }
-
   _Territory? _enemyTerritoryAt(LatLng pos, String myUid) {
     for (final t in _territories) {
       if (t.points.length < 3) continue;
@@ -1120,44 +1104,56 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
+
   Future<void> _listenToActiveChallenge() async {
     try {
-      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
-      final query = await FirebaseFirestore.instance
-          .collection('posts')
-          .where('type', isEqualTo: 'challenge')
-          .get();
+      final now = Timestamp.now();
 
-      DocumentSnapshot<Map<String, dynamic>>? foundDoc;
+      // Stream direto da coleção "challenges"
+      final stream = FirebaseFirestore.instance
+          .collection('challenges')
+          .where('participants', arrayContains: user.uid)
+      // se tiver campo status
+          .where('status', isNotEqualTo: 'closed')
+          .snapshots();
 
-      for (var doc in query.docs) {
-        final data = doc.data();
-        final participants = (data['participants'] ?? []) as List<dynamic>;
-        final quitters = (data['quitters'] ?? []) as List<dynamic>? ?? [];
+      setState(() {
+        _activeChallengesStream = stream;
+      });
 
-        // 🔹 O jogador participa e não desistiu
-        if (participants.contains(userId) && !quitters.contains(userId)) {
-          foundDoc = doc;
-          break;
+      // opcional: manter também uma lista de IDs em memória
+      stream.listen((snap) {
+        final ids = <String>[];
+
+        for (final doc in snap.docs) {
+          final data = doc.data();
+
+          // filtra período (se tiver start/end)
+          final Timestamp? start = data['startDate'];
+          final Timestamp? end = data['endDate'];
+
+          if (start != null && start.compareTo(now) > 0) continue;
+          if (end != null && end.compareTo(now) < 0) continue;
+
+          // se você tiver "quitters" também na coleção challenges, filtra aqui:
+          final quitters = (data['quitters'] as List?) ?? const [];
+          if (quitters.contains(user.uid)) continue;
+
+          ids.add(doc.id);
         }
-      }
 
-      if (foundDoc != null) {
+        if (!mounted) return;
         setState(() {
-          _activeChallengeId = foundDoc!.id;
-          _challengeStream = FirebaseFirestore.instance
-              .collection('posts')
-              .doc(foundDoc.id)
-              .snapshots();
+          _activeChallengeIds = ids;
         });
-      }
+      });
     } catch (e) {
-      debugPrint("❌ Erro ao escutar desafio ativo: $e");
+      debugPrint("❌ Erro ao escutar desafios ativos: $e");
     }
   }
-
-
 
 
 
@@ -1303,20 +1299,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   @override
+  @override
   void initState() {
+    super.initState();
 
-    // inicia em GLOBAL e começa a escutar territórios
     _territoryController.setMode(
       MapTerritoryMode.livre,
       onUpdate: () {
         if (mounted) setState(() {});
       },
     );
-     _initLocationFlow();
 
-    super.initState();
+    _initLocationFlow();
 
-    // Carrega estilo do mapa (mobile)
+    _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      _refreshPowerupBadges();
+    });
+
     rootBundle.loadString('assets/map_style.json').then((style) {
       _mapStyle = style;
     });
@@ -1330,12 +1330,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           final t = _animationController.value;
           _currentPosition = LatLng(
             _previousPosition!.latitude +
-                (_animatedPosition!.latitude - _previousPosition!.latitude) *
-                    t,
+                (_animatedPosition!.latitude - _previousPosition!.latitude) * t,
             _previousPosition!.longitude +
-                (_animatedPosition!.longitude -
-                    _previousPosition!.longitude) *
-                    t,
+                (_animatedPosition!.longitude - _previousPosition!.longitude) * t,
           );
           _updateMarker();
         });
@@ -1345,6 +1342,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _listenToActiveChallenge();
     _setOnlineInitially();
   }
+
 
   final List<Color> _colorPalette = const [
     Colors.orangeAccent,
@@ -2046,9 +2044,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     required double radiusMeters,
   }) async {
     // ✅ evita recriar listeners se o centro mudou pouco
+    if (_isRunning) {
+      // ❄️ congela territórios durante corrida
+      return;
+    }
+
+    final threshold = 300.0; // metros, fora da corrida
+
     if (_lastQueryCenter != null) {
       final d = _distMeters(_lastQueryCenter!, center);
-      if (d < 150) return; // só refaz se moveu ~150m
+      if (d < threshold) return;
     }
 
     _lastQueryCenter = center;
@@ -2108,14 +2113,115 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+
+
 // ==============================
 // MERGE (SÓ ATUALIZA O QUE MUDOU)
 // ==============================
+
+  DateTime? _tsToDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    return null;
+  }
+
+  bool _isPowerupActive(Map<String, dynamic> powerups, String key) {
+    final m = powerups[key];
+    if (m is! Map) return false;
+
+    final active = (m['active'] == true);
+    final until = _tsToDate(m['until']);
+    if (!active || until == null) return false;
+
+    return until.isAfter(DateTime.now());
+  }
+
+  int _boostExtraDifficulty(Map<String, dynamic> powerups) {
+    final m = powerups['difficultyBoost'];
+    if (m is! Map) return 0;
+
+    final until = _tsToDate(m['until']);
+    if (m['active'] != true || until == null || !until.isAfter(DateTime.now())) return 0;
+
+    final extra = m['extraDifficulty'];
+    return (extra is num) ? extra.toInt() : 0;
+  }
+
+  LatLng _simpleCenter(List<LatLng> pts) {
+    double lat = 0, lng = 0;
+    for (final p in pts) {
+      lat += p.latitude;
+      lng += p.longitude;
+    }
+    return LatLng(lat / pts.length, lng / pts.length);
+  }
+
+  String _formatRemaining(Duration d) {
+    if (d.isNegative) return 'Expirado';
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
+  }
+
+  void _refreshPowerupBadges() {
+    bool changed = false;
+
+    for (final tid in _statusMarkersByTerritory.keys.toList()) {
+      final marker = _statusMarkersByTerritory[tid];
+      if (marker == null) continue;
+
+      final until = _protectionUntilByTerritory[tid];
+
+      // 🛡️ Proteção com timer
+      if (until != null) {
+        final remaining = until.difference(DateTime.now());
+
+        if (remaining.isNegative) {
+          // expirou -> remove caches (o stream depois vai redesenhar cores)
+          _statusMarkersByTerritory.remove(tid);
+          _protectionUntilByTerritory.remove(tid);
+          changed = true;
+          continue;
+        }
+
+        final txt = _formatRemaining(remaining);
+
+        _statusMarkersByTerritory[tid] = marker.copyWith(
+          infoWindowParam: InfoWindow(
+            title: '🛡️ Protegido • $txt',
+            snippet: 'Imune a tomadas até expirar',
+          ),
+        );
+        changed = true;
+        continue;
+      }
+
+      // 🔥 Boost sem timer (ou você pode colocar timer também se quiser)
+      final extra = _boostExtraByTerritory[tid];
+      if (extra != null) {
+        _statusMarkersByTerritory[tid] = marker.copyWith(
+          infoWindowParam: InfoWindow(
+            title: '🔥 Dificuldade +$extra',
+            snippet: 'Exige mais progresso para dominar',
+          ),
+        );
+        changed = true;
+      }
+    }
+
+    if (changed && mounted) setState(() {});
+  }
+
+
+
   Future<void> _applyTerritoryDocsMerged({
     required LatLng center,
     required double radiusMeters,
     required int token,
   }) async {
+
+
     if (token != _mergeToken) return;
     if (_territoryController.mode == MapTerritoryMode.livre) return;
 
@@ -2152,8 +2258,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       for (final id in removedIds) {
         _polygonsByTerritory.remove(id);
         _ownerMarkersByTerritory.remove(id);
+        _statusMarkersByTerritory.remove(id); // ✅ novo
         _territorySig.remove(id);
+        _protectionUntilByTerritory.remove(id);
+        _boostExtraByTerritory.remove(id);
       }
+
 
       // ✅ atualiza lista base de territórios
       _territories
@@ -2191,13 +2301,97 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         _territorySig[t.id] = sig;
 
+        // --- POWERUPS VISUAIS ---
+        final powerupsRaw = data['powerups'];
+        final powerups = (powerupsRaw is Map)
+            ? Map<String, dynamic>.from(powerupsRaw as Map)
+            : <String, dynamic>{};
+
+        final protected = _isPowerupActive(powerups, 'protection');
+        final extraDiff = _boostExtraDifficulty(powerups);
+        final boosted = extraDiff > 0;
+
+// base (cor por dono)
+        Color fill = _territoryFillForOwner(t.ownerId);
+        Color stroke = _territoryStrokeForOwner(t.ownerId);
+        int strokeWidth = 2;
+
+// 🛡️ protegido: “escudo azul”
+        if (protected) {
+          stroke = Colors.lightBlueAccent;
+          fill = Colors.lightBlueAccent.withOpacity(0.10);
+          strokeWidth = 4;
+        }
+
+// 🔥 boost: “aura roxa”
+        if (boosted && !protected) {
+          stroke = Colors.deepPurpleAccent;
+          fill = Colors.deepPurpleAccent.withOpacity(0.08);
+          strokeWidth = 3;
+        }
+
+// se tiver os dois, mantém borda azul e fill levemente roxo (gamer)
+        if (protected && boosted) {
+          fill = Colors.deepPurpleAccent.withOpacity(0.06);
+        }
+
+        DateTime? protectionUntil;
+        final prot = powerups['protection'];
+        if (prot is Map) {
+          protectionUntil = _tsToDate(prot['until']);
+        }
+
+        if (protected && protectionUntil != null) {
+          _protectionUntilByTerritory[t.id] = protectionUntil;
+        } else {
+          _protectionUntilByTerritory.remove(t.id);
+        }
+
+        if (boosted) {
+          _boostExtraByTerritory[t.id] = extraDiff;
+        } else {
+          _boostExtraByTerritory.remove(t.id);
+        }
+
+// aplica polígono
         _polygonsByTerritory[t.id] = Polygon(
           polygonId: PolygonId('territorio_${t.id}'),
           points: t.points,
-          fillColor: _territoryFillForOwner(t.ownerId),
-          strokeColor: _territoryStrokeForOwner(t.ownerId),
-          strokeWidth: 2,
+          fillColor: fill,
+          strokeColor: stroke,
+          strokeWidth: strokeWidth,
         );
+
+// --- MARKER BADGE (opcional, mas recomendado) ---
+        final hasStatus = protected || boosted;
+
+        if (hasStatus && t.points.length >= 3) {
+          final LatLng c = (t.points.isNotEmpty) ? _simpleCenter(t.points) : LatLng(
+            (data['centerLat'] as num).toDouble(),
+            (data['centerLng'] as num).toDouble(),
+          );
+
+          final title = protected
+              ? '🛡️ Protegido'
+              : '🔥 Dificuldade +$extraDiff';
+
+          final snippet = protected
+              ? 'Imune a tomadas até expirar'
+              : 'Exige mais progresso para dominar';
+
+          _statusMarkersByTerritory[t.id] = Marker(
+            markerId: MarkerId('status_${t.id}'),
+            position: c,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              protected ? BitmapDescriptor.hueAzure : BitmapDescriptor.hueViolet,
+            ),
+            infoWindow: InfoWindow(title: title, snippet: snippet),
+            zIndex: 999, // fica por cima
+          );
+        } else {
+          _statusMarkersByTerritory.remove(t.id);
+        }
+
       }
 
       // ✅ markers do dono — só cria se não existir
@@ -2271,6 +2465,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       });
     }
   }
+
+
+
 
 
 // ==============================
@@ -3000,7 +3197,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   void dispose() {
     _territoriesSub?.cancel();
     _territoriesSub = null;
-
+    _powerupTicker?.cancel();
     _timer?.cancel();
     _positionStream?.cancel();
     _animationController.dispose();
@@ -3008,6 +3205,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _audio.dispose();
     _onlinePositionStream?.cancel();
     _setOfflineOnExit();
+
     super.dispose();
   }
 
@@ -4028,11 +4226,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       // ✅ (1) Capturar territórios existentes
       if (!_isFreeMode && pathSnapshot.length >= 3) {
         try {
-          capturedInThisRun = await TerritoryService().checkTerritoryDominance(
+          final dominance = await TerritoryService().checkTerritoryDominance(
             userId: user.uid,
             pace: avgPaceSnapshot,
             route: pathSnapshot.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
-            context: context,
+            context: null,
             activeDisputeTerritoryId: _activeDisputeTerritoryId,
             onTerritoryCaptured: ({
               required String territoryId,
@@ -4040,15 +4238,43 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               required String newUserId,
               required double progress,
             }) async {
-              // ✅ se tinha dono -> foi captura de outro jogador
               if (oldUserId.isNotEmpty) {
                 capturedTerritoryIds.add(territoryId);
               } else {
-                // ✅ sem dono -> claim
                 claimedTerritoryIds.add(territoryId);
               }
             },
           );
+
+          capturedInThisRun = dominance.capturedCount;
+
+
+// ✅ se não capturou nada, mas teve tentativa bloqueada, avisa
+          if (context.mounted && capturedInThisRun == 0 && dominance.blocked.isNotEmpty) {
+            // prioridade: proteção > progresso insuficiente
+            final prot = dominance.blocked.where((b) => b.reason == TerritoryBlockReason.protected).toList();
+            final info = prot.isNotEmpty ? prot.first : dominance.blocked.first;
+
+            String msg;
+            if (info.reason == TerritoryBlockReason.protected) {
+              if (info.protectionUntil != null) {
+                final d = info.protectionUntil!.difference(DateTime.now());
+                final h = d.inHours;
+                final m = d.inMinutes.remainder(60);
+                final rem = h > 0 ? "${h}h ${m}m" : "${m}m";
+                msg = "🛡️ Você cruzou um território protegido. Tente novamente em $rem.";
+              } else {
+                msg = "🛡️ Você cruzou um território protegido. Não dá pra dominar agora.";
+              }
+            } else {
+              final p = (info.progress * 100).round();
+              final r = (info.requiredThreshold * 100).round();
+              msg = "🔥 Quase! Você fez $p% do território, mas precisava $r% pra dominar.";
+            }
+
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+          }
+
 
 
 
@@ -4158,6 +4384,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           context: context,
         );
 
+        await GamificationService().updateChallengesAfterRun(
+          distanciaKm: distanceKm,
+          xpGanho: totalXP,
+          runCreatedAt: endTime,
+          context: context,
+        );
+
+
         _showXPAnimation("+$totalXP XP");
         await _updateLeaderboard();
       } catch (e) {
@@ -4168,7 +4402,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('🏁 Corrida salva com sucesso!')),
         );
-        await _applyRunDistanceToActiveChallenges(distanceMeters: distanceMeters);
       }
 
       await _loadTerritories();
@@ -5111,6 +5344,54 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             final dangerRaw = (territory?['dangerPoints'] as List?) ?? const [];
             final dangerPoints = dangerRaw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
 
+            final powerupsRaw = territory?['powerups'];
+            final powerups = (powerupsRaw is Map)
+                ? Map<String, dynamic>.from(powerupsRaw as Map)
+                : <String, dynamic>{};
+
+            DateTime? _tsToDate(dynamic v) {
+              if (v is Timestamp) return v.toDate();
+              if (v is DateTime) return v;
+              return null;
+            }
+
+            bool _isActive(Map<String, dynamic> p, String key) {
+              final m = p[key];
+              if (m is! Map) return false;
+              final until = _tsToDate(m['until']);
+              return m['active'] == true && until != null && until.isAfter(DateTime.now());
+            }
+
+            Duration? _remaining(Map<String, dynamic> p, String key) {
+              final m = p[key];
+              if (m is! Map) return null;
+              final until = _tsToDate(m['until']);
+              if (until == null) return null;
+              final d = until.difference(DateTime.now());
+              if (d.isNegative) return null;
+              return d;
+            }
+
+            String _fmtRemaining(Duration d) {
+              final h = d.inHours;
+              final m = d.inMinutes.remainder(60);
+              if (h > 0) return '${h}h ${m}m';
+              return '${m}m';
+            }
+
+            final protectionActive = _isActive(powerups, 'protection');
+            final protectionRem = _remaining(powerups, 'protection');
+
+            final boostActive = _isActive(powerups, 'difficultyBoost');
+            final boostRem = _remaining(powerups, 'difficultyBoost');
+
+            int boostExtra = 0;
+            final bm = powerups['difficultyBoost'];
+            if (bm is Map && bm['extraDifficulty'] is num) {
+              boostExtra = (bm['extraDifficulty'] as num).toInt();
+            }
+
+
             String safetyLabel(String s) {
               if (s == 'danger') return 'Perigoso';
               if (s == 'safe') return 'Seguro';
@@ -5347,11 +5628,60 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: [
-                                      _pill("Dificuldade: $difficulty", Icons.trending_up),
+                                      _pill("Dificuldade do trajeto: $difficulty", Icons.trending_up),
                                       _pill("Segurança: ${safetyLabel(safety)}", Icons.shield),
-                                      _pill("Pontos: ${dangerPoints.length}", Icons.warning_amber_rounded),
+                                      _pill("Pontos de atenção: ${dangerPoints.length}", Icons.warning_amber_rounded),
                                     ],
                                   ),
+                                  const SizedBox(height: 10),
+
+// 🛡️/🔥 status do território (powerups)
+                                  StreamBuilder<int>(
+                                    stream: Stream.periodic(const Duration(seconds: 30), (x) => x),
+                                    builder: (context, _) {
+                                      final now = DateTime.now();
+
+                                      Duration? remOf(String key) {
+                                        final m = powerups[key];
+                                        if (m is! Map) return null;
+                                        final until = _tsToDate(m['until']);
+                                        if (m['active'] != true || until == null) return null;
+                                        final d = until.difference(now);
+                                        if (d.isNegative) return null;
+                                        return d;
+                                      }
+
+                                      final pr = remOf('protection');
+                                      final br = remOf('difficultyBoost');
+
+                                      final protOn = pr != null;
+                                      final boostOn = br != null;
+
+                                      if (!protOn && !boostOn) {
+                                        return Text(
+                                          "Sem proteção ativa",
+                                          style: GoogleFonts.poppins(
+                                            color: Colors.black54,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        );
+                                      }
+
+                                      return Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          if (protOn)
+                                            _pill("Protegido: ${_fmtRemaining(pr!)}", Icons.lock_clock),
+                                          if (boostOn)
+                                            _pill("🔥 Dificuldade de domínio +$boostExtra: ${_fmtRemaining(br!)}", Icons.local_fire_department),
+                                        ],
+                                      );
+                                    },
+                                  ),
+
+
                                   if (dangerPoints.isNotEmpty) ...[
                                     const SizedBox(height: 10),
                                     SizedBox(
@@ -5416,21 +5746,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.35),
+        color: Colors.white.withOpacity(0.6),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.85)),
+        border: Border.all(color: Colors.white.withOpacity(0.9)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: Colors.black87),
+          Icon(icon, size: 24, color: Colors.black87),
           const SizedBox(width: 6),
           Text(
             text,
             style: GoogleFonts.poppins(
+              fontSize: 14, // 🔑 PADRÃO
+              fontWeight: FontWeight.w600,
               color: Colors.black87,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -5439,55 +5769,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
-  Future<void> _applyRunDistanceToActiveChallenges({required double distanceMeters}) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
-    final now = DateTime.now();
 
-    // 🔹 Busca desafios ativos dentro de "posts" do tipo "challenge"
-    final qs = await FirebaseFirestore.instance
-        .collection('posts')
-        .where('type', isEqualTo: 'challenge')
-        .where('participants', arrayContains: user.uid)
-        .where('deadline', isGreaterThan: Timestamp.fromDate(now))
-        .get();
-
-    for (final doc in qs.docs) {
-      final data = doc.data();
-
-      final targetKm = (data['distance'] ?? 0).toDouble();
-      if (targetKm <= 0) continue;
-
-      // 🔹 Pega progresso atual do usuário dentro de "progress.<uid>.distance"
-      final progressMap = data['progress'] as Map<String, dynamic>? ?? {};
-      final userProgress = progressMap[user.uid] as Map<String, dynamic>? ?? {};
-
-      final currentMeters = (userProgress['distance'] ?? 0).toDouble();
-      final status = (userProgress['status'] ?? 'in_progress').toString();
-
-      if (status != 'in_progress' && status != 'active') continue;
-
-      // 🔹 Soma a nova distância
-      final nextMeters = currentMeters + distanceMeters;
-      final targetMeters = targetKm * 1000.0;
-      final completed = nextMeters >= targetMeters;
-
-      // 🔹 Atualiza diretamente no documento do desafio
-      await doc.reference.update({
-        'progress.${user.uid}.distance': nextMeters,
-        'progress.${user.uid}.status': completed ? 'completed' : 'in_progress',
-        if (completed)
-          'progress.${user.uid}.finishedAt': FieldValue.serverTimestamp(),
-        'progress.${user.uid}.lastUpdate': FieldValue.serverTimestamp(),
-      });
-
-      print(
-        '✅ Progresso atualizado no desafio ${doc.id}: '
-            '${(nextMeters / 1000).toStringAsFixed(2)} / $targetKm km',
-      );
-    }
-  }
 
 
 }

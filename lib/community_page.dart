@@ -1195,6 +1195,18 @@ class _ChallengesTabState extends State<_ChallengesTab> {
   List<QueryDocumentSnapshot> _docs = [];
   int? _userPosition;
 
+  int _xpRounded(dynamic v) {
+    if (v == null) return 0;
+
+    if (v is num) return v.round();
+
+    // caso raro: veio como string
+    final parsed = num.tryParse(v.toString().replaceAll(',', '.'));
+    return (parsed ?? 0).round();
+  }
+
+  String _fmtXp(dynamic v) => '${_xpRounded(v)} XP';
+
   static const Color kOrange = Color(0xFFFF7A00);
   static const Color kBg = Color(0xFF0B0B0F);
   static const Color kCard = Color(0xFF12121A);
@@ -1478,7 +1490,7 @@ class _ChallengesTabState extends State<_ChallengesTab> {
 
                           // ✅ valor por métrica
                           final value = _metric == 'xp'
-                              ? '${data['xp'] ?? 0} XP'
+                              ? _fmtXp(data['xp'])
                               : _metric == 'territories'
                               ? '🗺️ ${(data['territories']?['activeCount'] ?? 0)}'
                               : '${((data['km'] ?? 0) as num).toDouble().toStringAsFixed(2)} km';
@@ -1625,6 +1637,16 @@ class _LeaderTile extends StatelessWidget {
 }
 
 class _PodiumTop3 extends StatelessWidget {
+  int _xpRounded(dynamic v) {
+    if (v == null) return 0;
+
+    if (v is num) return v.round();
+
+    // caso raro: veio como string
+    final parsed = num.tryParse(v.toString().replaceAll(',', '.'));
+    return (parsed ?? 0).round();
+  }
+  String _fmtXp(dynamic v) => '${_xpRounded(v)} XP';
   final List<QueryDocumentSnapshot> docs;
   final String metric; // 'xp' | 'km' | 'territories'
   const _PodiumTop3({required this.docs, required this.metric});
@@ -1636,7 +1658,8 @@ class _PodiumTop3 extends StatelessWidget {
     String fmt(int i) {
       final m = docs[i].data() as Map<String, dynamic>;
 
-      if (metric == 'xp') return '${m['xp'] ?? 0} XP';
+      if (metric == 'xp') return _fmtXp(m['xp']);
+
 
       if (metric == 'territories') {
         final active = (m['territories']?['activeCount'] ?? 0);

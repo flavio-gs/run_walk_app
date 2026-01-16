@@ -16,6 +16,9 @@ class AchievementService {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
+  bool _checkingAchievements = false;
+  final Set<String> _unlockingAchNow = <String>{};
+
   // ============================================================
   // 🔰 LISTA DE CONQUISTAS (inclui corridas + territórios)
   // ============================================================
@@ -179,130 +182,91 @@ class AchievementService {
     },
   ];
 
-  // ============================================================
-  // 🏆 CONQUISTAS (corrida + territórios)
-  // ============================================================
-  Future<void> checkAchievements({
-    required Map<String, dynamic> runData, // pode incluir chaves de território também
+  Future<bool> _unlockAchIdempotent({
+    required String userId,
+    required Map<String, dynamic> ach,
+    required SharedPreferences prefs,
     BuildContext? context,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final user = _auth.currentUser;
-    if (user == null) {
-      debugPrint("[Achievements] ⚠️ Nenhum usuário logado, abortando verificação.");
-      return;
-    }
+    final achId = ach['id'] as String;
 
-    // Recupera insígnias já desbloqueadas
-    final unlocked = prefs.getStringList('unlocked_achievements_${user.uid}') ?? [];
+    // ✅ trava por conquista (anti dupla chamada simultânea)
+    if (_unlockingAchNow.contains(achId)) return false;
+    _unlockingAchNow.add(achId);
 
-    // ---- Dados de corrida para composições antigas ----
-    final query = await _firestore
-        .collection('corridas')
-        .where('userId', isEqualTo: user.uid)
-        .get();
+    try {
+      final unlockedKey = 'unlocked_achievements_$userId';
+      final unlocked = prefs.getStringList(unlockedKey) ?? [];
 
-    final runCount = query.docs.length;
-    final totalKm = query.docs.fold<double>(
-      0,
-          (sum, doc) => sum + ((doc['distance'] ?? 0.0) as num).toDouble() / 1000,
-    );
-    final runsList = query.docs.map((d) => d.data()).cast<Map<String, dynamic>>().toList();
+      // ✅ se já está localmente, não desbloqueia de novo
+      if (unlocked.contains(achId)) return false;
 
-    final currentDistanceKm = ((runData['distance'] ?? 0.0) as num).toDouble() / 1000;
-    final pace = ((runData['pace'] ?? 0.0) as num).toDouble();
+      final connectivity = await Connectivity().checkConnectivity();
+      final online = connectivity != ConnectivityResult.none;
 
-    // ---- Dados de território (podem vir do runData ou do Firestore agregados) ----
-    // Preferência: valores passados pelo caller (run_tracker/motor de territórios)
-    int territoriesCaptured = (runData['territoriesCaptured'] ?? 0).toInt();
-    int activeTerritories = (runData['activeTerritories'] ?? 0).toInt();
-    double longestHoldHours = ((runData['longestHoldHours'] ?? 0.0) as num).toDouble();
+      bool unlockedNow = false;
 
-    // Se não veio nada no runData, tenta buscar agregados rápidos do Firestore
-    if (territoriesCaptured == 0 || activeTerritories == 0 || longestHoldHours == 0.0) {
-      try {
-        final agg = await _firestore.collection('users').doc(user.uid).get();
-        final data = (agg.data() ?? {})['territories'] as Map<String, dynamic>?;
+      if (online) {
+        // ✅ fonte de verdade: doc da conquista no Firestore
+        final docRef = _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('achievements')
+            .doc(achId);
 
-        if (data != null) {
-          territoriesCaptured = territoriesCaptured == 0 ? (data['capturedCount'] ?? 0) : territoriesCaptured;
-          activeTerritories = activeTerritories == 0 ? (data['activeCount'] ?? 0) : activeTerritories;
-          final longestMs = (data['longestHoldMs'] ?? 0) as num;
-          final hours = longestMs / (1000 * 60 * 60);
-          if (longestHoldHours == 0.0 && hours > 0) longestHoldHours = hours.toDouble();
+        unlockedNow = await _firestore.runTransaction<bool>((tx) async {
+          final snap = await tx.get(docRef);
+          if (snap.exists) return false;
+
+          tx.set(docRef, {
+            'title': ach['title'],
+            'icon': ach['icon'],
+            'timestamp': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          return true;
+        });
+      } else {
+        // offline: vamos considerar desbloqueio local (e sincronizar depois)
+        unlockedNow = true;
+
+        final pendingKey = 'pending_achievements_$userId';
+        final pending = prefs.getStringList(pendingKey) ?? [];
+
+        final encoded = jsonEncode({
+          'id': ach['id'],
+          'title': ach['title'],
+          'icon': ach['icon'],
+        });
+
+        if (!pending.contains(encoded)) {
+          pending.add(encoded);
+          await prefs.setStringList(pendingKey, pending);
         }
-      } catch (_) {}
-    }
-
-    debugPrint(
-        "[Achievements] 🏃 runCount=$runCount | totalKm=${totalKm.toStringAsFixed(2)} | current=${currentDistanceKm.toStringAsFixed(2)} | pace=$pace"
-            " || 🌐 territoriesCaptured=$territoriesCaptured | active=$activeTerritories | longestHoldHours=${longestHoldHours.toStringAsFixed(1)}");
-
-    final newAchievements = <Map<String, dynamic>>[];
-
-    for (var ach in _achievements) {
-      final achId = ach['id'] as String;
-
-      // já desbloqueada → ignora
-      if (unlocked.contains(achId)) continue;
-
-      // ⚙️ Travas antifalsos positivos (corridas)
-      if (currentDistanceKm < 0.1 &&
-          ['first_run', 'territory_conqueror', 'territory_warlord', 'territory_overlord', 'territory_keeper_24h', 'territory_keeper_7d', 'territory_keeper_30d', 'territory_triple_hold']
-              .contains(achId) == false) {
-        debugPrint("[Achievements] ⏩ Ignorando ${ach['title']} — corrida muito curta (${currentDistanceKm.toStringAsFixed(2)} km).");
-        continue;
-      }
-      if (runCount == 1 && achId != 'first_run' &&
-          !achId.startsWith('territory_')) {
-        debugPrint("[Achievements] ⏩ Primeira corrida — só 'Primeira Corrida' pode ser desbloqueada agora (não afeta territórios).");
-        continue;
       }
 
-      // Garante condições realistas de corrida
-      if (achId == '5k_runner' && totalKm < 5.0) continue;
-      if (achId == '10k_runner' && totalKm < 10.0) continue;
-      if (achId == 'marathoner' && totalKm < 42.0) continue;
-      if (achId == 'night_owl' && currentDistanceKm < 1.0) continue;
-      if (achId == 'speed_boost' && (pace <= 0 || pace > 5)) continue;
+      if (!unlockedNow) {
+        // servidor disse "já existe" -> só alinha o local
+        unlocked.add(achId);
+        await prefs.setStringList(unlockedKey, unlocked);
+        return false;
+      }
 
-      // Monta dados unificados
-      final data = {
-        // corrida
-        'runCount': runCount,
-        'distance': currentDistanceKm,
-        'pace': pace,
-        'totalDistance': totalKm,
-        'weeklyRuns': runData['weeklyRuns'] ?? 0,
-        'streak': runData['streak'] ?? 0,
-        'runs': runsList,
-
-        // território
-        'territoriesCaptured': territoriesCaptured,
-        'activeTerritories': activeTerritories,
-        'longestHoldHours': longestHoldHours,
-      };
-
-      final condition = (ach['condition'] as Function)(data);
-      if (!condition) continue;
-
-      // ✅ Desbloqueia
-      newAchievements.add(ach);
+      // ✅ IMPORTANTÍSSIMO: marca local na hora (anti corrida concorrente)
       unlocked.add(achId);
+      await prefs.setStringList(unlockedKey, unlocked);
 
-      debugPrint("[Achievements] ✅ Desbloqueada: ${ach['title']} (${ach['icon']})");
-
-      // Pop-up e feed
+      // UI
       if (context != null && context.mounted) {
         await showAchievementPopup(context, title: ach['title'], icon: ach['icon']);
         _showSnack(context, "${ach['icon']} Nova conquista: ${ach['title']}!");
       }
 
-      // 💥 Dá pontos extras pela conquista desbloqueada
+      // ✅ pontos só quando desbloqueou AGORA
       try {
-        await Future.delayed(const Duration(milliseconds: 300)); // evita sobreposição com popup
+        await Future.delayed(const Duration(milliseconds: 250));
         await GamificationService().addPoints(
-          points: 100, // 💰 cada conquista dá 100 pontos
+          points: 100,
           source: 'Conquista',
           description: 'Desbloqueou a conquista ${ach['title']}',
           context: context,
@@ -311,33 +275,178 @@ class AchievementService {
         debugPrint("[Achievements] Erro ao dar pontos pela conquista: $e");
       }
 
-
+      // feed
       await _postAchievementToFeed(
-        user.uid,
+        userId,
         achId: achId,
         title: ach['title'],
         icon: ach['icon'],
       );
-    }
 
-    if (newAchievements.isEmpty) {
-      debugPrint("[Achievements] Nenhuma nova conquista desbloqueada.");
-      return;
-    }
-
-    // 🔄 Salva local e sincroniza
-    await prefs.setStringList('unlocked_achievements_${user.uid}', unlocked);
-    final connectivity = await Connectivity().checkConnectivity();
-
-    if (connectivity != ConnectivityResult.none) {
-      await _syncAchievements(user.uid, newAchievements);
-    } else {
-      final pending = prefs.getStringList('pending_achievements_${user.uid}') ?? [];
-      pending.addAll(newAchievements.map((a) => jsonEncode(a)));
-      await prefs.setStringList('pending_achievements_${user.uid}', pending);
-      debugPrint("[Achievements] 🌐 Sem internet. Insígnias pendentes salvas localmente.");
+      debugPrint("[Achievements] ✅ Desbloqueada (idempotente): ${ach['title']} (${ach['icon']})");
+      return true;
+    } finally {
+      _unlockingAchNow.remove(achId);
     }
   }
+
+
+  // ============================================================
+  // 🏆 CONQUISTAS (corrida + territórios)
+  // ============================================================
+  Future<void> checkAchievements({
+    required Map<String, dynamic> runData, // pode incluir chaves de território também
+    BuildContext? context,
+  }) async {
+    // ✅ lock global (evita rodar em paralelo)
+    if (_checkingAchievements) {
+      debugPrint("[Achievements] ⏳ checkAchievements ignorado (já em execução).");
+      return;
+    }
+    _checkingAchievements = true;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user = _auth.currentUser;
+      if (user == null) {
+        debugPrint("[Achievements] ⚠️ Nenhum usuário logado, abortando verificação.");
+        return;
+      }
+
+      // Recupera insígnias já desbloqueadas
+      final unlocked = prefs.getStringList('unlocked_achievements_${user.uid}') ?? [];
+
+      // ---- Dados de corrida para composições antigas ----
+      final query = await _firestore
+          .collection('corridas')
+          .where('userId', isEqualTo: user.uid)
+          .get();
+
+      final runCount = query.docs.length;
+      final totalKm = query.docs.fold<double>(
+        0,
+            (sum, doc) => sum + ((doc['distance'] ?? 0.0) as num).toDouble() / 1000,
+      );
+      final runsList = query.docs.map((d) => d.data()).cast<Map<String, dynamic>>().toList();
+
+      final currentDistanceKm = ((runData['distance'] ?? 0.0) as num).toDouble() / 1000;
+      final pace = ((runData['pace'] ?? 0.0) as num).toDouble();
+
+      // ---- Dados de território (podem vir do runData ou do Firestore agregados) ----
+      int territoriesCaptured = (runData['territoriesCaptured'] ?? 0).toInt();
+      int activeTerritories = (runData['activeTerritories'] ?? 0).toInt();
+      double longestHoldHours = ((runData['longestHoldHours'] ?? 0.0) as num).toDouble();
+
+      // Se não veio nada no runData, tenta buscar agregados rápidos do Firestore
+      if (territoriesCaptured == 0 || activeTerritories == 0 || longestHoldHours == 0.0) {
+        try {
+          final agg = await _firestore.collection('users').doc(user.uid).get();
+          final data = (agg.data() ?? {})['territories'] as Map<String, dynamic>?;
+
+          if (data != null) {
+            territoriesCaptured =
+            territoriesCaptured == 0 ? (data['capturedCount'] ?? 0) : territoriesCaptured;
+            activeTerritories =
+            activeTerritories == 0 ? (data['activeCount'] ?? 0) : activeTerritories;
+
+            final longestMs = (data['longestHoldMs'] ?? 0) as num;
+            final hours = longestMs / (1000 * 60 * 60);
+            if (longestHoldHours == 0.0 && hours > 0) longestHoldHours = hours.toDouble();
+          }
+        } catch (_) {}
+      }
+
+      debugPrint(
+        "[Achievements] 🏃 runCount=$runCount | totalKm=${totalKm.toStringAsFixed(2)} | current=${currentDistanceKm.toStringAsFixed(2)} | pace=$pace"
+            " || 🌐 territoriesCaptured=$territoriesCaptured | active=$activeTerritories | longestHoldHours=${longestHoldHours.toStringAsFixed(1)}",
+      );
+
+      int unlockedNowCount = 0;
+
+      for (var ach in _achievements) {
+        final achId = ach['id'] as String;
+
+        // já desbloqueada → ignora
+        if (unlocked.contains(achId)) continue;
+
+        // ⚙️ Travas antifalsos positivos (corridas)
+        if (currentDistanceKm < 0.1 &&
+            [
+              'first_run',
+              'territory_conqueror',
+              'territory_warlord',
+              'territory_overlord',
+              'territory_keeper_24h',
+              'territory_keeper_7d',
+              'territory_keeper_30d',
+              'territory_triple_hold',
+            ].contains(achId) ==
+                false) {
+          debugPrint(
+            "[Achievements] ⏩ Ignorando ${ach['title']} — corrida muito curta (${currentDistanceKm.toStringAsFixed(2)} km).",
+          );
+          continue;
+        }
+
+        if (runCount == 1 && achId != 'first_run' && !achId.startsWith('territory_')) {
+          debugPrint(
+            "[Achievements] ⏩ Primeira corrida — só 'Primeira Corrida' pode ser desbloqueada agora (não afeta territórios).",
+          );
+          continue;
+        }
+
+        // Garante condições realistas de corrida
+        if (achId == '5k_runner' && totalKm < 5.0) continue;
+        if (achId == '10k_runner' && totalKm < 10.0) continue;
+        if (achId == 'marathoner' && totalKm < 42.0) continue;
+        if (achId == 'night_owl' && currentDistanceKm < 1.0) continue;
+        if (achId == 'speed_boost' && (pace <= 0 || pace > 5)) continue;
+
+        // Monta dados unificados
+        final data = {
+          // corrida
+          'runCount': runCount,
+          'distance': currentDistanceKm,
+          'pace': pace,
+          'totalDistance': totalKm,
+          'weeklyRuns': runData['weeklyRuns'] ?? 0,
+          'streak': runData['streak'] ?? 0,
+          'runs': runsList,
+
+          // território
+          'territoriesCaptured': territoriesCaptured,
+          'activeTerritories': activeTerritories,
+          'longestHoldHours': longestHoldHours,
+        };
+
+        final condition = (ach['condition'] as Function)(data);
+        if (!condition) continue;
+
+        // ✅ Desbloqueio idempotente (só pontua se for realmente NOVA)
+        final didUnlock = await _unlockAchIdempotent(
+          userId: user.uid,
+          ach: ach,
+          prefs: prefs,
+          context: context,
+        );
+
+        if (didUnlock) {
+          unlockedNowCount++;
+          // atualiza em memória pra já bloquear o loop (mesma execução)
+          unlocked.add(achId);
+        }
+      }
+
+      if (unlockedNowCount == 0) {
+        debugPrint("[Achievements] Nenhuma nova conquista desbloqueada.");
+      } else {
+        debugPrint("[Achievements] 🎉 Novas conquistas desbloqueadas: $unlockedNowCount");
+      }
+    } finally {
+      _checkingAchievements = false;
+    }
+  }
+
 
   // ============================================================
   // ☁️ SINCRONIZAÇÃO DE CONQUISTAS (igual você já tinha)

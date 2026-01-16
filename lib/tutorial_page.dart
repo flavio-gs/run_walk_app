@@ -24,19 +24,9 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   final List<LatLng> _enemyPath = [];
   Set<Polygon> _polygons = {};
 
-  Timer? _pathTimer;
-
   int _step = 0;
   double xpGain = 0.0;
   bool showXP = false;
-
-  // ===== Tutorial keys (tooltips 1x) =====
-  final GlobalKey _keyCta = GlobalKey();
-  final GlobalKey _keyBack = GlobalKey();
-  final GlobalKey _keySkip = GlobalKey();
-  final GlobalKey _keyMap = GlobalKey();
-
-  OverlayEntry? _tooltipEntry;
 
   // ===== Micro effects =====
   bool _invadeFlash = false; // vermelho
@@ -108,7 +98,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     super.initState();
     enemyRoute = playerRoute.sublist(0, (playerRoute.length / 2).floor());
 
-    // dispara efeitos iniciais e tooltip 1x depois do 1º frame
+    // dispara efeitos iniciais depois do 1º frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onEnterStep(_step);
     });
@@ -118,8 +108,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   void dispose() {
     _pulseTimer?.cancel();
     _playerPulseTimer?.cancel();
-    _pathTimer?.cancel();
-    _hideTooltip();
     player.dispose();
     _mapController?.dispose();
     super.dispose();
@@ -132,90 +120,54 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   List<Map<String, String>> _steps({required bool isCompact}) {
     if (isCompact) {
       return const [
-        {
-          'title': "CAP.1 — Fundação",
-          'text': "Você chegou ao mapa. Vamos marcar sua primeira rota."
-        },
-        {
-          'title': "Rota registrada",
-          'text': "Sua corrida vira linha. Pace, distância e calorias contam."
-        },
-        {
-          'title': "Selo de domínio",
-          'text': "Fechou uma volta? A área vira território e gera XP."
-        },
-        {
-          'title': "Alerta de rival",
-          'text': "Se alguém fechar área sobre a sua… pode invadir."
-        },
-        {
-          'title': "Batalha!",
-          'text': "O território muda de cor. Você pode recuperar correndo de novo."
-        },
-        {
-          'title': "Modo Território",
-          'text': "Aqui você disputa áreas e expande seu Império."
-        },
-        {
-          'title': "Modo Livre",
-          'text': "Treine e registre atividade sem disputar mapa."
-        },
-        {
-          'title': "Conquistas",
-          'text': "Desbloqueie conquistas e evolução visual."
-        },
-        {
-          'title': "Social + Clãs",
-          'text': "Interaja, entre em clãs e faça desafios/rankings."
-        },
+        {'title': "CAP.1 — Fundação", 'text': "Você chegou ao mapa. Vamos marcar sua primeira rota."},
+        {'title': "Rota registrada", 'text': "Sua corrida vira linha. Pace, distância e calorias contam."},
+        {'title': "Selo de domínio", 'text': "Fechou uma volta? A área vira território e gera XP."},
+        {'title': "Alerta de rival", 'text': "Se alguém fechar área sobre a sua… pode invadir."},
+        {'title': "Batalha!", 'text': "O território muda de cor. Você pode recuperar correndo de novo."},
+        {'title': "Modo Território", 'text': "Aqui você disputa áreas e expande seu Império."},
+        {'title': "Modo Livre", 'text': "Treine e registre atividade sem disputar mapa."},
+        {'title': "Conquistas", 'text': "Desbloqueie conquistas e evolução visual."},
+        {'title': "Social + Clãs", 'text': "Interaja, entre em clãs e faça desafios/rankings."},
       ];
     }
 
     return const [
       {
         'title': "CAPÍTULO 1 — Fundação do Império",
-        'text':
-        "Bem-vindo ao Empire of The Run. Aqui, corrida vira território. Vamos simular seu primeiro domínio no mapa."
+        'text': "Bem-vindo ao Empire of The Run. Aqui, corrida vira território. Vamos simular seu primeiro domínio no mapa."
       },
       {
         'title': "🏃 A Primeira Corrida",
-        'text':
-        "Ao iniciar, o app registra sua rota em tempo real e calcula distância, tempo, pace e calorias. Pausar/retomar mantém tudo certinho."
+        'text': "Ao iniciar, o app registra sua rota em tempo real e calcula distância, tempo, pace e calorias. Pausar/retomar mantém tudo certinho."
       },
       {
         'title': "🟧 Fechou uma volta = Território",
-        'text':
-        "Quando sua rota fecha uma área, ela vira território dominado no mapa. Isso rende XP e aumenta sua progressão/nível."
+        'text': "Quando sua rota fecha uma área, ela vira território dominado no mapa. Isso rende XP e aumenta sua progressão/nível."
       },
       {
         'title': "⚠️ Contato! Rival Detectado",
-        'text':
-        "Outros corredores também disputam o mapa. Se alguém fechar uma área sobre a sua região… pode invadir e tomar parte do seu domínio."
+        'text': "Outros corredores também disputam o mapa. Se alguém fechar uma área sobre a sua região… pode invadir e tomar parte do seu domínio."
       },
       {
         'title': "⚔️ Invasão em andamento",
-        'text':
-        "Quando um território é invadido, a área muda de cor e você recebe alerta. A defesa é simples: corra de novo pela área para reconquistar."
+        'text': "Quando um território é invadido, a área muda de cor e você recebe alerta. A defesa é simples: corra de novo pela área para reconquistar."
       },
       {
         'title': "🗺️ Modo Território",
-        'text':
-        "Nesse modo, suas corridas são usadas para conquistar e disputar áreas. Perfeito para quem quer jogar o mapa e expandir o Império."
+        'text': "Nesse modo, suas corridas são usadas para conquistar e disputar áreas. Perfeito para quem quer jogar o mapa e expandir o Império."
       },
       {
         'title': "🌙 Modo Livre",
-        'text':
-        "Quer apenas treinar? No modo livre você registra a atividade e guarda no histórico — sem disputa de mapa."
+        'text': "Quer apenas treinar? No modo livre você registra a atividade e guarda no histórico — sem disputa de mapa."
       },
       {
         'title': "🏆 Conquistas e Evolução",
-        'text':
-        "Complete objetivos para desbloquear conquistas e marcos de evolução. Seu perfil mostra o quanto você evoluiu."
+        'text': "Complete objetivos para desbloquear conquistas e marcos de evolução. Seu perfil mostra o quanto você evoluiu."
       },
       {
         'title': "📣 Social, Clãs e Desafios",
-        'text':
-        "Suas corridas aparecem no feed. Curta, comente, siga pessoas, entre em clãs/grupos e participe de desafios e rankings."
+        'text': "Suas corridas aparecem no feed. Curta, comente, siga pessoas, entre em clãs/grupos e participe de desafios e rankings."
       },
     ];
   }
@@ -269,7 +221,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   Future<void> _goBack({required bool isCompact}) async {
     if (_step <= 0) return;
 
-    _hideTooltip();
     setState(() {
       _step--;
       _enemyPath.clear();
@@ -280,60 +231,16 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     });
 
     await _onEnterStep(_step);
-
-    // se voltar pros passos de simulação, mantém consistente:
-    // (opcional) você pode reexecutar rotas automaticamente ao voltar
   }
 
   Future<void> _onEnterStep(int s) async {
-    _hideTooltip();
-
-    // micro-efeitos por step
+    // micro-efeitos por step (sem tooltips)
     if (s == 0) {
       await _flashOrange();
-      await _showTooltipOnce(
-        keyName: "cta_start",
-        target: _keyCta,
-        title: "Continuar",
-        text: "Toque aqui para simular o capítulo e ver as mecânicas no mapa.",
-      );
-    }
-
-    if (s == 1) {
-      await _showTooltipOnce(
-        keyName: "map_route",
-        target: _keyMap,
-        title: "Sua rota",
-        text: "A linha laranja é seu percurso. Corridas registram stats e progresso.",
-      );
-    }
-
-    if (s == 2) {
-      await _showTooltipOnce(
-        keyName: "territory",
-        target: _keyMap,
-        title: "Território",
-        text: "Área fechada = território dominado. Isso dá XP e sobe seu nível.",
-      );
     }
 
     if (s == 3) {
       await _flashOrange(quick: true); // alerta leve antes do vermelho
-      await _showTooltipOnce(
-        keyName: "enemy_warning",
-        target: _keyMap,
-        title: "Rival à vista",
-        text: "Agora você vai ver a rota do inimigo chegando na sua região.",
-      );
-    }
-
-    if (s == 4) {
-      await _showTooltipOnce(
-        keyName: "defense",
-        target: _keyCta,
-        title: "Defesa",
-        text: "Se invadirem, corra de novo na região para reconquistar o domínio.",
-      );
     }
   }
 
@@ -428,10 +335,8 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
           Polygon(
             polygonId: const PolygonId('player_area'),
             points: playerRoute,
-            fillColor: Colors.orangeAccent
-                .withOpacity(0.25 + (_playerPulse * 0.35)),
-            strokeColor: Colors.orangeAccent
-                .withOpacity(0.70 + (_playerPulse * 0.25)),
+            fillColor: Colors.orangeAccent.withOpacity(0.25 + (_playerPulse * 0.35)),
+            strokeColor: Colors.orangeAccent.withOpacity(0.70 + (_playerPulse * 0.25)),
             strokeWidth: 3 + (_playerPulse * 3).round(),
           ),
         };
@@ -493,7 +398,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   // ======================
 
   Future<void> _runPlayerRoute() async {
-    _hideTooltip();
     _playerPath.clear();
     _enemyPath.clear();
     setState(() {
@@ -537,7 +441,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   }
 
   Future<void> _runEnemyRoute() async {
-    _hideTooltip();
     _enemyPath.clear();
     await _play('alert');
 
@@ -570,7 +473,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   }
 
   Future<void> _showTerritory() async {
-    _hideTooltip();
     await _fitRoute(playerRoute);
     await _play('conquer');
 
@@ -600,7 +502,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
   }
 
   Future<void> _invadeTerritory() async {
-    _hideTooltip();
     await _play('battle');
 
     // efeito visual antes
@@ -654,106 +555,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('hasSeenTutorial', true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/login');
-  }
-
-  // ======================
-  // Tooltips (once)
-  // ======================
-
-  void _hideTooltip() {
-    _tooltipEntry?.remove();
-    _tooltipEntry = null;
-  }
-
-  Future<void> _showTooltipOnce({
-    required String keyName,
-    required GlobalKey target,
-    required String title,
-    required String text,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final seen = prefs.getBool("tutorial_tip_$keyName") ?? false;
-    if (seen) return;
-
-    // dá tempo do layout estabilizar
-    await Future.delayed(const Duration(milliseconds: 180));
-    if (!mounted) return;
-
-    final ctx = target.currentContext;
-    if (ctx == null) return;
-
-    final box = ctx.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-
-    final pos = box.localToGlobal(Offset.zero);
-    final size = box.size;
-
-    _tooltipEntry = OverlayEntry(
-      builder: (_) {
-        return Positioned.fill(
-          child: Material(
-            color: Colors.transparent,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(color: Colors.black.withOpacity(0.35)),
-                  ),
-                ),
-
-                // highlight
-                Positioned(
-                  left: pos.dx - 8,
-                  top: pos.dy - 3,
-                  width: size.width + 16,
-                  height: size.height + 16,
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.orangeAccent, width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.orangeAccent.withOpacity(0.35),
-                            blurRadius: 18,
-                          ),
-                        ],
-                      ),
-                    )
-                        .animate()
-                        .fadeIn(duration: 220.ms)
-                        .scale(
-                      begin: const Offset(0.96, 0.96),
-                      end: const Offset(1, 1),
-                    ),
-                  ),
-                ),
-
-                // bubble
-                Positioned(
-                  left: 14,
-                  right: 14,
-                  top: (pos.dy + size.height + 10)
-                      .clamp(60, MediaQuery.of(context).size.height - 160),
-                  child: _TutorialTooltipBubble(
-                    title: title,
-                    text: text,
-                    onClose: () async {
-                      await prefs.setBool("tutorial_tip_$keyName", true);
-                      _hideTooltip();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    Overlay.of(context, rootOverlay: true).insert(_tooltipEntry!);
+    Navigator.of(context).pushReplacementNamed('/splash');
   }
 
   // ======================
@@ -775,45 +577,41 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // mapa (key para tooltip)
-          KeyedSubtree(
-            key: _keyMap,
-            child: GoogleMap(
-              initialCameraPosition:
-              CameraPosition(target: playerRoute.first, zoom: 17),
-              onMapCreated: (c) {
-                _mapController = c;
-                _setMapStyle();
-              },
-              polylines: {
-                Polyline(
-                  polylineId: const PolylineId('player'),
-                  color: Colors.orangeAccent,
-                  width: 7,
-                  points: _playerPath,
-                  startCap: Cap.roundCap,
-                  endCap: Cap.roundCap,
-                  jointType: JointType.round,
-                  geodesic: true,
-                ),
-                Polyline(
-                  polylineId: const PolylineId('enemy'),
-                  color: Colors.redAccent,
-                  width: 6,
-                  points: _enemyPath,
-                  startCap: Cap.roundCap,
-                  endCap: Cap.roundCap,
-                  jointType: JointType.round,
-                  geodesic: true,
-                ),
-              },
-              polygons: _polygons,
-              zoomControlsEnabled: false,
-              myLocationButtonEnabled: false,
-              scrollGesturesEnabled: false,
-              rotateGesturesEnabled: false,
-              tiltGesturesEnabled: false,
-            ),
+          // mapa
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: playerRoute.first, zoom: 17),
+            onMapCreated: (c) {
+              _mapController = c;
+              _setMapStyle();
+            },
+            polylines: {
+              Polyline(
+                polylineId: const PolylineId('player'),
+                color: Colors.orangeAccent,
+                width: 7,
+                points: _playerPath,
+                startCap: Cap.roundCap,
+                endCap: Cap.roundCap,
+                jointType: JointType.round,
+                geodesic: true,
+              ),
+              Polyline(
+                polylineId: const PolylineId('enemy'),
+                color: Colors.redAccent,
+                width: 6,
+                points: _enemyPath,
+                startCap: Cap.roundCap,
+                endCap: Cap.roundCap,
+                jointType: JointType.round,
+                geodesic: true,
+              ),
+            },
+            polygons: _polygons,
+            zoomControlsEnabled: false,
+            myLocationButtonEnabled: false,
+            scrollGesturesEnabled: false,
+            rotateGesturesEnabled: false,
+            tiltGesturesEnabled: false,
           ),
 
           // leve escurecida (INTVL-ish)
@@ -899,8 +697,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                           return Expanded(
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 220),
-                              margin:
-                              const EdgeInsets.symmetric(horizontal: 3),
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
                               height: active ? 6 : 4,
                               decoration: BoxDecoration(
                                 color: active
@@ -916,7 +713,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                     const SizedBox(width: 10),
                     if (_step < steps.length - 1 && !isCompact)
                       TextButton(
-                        key: _keySkip,
                         onPressed: _finish,
                         child: const Text(
                           "Pular",
@@ -965,7 +761,6 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                   children: [
                     if (_step > 0)
                       InkWell(
-                        key: _keyBack,
                         onTap: () => _goBack(isCompact: isCompact),
                         borderRadius: BorderRadius.circular(14),
                         child: Container(
@@ -992,23 +787,20 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                     Expanded(
                       child: SizedBox(
                         height: isCompact ? 40 : 48,
-                        child: KeyedSubtree(
-                          key: _keyCta,
-                          child: ElevatedButton(
-                            onPressed: () => _goNext(isCompact: isCompact),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orangeAccent,
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
+                        child: ElevatedButton(
+                          onPressed: () => _goNext(isCompact: isCompact),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orangeAccent,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                            child: Text(
-                              _step == steps.length - 1 ? "Começar" : "Continuar",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: isCompact ? 12 : 14,
-                              ),
+                          ),
+                          child: Text(
+                            _step == steps.length - 1 ? "Começar" : "Continuar",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: isCompact ? 12 : 14,
                             ),
                           ),
                         ),
@@ -1018,10 +810,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                 ),
               ],
             ),
-          )
-              .animate()
-              .fadeIn(duration: 220.ms)
-              .slideY(begin: 0.15, end: 0),
+          ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.15, end: 0),
         ),
       ),
     );
@@ -1088,8 +877,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orangeAccent,
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -1135,89 +923,5 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
         ),
       ),
     );
-  }
-}
-
-// ======================
-// Tooltip bubble
-// ======================
-class _TutorialTooltipBubble extends StatelessWidget {
-  final String title;
-  final String text;
-  final VoidCallback onClose;
-
-  const _TutorialTooltipBubble({
-    required this.title,
-    required this.text,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF101015).withOpacity(0.9),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      text,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              InkWell(
-                onTap: onClose,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    "OK",
-                    style: TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              )
-            ],
-          ),
-        ),
-      ),
-    ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.08, end: 0);
   }
 }
