@@ -1298,6 +1298,51 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+  Future<bool> _showLocationConsentDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // 🔒 não deixa fechar tocando fora
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            'Permissão de Localização',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: const SingleChildScrollView(
+            child: Text(
+              'O Runner: Império da Corrida coleta sua localização '
+                  'mesmo quando o aplicativo está fechado ou em segundo plano.\n\n'
+                  'Isso é necessário para:\n\n'
+                  '• Registrar seus percursos de corrida com precisão.\n'
+                  '• Gerar mapas e estatísticas detalhadas das suas atividades.\n'
+                  '• Manter o histórico das suas corridas para que você acompanhe sua evolução.\n\n'
+                  'Aviso de Privacidade:\n'
+                  'Seus dados de localização são usados apenas para melhorar sua experiência '
+                  'no app e não são compartilhados com terceiros sem seu consentimento.',
+              style: TextStyle(fontSize: 14),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false); // ❌ recusou
+              },
+              child: const Text('Recusar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(true); // ✅ aceitou
+              },
+              child: const Text('Aceitar e Continuar'),
+            ),
+          ],
+        );
+      },
+    ) ??
+        false;
+  }
+
+
   @override
   @override
   void initState() {
@@ -1310,7 +1355,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       },
     );
 
-    _initLocationFlow();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final accepted = await _showLocationConsentDialog();
+
+      if (!mounted) return;
+
+      if (accepted) {
+        // 👉 agora SIM pede a permissão de localização
+        _initLocationFlow();
+      } else {
+        debugPrint('🚫 Usuário recusou permissão de localização');
+
+        // Opcional:
+        // - mostrar snackbar
+        // - limitar funcionalidades
+        // - manter modo livre sem GPS
+      }
+    });
+
 
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;

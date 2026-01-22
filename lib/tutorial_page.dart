@@ -129,6 +129,10 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
         {'title': "Modo Livre", 'text': "Treine e registre atividade sem disputar mapa."},
         {'title': "Conquistas", 'text': "Desbloqueie conquistas e evolução visual."},
         {'title': "Social + Clãs", 'text': "Interaja, entre em clãs e faça desafios/rankings."},
+        {
+          'title': "Localização (2º plano)",
+          'text': "Usamos sua localização também em segundo plano para registrar percursos com precisão, gerar mapas/estatísticas e manter seu histórico. Esses dados não são compartilhados com terceiros sem seu consentimento."
+        },
       ];
     }
 
@@ -168,6 +172,10 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
       {
         'title': "📣 Social, Clãs e Desafios",
         'text': "Suas corridas aparecem no feed. Curta, comente, siga pessoas, entre em clãs/grupos e participe de desafios e rankings."
+      },
+      {
+        'title': "📍 Localização em segundo plano",
+        'text': "Para registrar suas corridas com precisão, o Runner: Império da Corrida pode coletar sua localização mesmo com o app em segundo plano ou fechado. Isso permite: salvar rotas, gerar mapas e estatísticas, e manter seu histórico de evolução.\n\nAviso de Privacidade: seus dados de localização são usados para melhorar sua experiência e não são compartilhados com terceiros sem seu consentimento."
       },
     ];
   }
