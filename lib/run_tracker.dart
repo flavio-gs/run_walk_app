@@ -23,6 +23,7 @@ import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:run_walk_app/service/weather_service.dart';
 import 'package:run_walk_app/territory_danger_map_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'UI/territory_toggle.dart';
 import 'controller/territory_controller.dart';
 import 'enums/territory_mode.dart';
@@ -568,6 +569,40 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _territoryBoundsSubs.clear();
     _territoryDocsById.clear();
   }
+
+  static const _kLocDisclosureSeen = 'location_disclosure_seen';
+  static const _kLocDisclosureAccepted = 'location_disclosure_accepted';
+
+  Future<void> _handleLocationDisclosureOnce() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final seen = prefs.getBool(_kLocDisclosureSeen) ?? false;
+    if (seen) {
+      // ✅ Já viu uma vez, não mostra mais.
+      final accepted = prefs.getBool(_kLocDisclosureAccepted) ?? false;
+      if (accepted) {
+        _initLocationFlow(); // segue normal pedindo permissões (se ainda precisar)
+      } else {
+        // recusou anteriormente -> não pede permissão e segue com modo limitado
+        // (você decide o comportamento)
+      }
+      return;
+    }
+
+    // 👇 Primeira vez abrindo a tela: mostra o aviso antes da permissão
+    final accepted = await _showLocationConsentDialog();
+    await prefs.setBool(_kLocDisclosureSeen, true);
+    await prefs.setBool(_kLocDisclosureAccepted, accepted);
+
+    if (!mounted) return;
+
+    if (accepted) {
+      _initLocationFlow();
+    } else {
+      // recusou -> não pede permissão
+    }
+  }
+
 
 
 
@@ -1355,23 +1390,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       },
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final accepted = await _showLocationConsentDialog();
-
-      if (!mounted) return;
-
-      if (accepted) {
-        // 👉 agora SIM pede a permissão de localização
-        _initLocationFlow();
-      } else {
-        debugPrint('🚫 Usuário recusou permissão de localização');
-
-        // Opcional:
-        // - mostrar snackbar
-        // - limitar funcionalidades
-        // - manter modo livre sem GPS
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleLocationDisclosureOnce();
     });
+
 
 
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {

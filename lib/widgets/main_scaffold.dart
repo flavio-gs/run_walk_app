@@ -185,65 +185,56 @@ class _MainScaffoldState extends State<MainScaffold>
         builder: (context, visible, _) {
           if (!visible) return const SizedBox.shrink();
 
-          final bottomInset = MediaQuery.of(context).padding.bottom; // ✅ safe area real do device
-
-          return AnimatedSlide(
-            offset: visible ? Offset.zero : const Offset(0, 1),
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOut,
-            child: AnimatedOpacity(
-              opacity: visible ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 260),
-              child: Padding(
-                // ✅ aqui fica o “flutuante” + margem externa
-                padding: EdgeInsets.fromLTRB(
-                  _navOuterPaddingH,
-                  0,
-                  _navOuterPaddingH,
-                  _navOuterPaddingB + bottomInset, // ✅ inclui safe area sem duplicar
-                ),
-                child: SizedBox(
-                  // ✅ altura fixa, não soma com SafeArea
-                  height: _navHeight,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: kCard.withOpacity(0.96),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: Colors.white10),
-                      boxShadow: [
-                        BoxShadow(
-                          blurRadius: 18,
-                          offset: const Offset(0, 10),
-                          color: Colors.black.withOpacity(0.45),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(22),
-                      child: BottomNavigationBar(
-                        type: BottomNavigationBarType.fixed,
-                        backgroundColor: Colors.transparent,
-                        elevation: 0,
-                        selectedItemColor: kOrange,
-                        unselectedItemColor: Colors.white54,
-                        currentIndex: _selectedIndex,
-                        onTap: _onItemTapped,
-                        showSelectedLabels: false,
-                        showUnselectedLabels: false,
-                        items: [
-                          _navItem(Icons.dashboard_outlined, 0),
-                          _navItem(Icons.people_outline, 1),
-                          _activityItem(Icons.bolt_rounded, 2),
-                          _navItem(Icons.person_outline, 3),
-                          _navItem(Icons.chat_bubble_outline, 4),
-                        ],
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                _navOuterPaddingH,
+                0,
+                _navOuterPaddingH,
+                _navOuterPaddingB,
+              ),
+              child: SizedBox(
+                height: _navHeight,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: kCard.withOpacity(0.96),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: Colors.white10),
+                    boxShadow: [
+                      BoxShadow(
+                        blurRadius: 18,
+                        offset: Offset(0, 10),
+                        color: Colors.black.withOpacity(0.45),
                       ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: BottomNavigationBar(
+                      type: BottomNavigationBarType.fixed,
+                      backgroundColor: Colors.transparent,
+                      elevation: 0,
+                      selectedItemColor: kOrange,
+                      unselectedItemColor: Colors.white54,
+                      currentIndex: _selectedIndex,
+                      onTap: _onItemTapped,
+                      showSelectedLabels: false,
+                      showUnselectedLabels: false,
+                      items: [
+                        _navItem(Icons.dashboard_outlined, 0),
+                        _navItem(Icons.people_outline, 1),
+                        _activityItem(Icons.bolt_rounded, 2),
+                        _navItem(Icons.person_outline, 3),
+                        _navItem(Icons.chat_bubble_outline, 4),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
           );
+
         },
       ),
     );
