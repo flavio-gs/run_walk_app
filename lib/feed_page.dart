@@ -52,15 +52,20 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         .map((snapshot) => snapshot.docs.length);
   }
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-  static const Color kStroke = Color(0x1FFFFFFF); // branco 12%
 
   void _showCreateOptions(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: kCard,
+      backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -75,22 +80,22 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: cs.onSurface.withOpacity(0.24),
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              const Text(
+              Text(
                 'Crie algo incrível!',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
-                  color: Colors.white,
+                  color: cs.onSurface,
                 ),
               ),
               const SizedBox(height: 16),
               _buildCreateOption(
                 icon: Icons.edit,
-                color: kOrange,
+                color: primary,
                 title: 'Faça uma Publicação',
                 subtitle: 'Compartilhe sua corrida, foto ou reflexão do dia',
                 onTap: () {
@@ -109,30 +114,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   }
 
-  void _openChallengeCreator() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🔰 Criador de Desafios em desenvolvimento!')),
-    );
-  }
-
-  void _startRunSession() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🏃 Corrida iniciada!')),
-    );
-  }
-
-  void _publishAchievement() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🏆 Publique sua conquista em breve!')),
-    );
-  }
-
-  void _exploreRoutes() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🗺️ Exploração de rotas chegando!')),
-    );
-  }
-
   Widget _buildCreateOption({
     required IconData icon,
     required Color color,
@@ -140,6 +121,14 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     required String subtitle,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
     return ListTile(
       leading: CircleAvatar(
         radius: 24,
@@ -148,17 +137,26 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       ),
       title: Text(
         title,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
+        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: cs.onSurface),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(fontSize: 13, color: Colors.white60, fontWeight: FontWeight.w600),
+        style: TextStyle(fontSize: 13, color: cs.onSurface.withOpacity(0.6), fontWeight: FontWeight.w600),
       ),
       onTap: onTap,
     );
   }
 
   Widget _buildFeedToggleButton(String label, String mode) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final bool isSelected = _selectedFeed == mode;
 
     return GestureDetector(
@@ -174,10 +172,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? kOrange : kCard,
+          color: isSelected ? primary : card,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected ? kOrange.withOpacity(0.9) : Colors.white12,
+            color: isSelected ? primary.withOpacity(0.9) : Colors.white12,
             width: 1.2,
           ),
           boxShadow: [
@@ -285,31 +283,41 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: kBg,
+        backgroundColor: bg,
         elevation: 0,
-        title: const Text(
+        title: Text(
           'RunFeed',
           style: TextStyle(
-            color: Colors.white,
+            color: onSurface,
             fontWeight: FontWeight.w800,
             fontSize: 22,
             letterSpacing: 0.2,
           ),
         ),
-        iconTheme: const IconThemeData(color: kOrange),
+        iconTheme: IconThemeData(color: primary),
+
         actions: [
           IconButton(
-            icon: const Icon(Icons.search_rounded, color: Colors.white70),
+            icon: Icon(Icons.search_rounded, color: onSurface.withOpacity(0.7)),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const SearchUsersPage()),
             ).then((_) => _setupFeedStream()),
           ),
           IconButton(
-            icon: const Icon(Icons.add_box_outlined, color: Colors.white70),
+            icon: Icon(Icons.add_box_outlined, color: onSurface.withOpacity(0.7)),
             onPressed: () => _showCreateOptions(context),
           ),
           StreamBuilder<int>(
@@ -320,7 +328,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               return Stack(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.favorite_border, color: Colors.white70),
+                    icon: Icon(Icons.favorite_border, color: onSurface.withOpacity(0.7)),
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => const NotificationsPage()),
@@ -334,9 +342,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: kOrange,
+                          color: primary,
                           shape: BoxShape.circle,
-                          border: Border.all(color: kBg, width: 1.6),
+                          border: Border.all(color: bg, width: 1.6),
                         ),
                       ),
                     )
@@ -347,13 +355,22 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: kOrange))
+          ? Center(child: CircularProgressIndicator(color: primary))
           : _buildFeedBody(),
     );
 
   }
 
   Widget _buildFeedBody() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return Column(
       children: [
         Padding(
@@ -367,7 +384,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        const Divider(height: 1, color: Colors.white12),
+        Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _postsStream,
@@ -392,312 +409,6 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-  // STORIES (mantidos para uso futuro, se quiser ativar)
-  Widget _buildStoriesSection() {
-    return SizedBox(
-      height: 110,
-      child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final users = snapshot.data!.docs;
-          final currentUser = FirebaseAuth.instance.currentUser;
-
-          return ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: users.length + 1,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                final photoUrl = currentUser?.photoURL;
-                return GestureDetector(
-                  onTap: () => _showAddStoryOptions(context),
-                  child: Column(
-                    children: [
-                      Stack(
-                        children: [
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFF00C853), Color(0xFFFF9100)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            padding: const EdgeInsets.all(3),
-                            child: CircleAvatar(
-                              radius: 30,
-                              backgroundImage: (photoUrl != null &&
-                                  photoUrl.isNotEmpty)
-                                  ? NetworkImage(photoUrl)
-                                  : const AssetImage(
-                                  'assets/icon/logo_principal.png')
-                              as ImageProvider,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.blueAccent,
-                                border:
-                                Border.all(color: Colors.white, width: 2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.add,
-                                  color: Colors.white, size: 18),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      const Text('Seu story',
-                          style:
-                          TextStyle(fontSize: 12, color: Colors.black54)),
-                    ],
-                  ),
-                );
-              }
-
-              final userDoc = users[index - 1];
-              final userData = userDoc.data() as Map<String, dynamic>;
-              final userId = userDoc.id;
-              final name = userData['displayName'] ?? 'Usuário';
-              final photoUrl = userData['photoURL'];
-
-              return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(userId)
-                    .collection('stories')
-                    .orderBy('timestamp', descending: true)
-                    .snapshots(),
-                builder: (context, storySnap) {
-                  if (!storySnap.hasData || storySnap.data!.docs.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
-
-                  final stories = storySnap.data!.docs.where((doc) {
-                    final expiresAt =
-                    DateTime.tryParse(doc['expiresAt'] ?? '');
-                    return expiresAt != null &&
-                        expiresAt.isAfter(DateTime.now());
-                  }).toList();
-
-                  if (stories.isEmpty) return const SizedBox.shrink();
-
-                  final latestStory =
-                  stories.first.data() as Map<String, dynamic>;
-
-                  return GestureDetector(
-                    onTap: () => _openStoryViewer(stories, name, photoUrl),
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Column(
-                        children: [
-                          Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Color(0xFFFF9100), Color(0xFF00C853)],
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            padding: const EdgeInsets.all(3),
-                            child: CircleAvatar(
-                              radius: 30,
-                              backgroundImage:
-                              NetworkImage(latestStory['imageUrl']),
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(name.split(' ').first,
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.black54)),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  void _showAddStoryOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 15),
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              const Text(
-                'Criar novo story',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 20),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded,
-                    color: Colors.deepOrange),
-                title: const Text('Tirar foto'),
-                subtitle: const Text('Abra a câmera para tirar uma foto'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _addStory(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded,
-                    color: Colors.green),
-                title: const Text('Escolher da galeria'),
-                subtitle: const Text('Selecione uma imagem existente'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _addStory(ImageSource.gallery);
-                },
-              ),
-              const SizedBox(height: 15),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _addStory(ImageSource source) async {
-    try {
-      final picker = ImagePicker();
-      final pickedFile =
-      await picker.pickImage(source: source, imageQuality: 85);
-      if (pickedFile == null) return;
-
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final file = File(pickedFile.path);
-
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('stories')
-          .child(user.uid)
-          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
-
-      await storageRef.putFile(file);
-      final downloadUrl = await storageRef.getDownloadURL();
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stories')
-          .add({
-        'imageUrl': downloadUrl,
-        'timestamp': FieldValue.serverTimestamp(),
-        'expiresAt':
-        DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Story adicionado com sucesso!')),
-      );
-    } catch (e) {
-      debugPrint("Erro ao enviar story: $e");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erro: $e')));
-    }
-  }
-
-  void _openStoryViewer(
-      List<QueryDocumentSnapshot> stories,
-      String name,
-      String? photoUrl,
-      ) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => Scaffold(
-          backgroundColor: Colors.black,
-          body: PageView.builder(
-            itemCount: stories.length,
-            itemBuilder: (context, index) {
-              final data = stories[index].data() as Map<String, dynamic>;
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: Image.network(
-                      data['imageUrl'],
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundImage: (photoUrl != null &&
-                                photoUrl.isNotEmpty)
-                                ? NetworkImage(photoUrl)
-                                : null,
-                          ),
-                          const SizedBox(width: 10),
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 40,
-                    right: 15,
-                    child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ITEM DO FEED
   // ITEM DO FEED
   Widget _buildPostItem(DocumentSnapshot post) {
     final data = post.data() as Map<String, dynamic>;
@@ -844,17 +555,26 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
 
   Widget _emptyFeedMessage() {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.photo_library_outlined, size: 60, color: Colors.white38),
+            Icon(Icons.photo_library_outlined, size: 60, color: cs.onSurface.withOpacity(0.38)),
             const SizedBox(height: 14),
-            const Text(
+            Text(
               'Nenhuma publicação encontrada',
-              style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w800),
+              style: TextStyle(color: primary, fontSize: 16, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 18),
             ElevatedButton.icon(
@@ -865,7 +585,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               icon: const Icon(Icons.add, color: Colors.black),
               label: const Text('Fazer uma publicação'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: kOrange,
+                backgroundColor: primary,
                 foregroundColor: Colors.black,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -885,13 +605,18 @@ class _AchievementPostCard extends StatelessWidget {
   final Map<String, dynamic> data;
   const _AchievementPostCard({required this.data});
 
-  // Paleta do app (igual SearchUsersPage)
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final icon = (data['icon'] ?? '🏆').toString();
     final title = (data['title'] ?? 'Conquista Desconhecida').toString();
     final userName = (data['authorName'] ?? 'Jogador').toString();
@@ -900,9 +625,9 @@ class _AchievementPostCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
       decoration: BoxDecoration(
-        color: kCard,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: cs.onSurface.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
             blurRadius: 18,
@@ -923,7 +648,7 @@ class _AchievementPostCard extends StatelessWidget {
                 height: 180,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: kOrange.withOpacity(0.10),
+                  color: primary.withOpacity(0.10),
                 ),
               ),
             ),
@@ -937,7 +662,7 @@ class _AchievementPostCard extends StatelessWidget {
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: kOrange.withOpacity(0.9), width: 1.3),
+                      border: Border.all(color: primary.withOpacity(0.9), width: 1.3),
                     ),
                     child: CircleAvatar(
                       radius: 26,
@@ -1000,15 +725,15 @@ class _AchievementPostCard extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
-                                color: kOrange.withOpacity(0.14),
+                                color: primary.withOpacity(0.14),
                                 borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: kOrange.withOpacity(0.45)),
+                                border: Border.all(color: primary.withOpacity(0.45)),
                               ),
-                              child: const Text(
+                              child: Text(
                                 'CONQUISTA',
                                 style: TextStyle(
                                   fontSize: 10.5,
-                                  color: kOrange,
+                                  color: primary,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: 0.7,
                                 ),
@@ -1037,6 +762,15 @@ class _RunStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1602,13 +1336,18 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     'like': 'Curtir',
   };
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-  static const Color kStroke = Color(0x1FFFFFFF); // branco 12%
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final reactionsCol = FirebaseFirestore.instance
         .collection('posts')
         .doc(widget.postId)
@@ -1632,12 +1371,12 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
         }
       },
       child: Container(
-        color: kBg,
+        color: bg,
         margin: const EdgeInsets.only(bottom: 10),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: kCard,
+            color: card,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: Colors.white10),
             boxShadow: [
@@ -1671,7 +1410,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(color: kOrange.withOpacity(0.9), width: 1.3),
+                            border: Border.all(color: primary.withOpacity(0.9), width: 1.3),
                           ),
                           child: CircleAvatar(
                             radius: 20,
@@ -1801,7 +1540,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               // 🎨 cores no dark
                               final color = myType == 'love'
                                   ? Colors.redAccent
-                                  : (isActive ? kOrange : Colors.white70);
+                                  : (isActive ? primary : onSurface.withOpacity(0.7));
 
                               final icon = myType == 'love'
                                   ? Icons.favorite_rounded
@@ -1857,12 +1596,12 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                                      Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
                                       const SizedBox(width: 6),
                                       Text(
                                         count.toString(),
-                                        style: const TextStyle(
-                                          color: Colors.white70,
+                                        style: TextStyle(
+                                          color: onSurface.withOpacity(0.7),
                                           fontWeight: FontWeight.w800,
                                           fontSize: 13,
                                         ),
@@ -1877,7 +1616,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           const Spacer(),
 
                           IconButton(
-                            icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                            icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
                             onPressed: () {},
                           ),
                         ],
@@ -1963,7 +1702,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               ),
                               TextSpan(
                                 text: widget.caption!,
-                                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                                style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w600),
                               ),
                             ],
                           ),
@@ -2022,6 +1761,15 @@ class _ReactionsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return Material(
       color: Colors.transparent,
       child: Container(
@@ -2089,6 +1837,15 @@ class _ReactionBubbleState extends State<_ReactionBubble>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     return MouseRegion(
       onEnter: (_) => _c.forward(),
       onExit: (_) => _c.reverse(),
@@ -2283,6 +2040,15 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final d = widget.data;
     final participants = List<String>.from(d['participants'] ?? []);
     final quitters = List<String>.from(d['quitters'] ?? []);
@@ -2854,12 +2620,18 @@ class TerritoryBattlePostCard extends StatelessWidget {
     required this.onComment,
   });
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final winnerName = (data['winnerName'] ?? data['authorName'] ?? 'Jogador').toString();
     final winnerPhoto = (data['winnerPhoto'] ?? data['authorPhoto'] ?? '').toString();
 
@@ -2886,7 +2658,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: kCard,
+        color: card,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white10),
         boxShadow: [
@@ -2910,15 +2682,15 @@ class TerritoryBattlePostCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: kOrange.withOpacity(0.14),
+                      color: primary.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: kOrange.withOpacity(0.45)),
+                      border: Border.all(color: primary.withOpacity(0.45)),
                     ),
-                    child: const Text(
+                    child: Text(
                       'BATALHA',
                       style: TextStyle(
                         fontSize: 10.5,
-                        color: kOrange,
+                        color: primary,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.8,
                       ),
@@ -2998,7 +2770,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
                 child: Text(
                   battleTitle,
-                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, height: 1.2),
+                  style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w700, height: 1.2),
                 ),
               ),
 
@@ -3027,7 +2799,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                       return IconButton(
                         icon: Icon(
                           isLiked ? Icons.favorite_rounded : Icons.favorite_border,
-                          color: isLiked ? Colors.redAccent : Colors.white70,
+                          color: isLiked ? Colors.redAccent : onSurface.withOpacity(0.7),
                         ),
                         onPressed: () async {
                           final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -3061,10 +2833,10 @@ class TerritoryBattlePostCard extends StatelessWidget {
                       final count = snap.data?.docs.length ?? 0;
                       return TextButton.icon(
                         onPressed: onComment,
-                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                        icon: Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
                         label: Text(
                           count.toString(),
-                          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                          style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w800),
                         ),
                       );
                     },
@@ -3072,7 +2844,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
 
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                    icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
                     onPressed: () {},
                   ),
                 ],
@@ -3260,9 +3032,6 @@ class PromoPostCard extends StatelessWidget {
     required this.onComment,
   });
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
 
   Future<void> _openUrl(BuildContext context, String url) async {
     final uri = Uri.tryParse(url);
@@ -3287,6 +3056,15 @@ class PromoPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final primary = cs.primary;
+    final onPrimary = cs.onPrimary;
+    final onSurface = cs.onSurface;
+
     final title = (data['title'] ?? 'Promoção').toString();
     final text = (data['text'] ?? '').toString();
     final imageUrl = (data['imageUrl'] ?? '').toString();
@@ -3309,7 +3087,7 @@ class PromoPostCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: kCard,
+        color: card,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white10),
         boxShadow: [
@@ -3333,15 +3111,15 @@ class PromoPostCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: kOrange.withOpacity(0.14),
+                      color: primary.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: kOrange.withOpacity(0.45)),
+                      border: Border.all(color: primary.withOpacity(0.45)),
                     ),
-                    child: const Text(
+                    child: Text(
                       'PROMOÇÃO',
                       style: TextStyle(
                         fontSize: 10.5,
-                        color: kOrange,
+                        color: primary,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.8,
                       ),
@@ -3387,8 +3165,8 @@ class PromoPostCard extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       text,
-                      style: const TextStyle(
-                        color: Colors.white70,
+                      style: TextStyle(
+                        color: onSurface.withOpacity(0.7),
                         fontWeight: FontWeight.w600,
                         height: 1.25,
                       ),
@@ -3410,7 +3188,7 @@ class PromoPostCard extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.discount_rounded, size: 16, color: Colors.white70),
+                              Icon(Icons.discount_rounded, size: 16, color: onSurface.withOpacity(0.7)),
                               const SizedBox(width: 8),
                               Text(
                                 promoCode,
@@ -3432,13 +3210,13 @@ class PromoPostCard extends StatelessWidget {
                             );
                             HapticFeedback.selectionClick();
                           },
-                          icon: const Icon(Icons.copy_rounded, size: 18, color: kOrange),
-                          label: const Text(
+                          icon: Icon(Icons.copy_rounded, size: 18, color: primary),
+                          label: Text(
                             'Copiar',
-                            style: TextStyle(color: kOrange, fontWeight: FontWeight.w900),
+                            style: TextStyle(color: primary, fontWeight: FontWeight.w900),
                           ),
                           style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: kOrange.withOpacity(0.65)),
+                            side: BorderSide(color: primary.withOpacity(0.65)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         ),
@@ -3461,7 +3239,7 @@ class PromoPostCard extends StatelessWidget {
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: kOrange,
+                        backgroundColor: primary,
                         disabledBackgroundColor: Colors.white24,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -3488,7 +3266,7 @@ class PromoPostCard extends StatelessWidget {
                       return IconButton(
                         icon: Icon(
                           isLiked ? Icons.favorite_rounded : Icons.favorite_border,
-                          color: isLiked ? Colors.redAccent : Colors.white70,
+                          color: isLiked ? Colors.redAccent : onSurface.withOpacity(0.7),
                         ),
                         onPressed: () async {
                           final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -3522,10 +3300,10 @@ class PromoPostCard extends StatelessWidget {
                       final count = snap.data?.docs.length ?? 0;
                       return TextButton.icon(
                         onPressed: onComment,
-                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                        icon: Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
                         label: Text(
                           count.toString(),
-                          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                          style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w800),
                         ),
                       );
                     },
@@ -3533,7 +3311,7 @@ class PromoPostCard extends StatelessWidget {
 
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                    icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
                     onPressed: () {},
                   ),
                 ],
