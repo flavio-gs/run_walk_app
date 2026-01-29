@@ -14,6 +14,19 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    configurations.all {
+        resolutionStrategy {
+            // 👇 sobe o core pra versão que tem setStylusHandwritingEnabled
+            force 'androidx.core:core:1.15.0'
+            force 'androidx.core:core-ktx:1.15.0'
+
+            // essas podem ficar como estão (ou você pode atualizar depois, se quiser)
+            force 'androidx.activity:activity:1.8.2'
+            force 'androidx.activity:activity-ktx:1.8.2'
+            force 'androidx.browser:browser:1.8.0'
+        }
+    }
 }
 
 rootProject.buildDir = "../build"

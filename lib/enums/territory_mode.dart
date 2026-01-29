@@ -1,0 +1,4 @@
+enum MapTerritoryMode {
+  global,
+  livre,
+}

@@ -5,38 +5,77 @@ plugins {
     id "com.google.gms.google-services"
 }
 
+// 👇 keystore (ok deixar)
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace = "com.example.run_walk_app"
+    namespace = "com.nexusdev.runner_imperio"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    defaultConfig {
+        applicationId = "com.nexusdev.runner_imperio"
+        minSdkVersion 23
+        targetSdkVersion flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
-    defaultConfig {
-       
-        applicationId = "com.example.run_walk_app"
-       
-        minSdk 23
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
     }
 
     buildTypes {
         release {
-           
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
         }
     }
+
+    // 👇 SE quiser muito mexer aqui, usa esse formato novo.
+    // Mas pra simplificar, pode remover o bloco packagingOptions inteiro.
+    // packagingOptions {
+    //     jniLibs {
+    //         useLegacyPackaging = true
+    //     }
+    // }
 }
+
+// ❌ REMOVE ISSO COMPLETAMENTE
+// tasks.whenTaskAdded { task ->
+//     if (task.name.contains("strip") || task.name.contains("Strip")) {
+//         task.enabled = false
+//     }
+// }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+
+    // 🔒 Força versão nova do core e core-ktx
+    implementation "androidx.core:core:1.13.1"
+    implementation "androidx.core:core-ktx:1.13.1"
 }

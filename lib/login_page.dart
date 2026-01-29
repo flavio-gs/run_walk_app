@@ -1,8 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/cupertino.dart'; // Import necessário para Cupertino widgets
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:run_walk_app/run_tracker.dart'; // Assumindo que este é o caminho correto
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,30 +14,51 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  // Controladores de Texto
   final TextEditingController emailController = TextEditingController();
   final TextEditingController senhaController = TextEditingController();
 
   bool loading = false;
   String mensagemErro = '';
-  bool isRegistering = false; // Alterna entre Login e Cadastro
+  bool isRegistering = false;
 
-  // URL da imagem de rede do seu exemplo
-  static const String logoUrl =
-      "http://ninelabs-wordpress-1aba45-177-136-235-199.traefik.me/wp-content/uploads/2022/05/Group-1.png";
+  final AudioPlayer _player = AudioPlayer();
 
-  // Função centralizada para navegação
   void navigateToRunTrackingPage() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const RunTrackingPage()),
-    );
+    Navigator.pushReplacementNamed(context, '/main');
   }
 
-  // --- LÓGICA DE AUTENTICAÇÃO PADRÃO (E-MAIL/SENHA) ---
+  Future<void> _reactivateIfNeeded(String uid) async {
+    final ref = FirebaseFirestore.instance.collection('users').doc(uid);
+    final snap = await ref.get();
 
+    if (!snap.exists) {
+      // se for 1º login, garante o doc com isActive=true
+      await ref.set({
+        'isActive': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return;
+    }
+
+    final data = snap.data() ?? {};
+    final isActive = (data['isActive'] ?? true) as bool;
+
+    if (!isActive) {
+      await ref.update({
+        'isActive': true,
+        'reactivatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Conta reativada. Bem-vindo(a) de volta!')),
+        );
+      }
+    }
+  }
+
+
+  // ------------------ 🔐 LOGIN / CADASTRO -------------------
   Future<void> handleAuthAction() async {
-    // Validação básica
     if (emailController.text.trim().isEmpty ||
         senhaController.text.trim().isEmpty) {
       setState(() => mensagemErro = 'Preencha todos os campos.');
@@ -48,235 +71,325 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      if (isRegistering) {
-        // Ação de CADASTRO
-        final userCredential =
-            await FirebaseAuth.instance.createUserWithEmailAndPassword(
-          email: emailController.text.trim(),
-          password: senhaController.text.trim(),
-        );
-        if (userCredential.user != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Conta criada com sucesso! Entrando...')),
-          );
-          navigateToRunTrackingPage();
-        }
+      final FirebaseAuth auth = FirebaseAuth.instance;
+      final userCredential = isRegistering
+          ? await auth.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: senhaController.text.trim(),
+      )
+          : await auth.signInWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: senhaController.text.trim(),
+      );
+
+      final user = userCredential.user;
+      if (user == null) return;
+
+// 🔹 Reativação automática caso esteja inativa
+      await _reactivateIfNeeded(user.uid);
+
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      var userDoc = await userDocRef.get();
+
+// 🔹 Cria doc se não existir (já com isActive:true)
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'uid': user.uid,
+          'email': user.email,
+          'photoURL': user.photoURL ?? '',
+          'username': '',
+          'isActive': true, // ✅ garante ativo
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        userDoc = await userDocRef.get();
+      }
+
+
+      final data = userDoc.data() ?? {};
+      final camposObrigatorios = [
+        data['username'],
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+            (valor) =>
+        valor == null ||
+            (valor is String && valor.trim().isEmpty) ||
+            (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
       } else {
-        // Ação de LOGIN
-        final userCredential =
-            await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: emailController.text.trim(),
-          password: senhaController.text.trim(),
-        );
-        if (userCredential.user != null) {
-          navigateToRunTrackingPage();
-        }
+        navigateToRunTrackingPage();
       }
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' || e.code == 'wrong-password') {
-        setState(() => mensagemErro = 'E-mail ou senha inválidos.');
-      } else if (e.code == 'email-already-in-use') {
-        setState(() => mensagemErro = 'Este e-mail já está cadastrado.');
-      } else {
-        setState(() => mensagemErro = 'Erro: ${e.message}');
-      }
+      String errorMessage = switch (e.code) {
+        'user-not-found' || 'wrong-password' => 'E-mail ou senha inválidos.',
+        'email-already-in-use' => 'Este e-mail já está cadastrado.',
+        _ => 'Erro: ${e.message}',
+      };
+      setState(() => mensagemErro = errorMessage);
     } finally {
       setState(() => loading = false);
     }
   }
 
-  // --- LÓGICA DE AUTENTICAÇÃO GOOGLE ---
-
+  // ------------------ 🔑 LOGIN COM GOOGLE -------------------
   Future<void> signInWithGoogle() async {
-    setState(() {
-      loading = true;
-      mensagemErro = '';
-    });
-
+    setState(() => loading = true);
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-
       if (googleUser == null) {
         setState(() => loading = false);
-        return; // Usuário cancelou
+        return; // usuário cancelou
       }
 
       final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final AuthCredential credential = GoogleAuthProvider.credential(
+      await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCred =
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      final user = userCred.user;
+      if (user == null) {
+        setState(() => loading = false);
+        return;
+      }
 
-      if (userCredential.user != null) {
+      // 🔹 Reativação automática
+      await _reactivateIfNeeded(user.uid);
+
+      final userDocRef =
+      FirebaseFirestore.instance.collection('users').doc(user.uid);
+      var userDoc = await userDocRef.get();
+
+      // 🔹 Se não existir cadastro, cria com dados básicos e força perfil incompleto
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'uid': user.uid,
+          'email': user.email,
+          'photoURL': user.photoURL ?? '',
+          'username': '', // vazio pra forçar completar
+          'displayName': user.displayName ?? '',
+          'isActive': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        userDoc = await userDocRef.get();
+      }
+
+      final data = userDoc.data() ?? {};
+
+      final camposObrigatorios = [
+        data['username'],
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+            (valor) =>
+        valor == null ||
+            (valor is String && valor.trim().isEmpty) ||
+            (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
+      } else {
         navigateToRunTrackingPage();
       }
-    } on FirebaseAuthException catch (e) {
-      setState(() => mensagemErro = 'Erro Google: ${e.message}');
     } catch (e) {
-      setState(() => mensagemErro = 'Erro inesperado: $e');
+      setState(() => mensagemErro = 'Erro ao autenticar: $e');
     } finally {
       setState(() => loading = false);
     }
   }
 
-  // --- WIDGETS AUXILIARES PARA INPUTS ---
 
+  // ------------------ 🧱 CAMPOS -------------------
   Widget _buildTextField({
     required TextEditingController controller,
-    required String placeholder,
+    required String label,
+    required IconData icon,
     bool obscureText = false,
   }) {
-    return CupertinoTextField(
+    return TextField(
       controller: controller,
-      cursorColor: Colors.amber,
-      padding: const EdgeInsets.all(15),
-      placeholder: placeholder,
       obscureText: obscureText,
-      placeholderStyle: const TextStyle(color: Colors.white70, fontSize: 14),
-      style: const TextStyle(color: Colors.white, fontSize: 14),
-      decoration: const BoxDecoration(
-          color: Colors.black12,
-          borderRadius: BorderRadius.all(
-            Radius.circular(7),
-          )),
+      cursorColor: Colors.orange,
+      style: const TextStyle(color: Colors.black87, fontSize: 15),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.black54),
+        prefixIcon: Icon(icon, color: Colors.black87, size: 20),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Colors.orange, width: 1.5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: Colors.black12, width: 1.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
     );
   }
 
+  // ------------------ 🧩 BUILD -------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Image(
-          image: NetworkImage(logoUrl),
-          width: 140,
-        ),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-      ),
-      body: Container(
-        width: MediaQuery.of(context).size.width,
-        padding: const EdgeInsets.all(27),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.teal,
-              Color.fromARGB(255, 250, 110, 2),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(height: 30),
-            Text(
-              isRegistering
-                  ? "Crie sua conta nos campos abaixo."
-                  : "Digite os dados de acesso nos campos abaixo.",
-              style: const TextStyle(
-                color: Colors.white,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Logo
+              Image.asset(
+                'assets/icon/logo_principal.png',
+                height: 100,
               ),
-            ),
-            if (mensagemErro.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Text(
-                  mensagemErro,
-                  style: const TextStyle(
-                      color: Colors
-                          .yellowAccent), // Mudança de cor para destacar no fundo escuro
-                  textAlign: TextAlign.center,
+              const SizedBox(height: 40),
+
+              Text(
+                isRegistering ? "Crie sua conta" : "Bem-vindo de volta!",
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
                 ),
               ),
-            const SizedBox(height: 30),
+              const SizedBox(height: 30),
 
-            // Campos de Texto
-            _buildTextField(
-              controller: emailController,
-              placeholder: "Digite o seu e-mail",
-            ),
-            const SizedBox(height: 5),
-            _buildTextField(
-              controller: senhaController,
-              placeholder: "Digite sua senha",
-              obscureText: true,
-            ),
-            const SizedBox(height: 30),
-
-            // Botão Principal (Login / Cadastrar)
-            SizedBox(
-              width: double.infinity,
-              child: CupertinoButton(
-                padding: const EdgeInsets.all(17),
-                color: Colors.greenAccent,
-                onPressed: loading ? null : handleAuthAction,
-                child: loading
-                    ? const CupertinoActivityIndicator(
-                        radius: 10, color: Colors.black45)
-                    : Text(
-                        isRegistering ? "Cadastrar" : "Acessar",
-                        style: const TextStyle(
-                            color: Colors.black45,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600),
-                      ),
+              // Campos
+              _buildTextField(
+                controller: emailController,
+                label: "E-mail",
+                icon: Icons.email_outlined,
               ),
-            ),
-            const SizedBox(height: 7),
+              const SizedBox(height: 15),
+              _buildTextField(
+                controller: senhaController,
+                label: "Senha",
+                icon: Icons.lock_outline,
+                obscureText: true,
+              ),
 
-            // Botão de Alternância (Criar Conta / Já tenho conta)
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white70, width: 0.8),
-                  borderRadius: BorderRadius.circular(7)),
-              child: CupertinoButton(
-                child: Text(
-                  isRegistering
-                      ? "Já tenho uma conta, Acessar"
-                      : "Crie sua conta",
-                  style: const TextStyle(
+              const SizedBox(height: 10),
+              if (mensagemErro.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    mensagemErro,
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                ),
+
+              const SizedBox(height: 25),
+
+              // Botão principal
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: loading ? null : handleAuthAction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: loading
+                      ? const CupertinoActivityIndicator(color: Colors.white)
+                      : Text(
+                    isRegistering ? "Cadastrar" : "Entrar",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
                       color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Alternar login/cadastro
+              TextButton(
                 onPressed: () {
                   setState(() {
                     isRegistering = !isRegistering;
                     mensagemErro = '';
-                    emailController.clear();
-                    senhaController.clear();
                   });
                 },
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            // Botão Google Sign-In
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                  color: Colors.white, borderRadius: BorderRadius.circular(7)),
-              child: CupertinoButton(
-                child: const Text(
-                  "Entrar com Google",
-                  style: TextStyle(
-                      color: Colors.black87,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600),
+                child: Text(
+                  isRegistering
+                      ? "Já tenho uma conta"
+                      : "Não tem conta? Cadastre-se",
+                  style: const TextStyle(color: Colors.black54),
                 ),
-                onPressed: loading ? null : signInWithGoogle,
               ),
-            ),
-          ],
+
+              const SizedBox(height: 10),
+
+              // Divisor
+              Row(
+                children: const [
+                  Expanded(child: Divider(color: Colors.black12)),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      "ou",
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                  Expanded(child: Divider(color: Colors.black12)),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Botão Google
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: loading ? null : signInWithGoogle,
+                  icon: const Icon(Icons.g_mobiledata, color: Colors.black87),
+                  label: const Text(
+                    "Entrar com Google",
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: const BorderSide(color: Colors.black26),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
