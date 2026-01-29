@@ -1,14 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:http/http.dart' as http;
-import 'package:run_walk_app/widgets/main_scaffold.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:run_walk_app/widgets/main_scaffold.dart';
 
 class CompleteProfilePage extends StatefulWidget {
   const CompleteProfilePage({super.key});
@@ -39,6 +40,66 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   bool _isUploadingPhoto = false;
   String? _overridePhotoUrl;
 
+  // ---------- PAÍS / CÓDIGO POSTAL ----------
+  String _selectedCountry = 'BR'; // padrão Brasil
+
+  static const Map<String, String> _countryNames = {
+    'BR': 'Brasil',
+    'US': 'Estados Unidos',
+    'PT': 'Portugal',
+    'GB': 'Reino Unido',
+    'CA': 'Canadá',
+    'DE': 'Alemanha',
+    'FR': 'França',
+    'ES': 'Espanha',
+  };
+
+  String get _postalLabel {
+    switch (_selectedCountry) {
+      case 'US':
+        return 'ZIP Code (ex: 10001 ou 10001-0001)';
+      case 'CA':
+        return 'Postal Code (ex: K1A 0B1)';
+      case 'GB':
+        return 'Postcode (ex: SW1A 1AA)';
+      case 'PT':
+        return 'Código Postal (ex: 1000-001)';
+      case 'DE':
+        return 'PLZ (ex: 10115)';
+      case 'FR':
+        return 'Code Postal (ex: 75008)';
+      case 'ES':
+        return 'Código Postal (ex: 28013)';
+      case 'BR':
+      default:
+        return 'CEP (ex: 22713-350)';
+    }
+  }
+
+  RegExp get _postalRegex {
+    switch (_selectedCountry) {
+      case 'BR':
+        return RegExp(r'^\d{5}-?\d{3}$'); // 12345-678
+      case 'US':
+        return RegExp(r'^\d{5}(-\d{4})?$'); // 12345 ou 12345-6789
+      case 'CA':
+        return RegExp(r'^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$'); // K1A 0B1
+      case 'GB':
+        return RegExp(r'^(GIR 0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$',
+            caseSensitive: false);
+      case 'PT':
+        return RegExp(r'^\d{4}-\d{3}$'); // 1234-567
+      case 'DE':
+      case 'FR':
+      case 'ES':
+        return RegExp(r'^\d{5}$'); // 5 dígitos
+      default:
+        return RegExp(r'^.{3,12}$'); // fallback simples
+    }
+  }
+
+  bool get _isBrazil => _selectedCountry == 'BR';
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +107,20 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
     if (user?.displayName != null && user!.displayName!.isNotEmpty) {
       _displayNameController.text = user.displayName!;
     }
+  }
+
+  @override
+  void dispose() {
+    _displayNameController.dispose();
+    _usernameController.dispose();
+    _birthDateController.dispose();
+    _weightController.dispose();
+    _heightController.dispose();
+    _weeklyGoalController.dispose();
+    _cepController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
+    super.dispose();
   }
 
   Future<bool> _usernameExists(String username) async {
@@ -58,6 +133,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   }
 
   Future<void> _buscarCep() async {
+    if (!_isBrazil) return;
+
     final cepDigits = _cepController.text.replaceAll(RegExp(r'[^0-9]'), '');
     if (cepDigits.length != 8) return;
 
@@ -138,9 +215,13 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         'weight': double.tryParse(_weightController.text.trim()) ?? 0,
         'height': double.tryParse(_heightController.text.trim()) ?? 0,
         'weeklyGoal': double.tryParse(_weeklyGoalController.text.trim()) ?? 0,
-        'cep': _cepController.text.trim(),
+
+        // localização
+        'country': _selectedCountry,
+        'cep': _cepController.text.trim(), // (postal / zip / cep)
         'city': _cityController.text.trim(),
         'state': _stateController.text.trim(),
+
         'createdAt': FieldValue.serverTimestamp(),
         'isPro': true,
         'veterano': true,
@@ -191,8 +272,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                 },
               ),
               ListTile(
-                leading:
-                const Icon(Icons.photo_library, color: Colors.black87),
+                leading: const Icon(Icons.photo_library, color: Colors.black87),
                 title: const Text(
                   "Escolher da galeria",
                   style: TextStyle(color: Colors.black87),
@@ -238,8 +318,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       builder: (context) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           contentPadding: const EdgeInsets.all(16),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -319,12 +398,16 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       final thumbRef =
       storage.ref().child('users').child(user.uid).child('photo_thumb.jpg');
 
-      await mainRef.putData(mainBytes,
-          SettableMetadata(contentType: 'image/jpeg'));
+      await mainRef.putData(
+        mainBytes,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
       final downloadURL = await mainRef.getDownloadURL();
 
-      await thumbRef.putData(thumbBytes,
-          SettableMetadata(contentType: 'image/jpeg'));
+      await thumbRef.putData(
+        thumbBytes,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
 
       await user.updatePhotoURL(downloadURL);
       await user.reload();
@@ -394,8 +477,6 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -423,7 +504,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.5,
-                color: Colors.white, // fica branco por causa do ShaderMask
+                color: Colors.white,
               ),
             ),
           ),
@@ -482,8 +563,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                         if (photoURL == null ||
                                             photoURL.isEmpty) {
                                           return const Icon(Icons.person,
-                                              color: Colors.black45,
-                                              size: 50);
+                                              color: Colors.black45, size: 50);
                                         }
                                         return null;
                                       })(),
@@ -524,8 +604,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                     ),
                                     label: const Text(
                                       "Alterar foto",
-                                      style:
-                                      TextStyle(color: Colors.black54),
+                                      style: TextStyle(color: Colors.black54),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -540,8 +619,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                     ),
                                     label: const Text(
                                       "Remover",
-                                      style: TextStyle(
-                                          color: Colors.redAccent),
+                                      style: TextStyle(color: Colors.redAccent),
                                     ),
                                   ),
                                 ],
@@ -549,10 +627,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 22),
                         const _SectionTitle("Informações básicas"),
-
                         _buildTextField(
                           _displayNameController,
                           "Nome completo",
@@ -576,10 +652,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                         _buildDateField(),
                         const SizedBox(height: 10),
                         _buildDropdownGender(),
-
                         const SizedBox(height: 22),
                         const _SectionTitle("Dados físicos"),
-
                         Row(
                           children: [
                             Expanded(
@@ -601,13 +675,12 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                         _buildNumericField(
                           _weeklyGoalController,
                           "Meta semanal (km)",
-                          helperText:
-                          "Quantos km você quer correr por semana?",
+                          helperText: "Quantos km você quer correr por semana?",
                         ),
-
                         const SizedBox(height: 22),
                         const _SectionTitle("Localização"),
-
+                        _buildCountryDropdown(),
+                        const SizedBox(height: 10),
                         _buildCepField(),
                         if (_cepResumo != null) ...[
                           const SizedBox(height: 6),
@@ -618,7 +691,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                     ? Icons.location_on_outlined
                                     : Icons.info_outline,
                                 size: 16,
-                                color: _cepResumo!.startsWith('Local encontrado')
+                                color:
+                                _cepResumo!.startsWith('Local encontrado')
                                     ? Colors.green
                                     : Colors.orangeAccent,
                               ),
@@ -640,6 +714,30 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                         ],
                         const SizedBox(height: 10),
 
+                        // Cidade / Estado:
+                        // BR: readOnly (preenchido pelo ViaCEP)
+                        // Outros países: editável
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _isBrazil
+                                  ? _buildReadOnlyField(
+                                  _cityController, "Cidade")
+                                  : _buildTextField(
+                                  _cityController, "Cidade", true),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _isBrazil
+                                  ? _buildReadOnlyField(
+                                  _stateController, "Estado/UF")
+                                  : _buildTextField(_stateController,
+                                  "Estado/Região", true),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
                         _isLoading
                             ? const Center(child: CircularProgressIndicator())
                             : SizedBox(
@@ -649,8 +747,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                             onPressed: _completeProfile,
                             icon: const Icon(
                                 Icons.check_circle_outline),
-                            label:
-                            const Text('Salvar e continuar'),
+                            label: const Text('Salvar e continuar'),
                           ),
                         ),
                       ],
@@ -707,8 +804,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
     );
   }
 
-  Widget _buildReadOnlyField(
-      TextEditingController controller, String label) {
+  Widget _buildReadOnlyField(TextEditingController controller, String label) {
     return TextFormField(
       controller: controller,
       readOnly: true,
@@ -723,8 +819,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
       readOnly: true,
       style: const TextStyle(color: Colors.black87),
       decoration: _decoration("Data de nascimento").copyWith(
-        suffixIcon:
-        const Icon(Icons.calendar_today, color: Colors.black54),
+        suffixIcon: const Icon(Icons.calendar_today, color: Colors.black54),
       ),
       onTap: () async {
         final date = await showDatePicker(
@@ -756,15 +851,56 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
     );
   }
 
+  Widget _buildCountryDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedCountry,
+      dropdownColor: Colors.white,
+      decoration: _decoration("País"),
+      items: _countryNames.entries
+          .map(
+            (e) => DropdownMenuItem(
+          value: e.key,
+          child: Text(e.value),
+        ),
+      )
+          .toList(),
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() {
+          _selectedCountry = v;
+
+          // reseta infos ao trocar o país
+          _cepController.clear();
+          _cepResumo = null;
+          _cityController.clear();
+          _stateController.clear();
+        });
+      },
+      style: const TextStyle(color: Colors.black87),
+    );
+  }
+
   Widget _buildCepField() {
+    final isBrazil = _isBrazil;
+
+    final bool numericKeyboard = isBrazil ||
+        _selectedCountry == 'US' ||
+        _selectedCountry == 'DE' ||
+        _selectedCountry == 'FR' ||
+        _selectedCountry == 'ES';
+
     return TextFormField(
       controller: _cepController,
-      keyboardType: TextInputType.number,
-      maxLength: 9,
+      keyboardType: numericKeyboard ? TextInputType.number : TextInputType.text,
+      textCapitalization: (_selectedCountry == 'CA' || _selectedCountry == 'GB')
+          ? TextCapitalization.characters
+          : TextCapitalization.none,
+      maxLength: isBrazil ? 9 : (_selectedCountry == 'US' ? 10 : 12),
       style: const TextStyle(color: Colors.black87),
-      decoration: _decoration("CEP (ex: 22713-350)").copyWith(
+      decoration: _decoration(_postalLabel).copyWith(
         counterText: "",
-        suffixIcon: _isSearchingCep
+        suffixIcon: isBrazil
+            ? (_isSearchingCep
             ? const Padding(
           padding: EdgeInsets.all(10),
           child: SizedBox(
@@ -776,15 +912,52 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
             : IconButton(
           icon: const Icon(Icons.search, color: Colors.black54),
           onPressed: _buscarCep,
-        ),
+        ))
+            : null,
       ),
       validator: (value) {
-        if (value == null || value.trim().isEmpty) return "Informe o CEP";
-        final cepRegex = RegExp(r'^\d{5}-?\d{3}$');
-        if (!cepRegex.hasMatch(value)) return "CEP inválido";
+        if (value == null || value.trim().isEmpty) {
+          return isBrazil ? "Informe o CEP" : "Informe o código postal";
+        }
+
+        final v = value.trim();
+
+        // CA/GB: remove espaços pra validar melhor
+        final normalized =
+        (_selectedCountry == 'CA' || _selectedCountry == 'GB')
+            ? v.replaceAll(' ', '')
+            : v;
+
+        if (!_postalRegex.hasMatch(normalized)) {
+          return isBrazil ? "CEP inválido" : "Código postal inválido";
+        }
         return null;
       },
       onChanged: (value) {
+        // ======= NÃO-BR =======
+        if (!isBrazil) {
+          // CA: uppercase + espaço depois de 3 chars (K1A 0B1)
+          if (_selectedCountry == 'CA') {
+            final raw = value.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+            String formatted = raw;
+            if (raw.length > 3) {
+              formatted = "${raw.substring(0, 3)} ${raw.substring(3)}";
+            }
+            _cepController.value = TextEditingValue(
+              text: formatted,
+              selection: TextSelection.collapsed(offset: formatted.length),
+            );
+          } else if (_selectedCountry == 'GB') {
+            final formatted = value.toUpperCase();
+            _cepController.value = TextEditingValue(
+              text: formatted,
+              selection: TextSelection.collapsed(offset: formatted.length),
+            );
+          }
+          return;
+        }
+
+        // ======= BR (seu comportamento atual) =======
         if (_isFormattingCep) return;
 
         final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
@@ -863,8 +1036,7 @@ class _GlassContainer extends StatelessWidget {
           padding: padding ?? const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.9),
-            border:
-            Border.all(color: Colors.black.withOpacity(0.04)),
+            border: Border.all(color: Colors.black.withOpacity(0.04)),
             borderRadius: BorderRadius.circular(borderRadius),
             boxShadow: [
               BoxShadow(

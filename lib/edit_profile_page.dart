@@ -1,7 +1,8 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class EditProfilePage extends StatefulWidget {
@@ -30,12 +31,71 @@ class _EditProfilePageState extends State<EditProfilePage> {
   bool _isSearchingCep = false;
   String? _usernameError;
   String? _currentUsername; // para não bloquear o mesmo username
-  DateTime? _lastUsernameChange; // 👈 ADICIONAR
-
+  DateTime? _lastUsernameChange;
 
   String? _cepResumo;
 
   static const _orange = Color(0xFFFF6D00);
+
+  // ---------- PAÍS / CÓDIGO POSTAL ----------
+  String _selectedCountry = 'BR';
+
+  static const Map<String, String> _countryNames = {
+    'BR': 'Brasil',
+    'US': 'Estados Unidos',
+    'PT': 'Portugal',
+    'GB': 'Reino Unido',
+    'CA': 'Canadá',
+    'DE': 'Alemanha',
+    'FR': 'França',
+    'ES': 'Espanha',
+  };
+
+  bool get _isBrazil => _selectedCountry == 'BR';
+
+  String get _postalLabel {
+    switch (_selectedCountry) {
+      case 'US':
+        return 'ZIP Code (ex: 10001 ou 10001-0001)';
+      case 'CA':
+        return 'Postal Code (ex: K1A 0B1)';
+      case 'GB':
+        return 'Postcode (ex: SW1A 1AA)';
+      case 'PT':
+        return 'Código Postal (ex: 1000-001)';
+      case 'DE':
+        return 'PLZ (ex: 10115)';
+      case 'FR':
+        return 'Code Postal (ex: 75008)';
+      case 'ES':
+        return 'Código Postal (ex: 28013)';
+      case 'BR':
+      default:
+        return 'CEP (ex: 22713-350)';
+    }
+  }
+
+  RegExp get _postalRegex {
+    switch (_selectedCountry) {
+      case 'BR':
+        return RegExp(r'^\d{5}-?\d{3}$'); // 12345-678
+      case 'US':
+        return RegExp(r'^\d{5}(-\d{4})?$'); // 12345 ou 12345-6789
+      case 'CA':
+        return RegExp(r'^[A-Za-z]\d[A-Za-z][ -]?\d[A-Za-z]\d$'); // K1A 0B1
+      case 'GB':
+        return RegExp(r'^(GIR 0AA|[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$',
+            caseSensitive: false);
+      case 'PT':
+        return RegExp(r'^\d{4}-\d{3}$'); // 1234-567
+      case 'DE':
+      case 'FR':
+      case 'ES':
+        return RegExp(r'^\d{5}$'); // 5 dígitos
+      default:
+        return RegExp(r'^.{3,12}$'); // fallback simples
+    }
+  }
 
   @override
   void initState() {
@@ -66,12 +126,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
           .get();
 
       final data = doc.data() ?? {};
+
       _currentUsername = (data['username'] as String?)?.trim();
 
-      // 👇 ADICIONAR ISSO
+      // país salvo (se não existir, mantém BR)
+      final savedCountry = (data['country'] as String?)?.trim();
+      if (savedCountry != null && savedCountry.isNotEmpty) {
+        _selectedCountry = savedCountry;
+      }
+
       if (data['usernameLastChange'] is Timestamp) {
-        _lastUsernameChange =
-            (data['usernameLastChange'] as Timestamp).toDate();
+        _lastUsernameChange = (data['usernameLastChange'] as Timestamp).toDate();
       }
 
       _displayNameController.text = (data['displayName'] ?? '').toString();
@@ -86,12 +151,16 @@ class _EditProfilePageState extends State<EditProfilePage> {
       _selectedGender = (data['gender'] ?? '') as String?;
 
       if (_cityController.text.isNotEmpty && _stateController.text.isNotEmpty) {
-        _cepResumo = 'Local atual: ${_cityController.text} - ${_stateController.text}';
+        _cepResumo = _isBrazil
+            ? 'Local atual: ${_cityController.text} - ${_stateController.text}'
+            : 'Local atual: ${_cityController.text} - ${_stateController.text}';
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao carregar perfil: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao carregar perfil: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -113,6 +182,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   Future<void> _buscarCep() async {
+    if (!_isBrazil) return;
+
     final cep = _cepController.text.replaceAll(RegExp(r'[^0-9]'), '');
     if (cep.length != 8) return;
 
@@ -123,9 +194,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data.containsKey('erro') && data['erro'] == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('CEP não encontrado.')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('CEP não encontrado.')),
+            );
+          }
         } else {
           final cidade = data['localidade'] ?? '';
           final uf = data['uf'] ?? '';
@@ -162,7 +235,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       return;
     }
 
-    // 👇 Verifica se o usuário está REALMENTE mudando o @
+    // Verifica se o usuário está REALMENTE mudando o @
     final bool isUsernameChanging = _currentUsername == null
         ? username.isNotEmpty
         : _currentUsername!.toLowerCase() != username.toLowerCase();
@@ -173,18 +246,19 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       if (diff.inDays < 30) {
         final diasRestantes = 30 - diff.inDays;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Você só poderá alterar o nome de usuário novamente em '
-                  '$diasRestantes dia(s).',
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Você só poderá alterar o nome de usuário novamente em '
+                    '$diasRestantes dia(s).',
+              ),
             ),
-          ),
-        );
-        return; // 👈 Não deixa continuar o salvamento
+          );
+        }
+        return;
       }
     }
-
 
     setState(() {
       _isLoading = true;
@@ -195,7 +269,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw 'Usuário não autenticado.';
 
-      await FirebaseFirestore.instance.collection('users').doc(widget.userId).set({
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .set({
         'displayName': _displayNameController.text.trim(),
         'username': username,
         'birthDate': _birthDateController.text.trim(),
@@ -203,12 +280,18 @@ class _EditProfilePageState extends State<EditProfilePage> {
         'weight': double.tryParse(_weightController.text.trim()) ?? 0,
         'height': double.tryParse(_heightController.text.trim()) ?? 0,
         'weeklyGoal': double.tryParse(_weeklyGoalController.text.trim()) ?? 0,
-        'cep': _cepController.text.trim(),
+
+        // localização
+        'country': _selectedCountry,
+        'cep': _cepController.text.trim(), // postal/zip/cep
         'city': _cityController.text.trim(),
         'state': _stateController.text.trim(),
+
         'updatedAt': FieldValue.serverTimestamp(),
-        // 👇 Só atualiza a data caso o @ tenha sido realmente alterado
-        if (isUsernameChanging) 'usernameLastChange': FieldValue.serverTimestamp(),
+
+        // Só atualiza a data caso o @ tenha sido realmente alterado
+        if (isUsernameChanging)
+          'usernameLastChange': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
       // Atualiza também o displayName no Auth
@@ -219,7 +302,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Perfil atualizado com sucesso!')),
         );
-        Navigator.pop(context); // volta para o ProfilePage
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
@@ -262,7 +345,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 ],
               ),
             ),
-
             Expanded(
               child: SingleChildScrollView(
                 padding:
@@ -296,7 +378,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         _buildNumericField(
                             _weeklyGoalController, "Meta semanal (km)"),
                         const SizedBox(height: 10),
-                        _buildCepField(),
+
+                        // Localização
+                        _buildCountryDropdown(),
+                        const SizedBox(height: 10),
+                        _buildPostalField(),
+
                         if (_cepResumo != null) ...[
                           const SizedBox(height: 6),
                           Align(
@@ -308,6 +395,32 @@ class _EditProfilePageState extends State<EditProfilePage> {
                             ),
                           ),
                         ],
+
+                        const SizedBox(height: 10),
+
+                        // Cidade/Estado:
+                        // BR: readOnly (preenchido pelo ViaCEP)
+                        // Outros: editável e obrigatório (pode ajustar se quiser)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _isBrazil
+                                  ? _buildReadOnlyField(
+                                  _cityController, "Cidade")
+                                  : _buildTextField(
+                                  _cityController, "Cidade", true),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _isBrazil
+                                  ? _buildReadOnlyField(
+                                  _stateController, "Estado/UF")
+                                  : _buildTextField(
+                                  _stateController, "Estado/Região", true),
+                            ),
+                          ],
+                        ),
+
                         const SizedBox(height: 20),
 
                         _isLoading
@@ -318,19 +431,24 @@ class _EditProfilePageState extends State<EditProfilePage> {
                           width: double.infinity,
                           child: ElevatedButton.icon(
                             style: ButtonStyle(
-                              backgroundColor: MaterialStateProperty.all(const Color(0xFFFF6D00)), // Laranja Runner
-                              foregroundColor: MaterialStateProperty.all(Colors.white),            // Texto branco
+                              backgroundColor:
+                              MaterialStateProperty.all(_orange),
+                              foregroundColor: MaterialStateProperty.all(
+                                  Colors.white),
                               padding: MaterialStateProperty.all(
-                                const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                                const EdgeInsets.symmetric(
+                                    horizontal: 32, vertical: 14),
                               ),
                               shape: MaterialStateProperty.all(
                                 RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
+                                  borderRadius:
+                                  BorderRadius.circular(14),
                                 ),
                               ),
                             ),
                             onPressed: _saveProfile,
-                            icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+                            icon: const Icon(Icons.check_circle_outline,
+                                color: Colors.white),
                             label: const Text(
                               'Salvar alterações',
                               style: TextStyle(
@@ -338,8 +456,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                                 color: Colors.white,
                               ),
                             ),
-                          )
-
+                          ),
                         ),
                       ],
                     ),
@@ -376,6 +493,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
         }
         return null;
       },
+    );
+  }
+
+  Widget _buildReadOnlyField(TextEditingController controller, String label) {
+    return TextFormField(
+      controller: controller,
+      readOnly: true,
+      style: const TextStyle(color: Colors.black54),
+      decoration: _decoration(label),
     );
   }
 
@@ -428,15 +554,56 @@ class _EditProfilePageState extends State<EditProfilePage> {
     );
   }
 
-  Widget _buildCepField() {
+  // ---------- País ----------
+  Widget _buildCountryDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _selectedCountry,
+      dropdownColor: Colors.white,
+      decoration: _decoration("País"),
+      items: _countryNames.entries
+          .map(
+            (e) => DropdownMenuItem(
+          value: e.key,
+          child: Text(e.value),
+        ),
+      )
+          .toList(),
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() {
+          _selectedCountry = v;
+
+          // reseta infos ao trocar o país
+          _cepController.clear();
+          _cepResumo = null;
+          _cityController.clear();
+          _stateController.clear();
+        });
+      },
+      style: const TextStyle(color: Colors.black87),
+    );
+  }
+
+  // ---------- Postal / Zip / CEP ----------
+  Widget _buildPostalField() {
+    final bool numericKeyboard = _isBrazil ||
+        _selectedCountry == 'US' ||
+        _selectedCountry == 'DE' ||
+        _selectedCountry == 'FR' ||
+        _selectedCountry == 'ES';
+
     return TextFormField(
       controller: _cepController,
-      keyboardType: TextInputType.number,
-      maxLength: 9,
+      keyboardType: numericKeyboard ? TextInputType.number : TextInputType.text,
+      textCapitalization: (_selectedCountry == 'CA' || _selectedCountry == 'GB')
+          ? TextCapitalization.characters
+          : TextCapitalization.none,
+      maxLength: _isBrazil ? 9 : (_selectedCountry == 'US' ? 10 : 12),
       style: const TextStyle(color: Colors.black87),
-      decoration: _decoration("CEP (ex: 22713-350)").copyWith(
+      decoration: _decoration(_postalLabel).copyWith(
         counterText: "",
-        suffixIcon: _isSearchingCep
+        suffixIcon: _isBrazil
+            ? (_isSearchingCep
             ? const Padding(
           padding: EdgeInsets.all(10),
           child: SizedBox(
@@ -451,15 +618,52 @@ class _EditProfilePageState extends State<EditProfilePage> {
             : IconButton(
           icon: const Icon(Icons.search, color: Colors.black54),
           onPressed: _buscarCep,
-        ),
+        ))
+            : null,
       ),
       validator: (value) {
-        if (value == null || value.trim().isEmpty) return "Informe o CEP";
-        final cepRegex = RegExp(r'^\d{5}-?\d{3}$');
-        if (!cepRegex.hasMatch(value)) return "CEP inválido";
+        if (value == null || value.trim().isEmpty) {
+          return _isBrazil ? "Informe o CEP" : "Informe o código postal";
+        }
+
+        final v = value.trim();
+
+        // CA/GB: remove espaços pra validar melhor
+        final normalized =
+        (_selectedCountry == 'CA' || _selectedCountry == 'GB')
+            ? v.replaceAll(' ', '')
+            : v;
+
+        if (!_postalRegex.hasMatch(normalized)) {
+          return _isBrazil ? "CEP inválido" : "Código postal inválido";
+        }
         return null;
       },
       onChanged: (value) {
+        // NÃO-BR: formata leve
+        if (!_isBrazil) {
+          if (_selectedCountry == 'CA') {
+            final raw =
+            value.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+            String formatted = raw;
+            if (raw.length > 3) {
+              formatted = "${raw.substring(0, 3)} ${raw.substring(3)}";
+            }
+            _cepController.value = TextEditingValue(
+              text: formatted,
+              selection: TextSelection.collapsed(offset: formatted.length),
+            );
+          } else if (_selectedCountry == 'GB') {
+            final formatted = value.toUpperCase();
+            _cepController.value = TextEditingValue(
+              text: formatted,
+              selection: TextSelection.collapsed(offset: formatted.length),
+            );
+          }
+          return;
+        }
+
+        // BR: quando completar o formato "99999-999", chama ViaCEP
         if (value.length == 9) _buscarCep();
       },
     );
@@ -512,18 +716,3 @@ class _CardContainer extends StatelessWidget {
     );
   }
 }
-
-final ButtonStyle _primaryBtn = ElevatedButton.styleFrom(
-  backgroundColor: Colors.orangeAccent, // Laranja Runner
-  foregroundColor: Colors.white,            // Texto branco
-  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(14),
-  ),
-  textStyle: const TextStyle(
-    fontWeight: FontWeight.bold,
-    fontSize: 16,
-    color: Colors.white,
-  ),
-);
-
