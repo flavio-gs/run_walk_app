@@ -621,7 +621,7 @@ class _DiscoverTabState extends State<_DiscoverTab> {
                       child: Center(
                         child: Text(
                           'Nenhum usuário encontrado 😕',
-                          style: TextStyle(color: Colors.black54),
+                          style: TextStyle(color: Colors.orangeAccent),
                         ),
                       ),
                     );
@@ -914,9 +914,48 @@ class _MyClansBlockState extends State<_MyClansBlock> {
     });
   }
 
+  /// ✅ Carrega os grupos (docs) e já filtra deleted=true
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _myGroupsStream(
+      String uid,
+      ) {
+    return _myGroupIdsStream(uid).asyncMap((ids) async {
+      if (ids.isEmpty) return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
+      // Firestore limita whereIn a 10 por vez (em geral).
+      // Então a gente faz "chunk" de 10.
+      final chunks = <List<String>>[];
+      for (var i = 0; i < ids.length; i += 10) {
+        chunks.add(ids.sublist(i, (i + 10 > ids.length) ? ids.length : i + 10));
+      }
 
-  @override
+      final results = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+      for (final chunk in chunks) {
+        final q = await widget.firestore
+            .collection('groups')
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+
+        results.addAll(q.docs);
+      }
+
+      // ✅ filtra deleted=true (mantém deleted ausente como "não deletado")
+      final filtered = results.where((d) {
+        final data = d.data();
+        return (data['deleted'] == true) == false;
+      }).toList();
+
+      // opcional: ordena por nome
+      filtered.sort((a, b) {
+        final an = (a.data()['name'] ?? '').toString().toLowerCase();
+        final bn = (b.data()['name'] ?? '').toString().toLowerCase();
+        return an.compareTo(bn);
+      });
+
+      return filtered;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = widget.auth.currentUser?.uid;
@@ -929,32 +968,41 @@ class _MyClansBlockState extends State<_MyClansBlock> {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white10),
       ),
-      child: StreamBuilder<List<String>>(
-        stream: _myGroupIdsStream(uid),
-        builder: (_, idsSnap) {
-          if (!idsSnap.hasData) {
+      child: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        stream: _myGroupsStream(uid),
+        builder: (_, snap) {
+          if (!snap.hasData) {
             return const Row(
               children: [
                 Icon(Icons.shield_rounded, color: kOrange),
                 SizedBox(width: 10),
                 Expanded(
-                  child: Text('Carregando seus clãs...',
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800)),
+                  child: Text(
+                    'Carregando seus clãs...',
+                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                  ),
                 ),
-                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: kOrange)),
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: kOrange),
+                ),
               ],
             );
           }
 
-          final groupIds = idsSnap.data ?? [];
-          if (groupIds.isEmpty) {
+          final groupsDocs = snap.data ?? [];
+
+          if (groupsDocs.isEmpty) {
             return Row(
               children: [
                 const Icon(Icons.shield_rounded, color: kOrange),
                 const SizedBox(width: 10),
                 const Expanded(
-                  child: Text('Você ainda não faz parte de nenhum clã.',
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800)),
+                  child: Text(
+                    'Você ainda não faz parte de nenhum clã.',
+                    style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                  ),
                 ),
                 OutlinedButton(
                   onPressed: () => Navigator.push(
@@ -967,6 +1015,9 @@ class _MyClansBlockState extends State<_MyClansBlock> {
             );
           }
 
+          // ✅ ids já filtrados (sem deleted=true)
+          final groupIds = groupsDocs.map((d) => d.id).toList();
+
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -975,15 +1026,22 @@ class _MyClansBlockState extends State<_MyClansBlock> {
                   const Icon(Icons.shield_rounded, color: kOrange),
                   const SizedBox(width: 10),
                   const Expanded(
-                    child: Text('Meus Clãs',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
+                    child: Text(
+                      'Meus Clãs',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
                   ),
-                  Text('${groupIds.length}',
-                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900)),
+                  Text(
+                    '${groupIds.length}',
+                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900),
+                  ),
                 ],
               ),
               const SizedBox(height: 10),
-
               SizedBox(
                 height: 120,
                 child: ListView.separated(
@@ -1002,8 +1060,8 @@ class _MyClansBlockState extends State<_MyClansBlock> {
       ),
     );
   }
-
 }
+
 
 class _GroupCardLive extends StatelessWidget {
   final String groupId;
@@ -1020,7 +1078,16 @@ class _GroupCardLive extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: firestore.collection('groups').doc(groupId).snapshots(),
       builder: (_, gSnap) {
-        final data = gSnap.data?.data() ?? {};
+        if (!gSnap.hasData) return const SizedBox.shrink();
+
+        final data = gSnap.data!.data();
+        if (data == null) return const SizedBox.shrink();
+
+        // 🚫 Se estiver deletado, não exibe
+        if (data['deleted'] == true) {
+          return const SizedBox.shrink();
+        }
+
         final name = (data['name'] ?? 'Clã').toString();
         final isPublic = (data['isPublic'] ?? true) == true;
         final membersCount = (data['membersCount'] ?? 0);
@@ -1115,26 +1182,38 @@ class _GroupCardLive extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            const Spacer(),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => GroupPage(groupId: groupId)),
-                                  );
-                                },
-                                icon: const Icon(Icons.open_in_new_rounded),
-                                label: const Text('Abrir'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(color: kOrange.withOpacity(0.4)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                            const SizedBox(height: 1),
+                            InkWell(
+                              borderRadius: BorderRadius.circular(14),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => GroupPage(groupId: groupId)),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    Icon(
+                                      Icons.open_in_new_rounded,
+                                      size: 18,
+                                      color: Colors.orangeAccent,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Abrir',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
+
                           ],
                         ),
                       ),

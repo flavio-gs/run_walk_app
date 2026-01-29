@@ -3776,7 +3776,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🔘 Botão recenter
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.80,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.74,
             right: 20,
             child: GestureDetector(
               onTap: _recenterMap,
@@ -3802,7 +3802,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           if (_activeDisputeTerritoryId != null)
             Positioned(
               top: MediaQuery.of(context).padding.top +
-                  MediaQuery.of(context).size.height * 0.72 -
+                  MediaQuery.of(context).size.height * 0.74 -
                   60, // 👈 fica acima do Online/Offline
               right: 20,
               child: GestureDetector(
@@ -3862,8 +3862,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 🌐 Online/Offline — minimalista
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.72,
-            right: 20,
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.74,
+            left: 20,
             child: GestureDetector(
               onTap: _toggleOnlineStatus,
               child: AnimatedContainer(
@@ -3965,7 +3965,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
           // 👉 encerra a corrida
           await _stopRun();
-          await _saveRun();
 
           setState(() {
             _slideDragValue = 0.0;
@@ -4242,6 +4241,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       // ✅ lastPos vem do snapshot (não do estado vivo)
       final lastPos = positionsSnapshot.isNotEmpty ? positionsSnapshot.last : null;
+
+      // ✅ BLOQUEIA CORRIDA CURTA AQUI TAMBÉM
+      if (distanceSnapshot < 10) {
+        debugPrint("[RUN] Corrida muito curta (${distanceSnapshot.toStringAsFixed(2)} m) — não salva.");
+
+        if (context.mounted && !wearMode) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Corrida muito curta — não foi salva.")),
+          );
+        }
+
+        return;
+      }
 
       if (loading) return;
       setState(() => loading = true);

@@ -175,12 +175,18 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                   }
 
                   final docs = snap.data!.docs.where((d) {
-                    if (_q.isEmpty) return true;
                     final m = d.data() as Map<String, dynamic>;
+
+                    // 🚫 não mostra se deleted: true
+                    if (m['deleted'] == true) return false;
+
+                    if (_q.isEmpty) return true;
+
                     final name = (m['name'] ?? '').toString().toLowerCase();
                     final desc = (m['description'] ?? '').toString().toLowerCase();
                     return name.contains(_q) || desc.contains(_q);
                   }).toList();
+
 
                   if (docs.isEmpty) {
                     return const Center(

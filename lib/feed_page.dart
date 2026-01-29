@@ -13,6 +13,7 @@ import 'package:run_walk_app/search_users_page.dart';
 import 'package:run_walk_app/create_challenge_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:run_walk_app/profile_page.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 class FeedPage extends StatefulWidget {
@@ -744,6 +745,21 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
         if (type == 'achievement') {
           return _AchievementPostCard(data: data);
+        }
+
+        if (type == 'promocional') {
+          return PromoPostCard(
+            postId: postId,
+            data: data,
+            postTime: postTime,
+            authorId: authorId,
+            onComment: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CommentsPage(postId: postId, postAuthorId: authorId),
+              ),
+            ),
+          );
         }
 
         // 🎯 Mídia
@@ -3227,4 +3243,307 @@ class TerritoryBattlePostCard extends StatelessWidget {
     );
   }
 }
+
+class PromoPostCard extends StatelessWidget {
+  final String postId;
+  final Map<String, dynamic> data;
+  final DateTime postTime;
+  final String authorId;
+  final VoidCallback onComment;
+
+  const PromoPostCard({
+    super.key,
+    required this.postId,
+    required this.data,
+    required this.postTime,
+    required this.authorId,
+    required this.onComment,
+  });
+
+  static const Color kOrange = Color(0xFFFF7A00);
+  static const Color kBg = Color(0xFF0B0B0F);
+  static const Color kCard = Color(0xFF12121A);
+
+  Future<void> _openUrl(BuildContext context, String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Link inválido.')),
+      );
+      return;
+    }
+
+    final ok = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir o link.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (data['title'] ?? 'Promoção').toString();
+    final text = (data['text'] ?? '').toString();
+    final imageUrl = (data['imageUrl'] ?? '').toString();
+
+    final ctaText = (data['ctaButtonText'] ?? 'Saiba mais').toString();
+    final ctaUrl = (data['ctaButtonUrl'] ?? '').toString();
+    final promoCode = (data['promoCode'] ?? '').toString();
+
+    // Se quiser: impedir promo sem URL
+    final hasCta = ctaUrl.trim().isNotEmpty;
+
+    // Reações e comentários (usa mesma estrutura do resto)
+    final reactionsCol = FirebaseFirestore.instance
+        .collection('posts')
+        .doc(postId)
+        .collection('reactions');
+
+    final myDoc = reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.35),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header (badge + time)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: kOrange.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: kOrange.withOpacity(0.45)),
+                    ),
+                    child: const Text(
+                      'PROMOÇÃO',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: kOrange,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    timeago.format(postTime, locale: 'pt_BR'),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Imagem
+            if (imageUrl.isNotEmpty)
+              Image.network(
+                imageUrl,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+
+            // Conteúdo
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (text.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      text,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+
+                  // Promo Code
+                  if (promoCode.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.discount_rounded, size: 16, color: Colors.white70),
+                              const SizedBox(width: 8),
+                              Text(
+                                promoCode,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: promoCode));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('✅ Cupom copiado!')),
+                            );
+                            HapticFeedback.selectionClick();
+                          },
+                          icon: const Icon(Icons.copy_rounded, size: 18, color: kOrange),
+                          label: const Text(
+                            'Copiar',
+                            style: TextStyle(color: kOrange, fontWeight: FontWeight.w900),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: kOrange.withOpacity(0.65)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  // CTA
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: hasCta ? () => _openUrl(context, ctaUrl) : null,
+                      icon: const Icon(Icons.open_in_new_rounded, color: Colors.black),
+                      label: Text(
+                        ctaText,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kOrange,
+                        disabledBackgroundColor: Colors.white24,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Ações (curtir + comentar + share) — reaproveita tua lógica simples
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 10),
+              child: Row(
+                children: [
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: myDoc,
+                    builder: (context, snap) {
+                      final myType =
+                      (snap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
+                      final isLiked = myType != null;
+
+                      return IconButton(
+                        icon: Icon(
+                          isLiked ? Icons.favorite_rounded : Icons.favorite_border,
+                          color: isLiked ? Colors.redAccent : Colors.white70,
+                        ),
+                        onPressed: () async {
+                          final uid = FirebaseAuth.instance.currentUser!.uid;
+                          final ref = FirebaseFirestore.instance
+                              .collection('posts')
+                              .doc(postId)
+                              .collection('reactions')
+                              .doc(uid);
+
+                          if (myType != null) {
+                            await ref.delete();
+                          } else {
+                            await ref.set({
+                              'type': 'like',
+                              'timestamp': FieldValue.serverTimestamp(),
+                            });
+                          }
+                          HapticFeedback.selectionClick();
+                        },
+                      );
+                    },
+                  ),
+
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('posts')
+                        .doc(postId)
+                        .collection('comments')
+                        .snapshots(),
+                    builder: (context, snap) {
+                      final count = snap.data?.docs.length ?? 0;
+                      return TextButton.icon(
+                        onPressed: onComment,
+                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+                        label: Text(
+                          count.toString(),
+                          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.share_outlined, color: Colors.white70),
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 
