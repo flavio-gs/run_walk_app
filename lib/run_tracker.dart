@@ -537,6 +537,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   bool _territoryPaused = false;
 
+  bool _seasonHidden = false;
+  bool _seasonMinimized = false;
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _seasonSub;
+
+  String? _seasonMapStyle; // cache do estilo vindo do Firestore (string JSON)
+  String? _fallbackMapStyle; // cache do asset
+
+
 // reaplica SEM consultar banco (instantâneo)
   void _reapplyTerritoryCacheToMap() {
     // ✅ polígonos: mantém o mesmo Set final (não reatribui)
@@ -1377,11 +1386,46 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         false;
   }
 
+  // ✅ Temporada atual
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _seasonStream;
 
-  @override
   @override
   void initState() {
     super.initState();
+
+    // ✅ Stream (se você usa pra banner, pode manter)
+    _seasonStream = FirebaseFirestore.instance
+        .collection('appConfig')
+        .doc('currentSeason')
+        .snapshots();
+
+    // ✅ Carrega fallback do asset 1x
+    rootBundle.loadString('assets/map_style.json').then((style) {
+      _mapStyle = style;
+      _applyBestMapStyle(); // se o mapa já estiver pronto, aplica
+    });
+
+    // ✅ Listener da temporada: aplica mapStyleJson quando tiver season ativa
+    _seasonSub = FirebaseFirestore.instance
+        .collection('appConfig')
+        .doc('currentSeason')
+        .snapshots()
+        .listen((snap) {
+      final data = snap.data();
+      final isActive = data?['isActive'] == true;
+
+      if (!isActive) {
+        _seasonMapStyle = null; // volta pro fallback
+        _applyBestMapStyle();
+        return;
+      }
+
+      final String styleFromDb =
+      (data?['mapStyleJson'] ?? '').toString().trim();
+
+      _seasonMapStyle = styleFromDb.isNotEmpty ? styleFromDb : null;
+      _applyBestMapStyle();
+    });
 
     _territoryController.setMode(
       MapTerritoryMode.livre,
@@ -1394,15 +1438,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       _handleLocationDisclosureOnce();
     });
 
-
-
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
       _refreshPowerupBadges();
-    });
-
-    rootBundle.loadString('assets/map_style.json').then((style) {
-      _mapStyle = style;
     });
 
     _animationController = AnimationController(
@@ -1426,6 +1464,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _listenToActiveChallenge();
     _setOnlineInitially();
   }
+
+
+  void _applyBestMapStyle() {
+    if (!_mapReady || _googleMapController == null) return;
+
+    final styleToApply = _seasonMapStyle ?? _fallbackMapStyle;
+
+    if (styleToApply == null || styleToApply.trim().isEmpty) return;
+
+    _googleMapController!.setMapStyle(styleToApply);
+  }
+
 
 
   final List<Color> _colorPalette = const [
@@ -3289,10 +3339,209 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _audio.dispose();
     _onlinePositionStream?.cancel();
     _setOfflineOnExit();
-
+    _seasonSub?.cancel();
     super.dispose();
   }
 
+
+  Widget _buildSeasonBanner(Map<String, dynamic> data) {
+    if (_seasonHidden) return const SizedBox();
+
+    final String name = (data['name'] ?? '').toString().trim();
+    final String desc = (data['description'] ?? '').toString().trim();
+    final String imageUrl = (data['imageUrl'] ?? '').toString().trim();
+
+    if (name.isEmpty && desc.isEmpty && imageUrl.isEmpty) return const SizedBox();
+
+    Widget leadingExpanded() {
+      // ✅ Se tiver imagem, usa ela. Se não, usa o ícone.
+      if (imageUrl.isNotEmpty) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            imageUrl,
+            width: 38,
+            height: 38,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) {
+              return Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.emoji_events_rounded, color: Colors.black),
+              );
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Center(
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      return Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(Icons.emoji_events_rounded, color: Colors.black),
+      );
+    }
+
+    Widget minimizedChip() {
+      // ✅ Minimizado: se tiver imagem, vira bolinha com a imagem
+      if (imageUrl.isNotEmpty) {
+        return ClipOval(
+          child: Image.network(
+            imageUrl,
+            width: 34,
+            height: 34,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const Icon(
+              Icons.emoji_events_rounded,
+              color: Colors.black,
+              size: 20,
+            ),
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return const SizedBox(
+                width: 34,
+                height: 34,
+                child: Center(
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      return const Icon(Icons.emoji_events_rounded, color: Colors.black, size: 20);
+    }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: _seasonMinimized
+          ? GestureDetector(
+        key: const ValueKey("season_minimized"),
+        onTap: () {
+          setState(() => _seasonMinimized = false);
+        },
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.85),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+          child: minimizedChip(),
+        ),
+      )
+          : ClipRRect(
+        key: const ValueKey("season_expanded"),
+        borderRadius: BorderRadius.circular(18),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.78),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.black.withOpacity(0.06)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                leadingExpanded(),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (name.isNotEmpty)
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                      if (desc.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          desc,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.black.withOpacity(0.75),
+                            height: 1.15,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  children: [
+                    GestureDetector(
+                      onTap: () => setState(() => _seasonMinimized = true),
+                      child: const Icon(Icons.remove_rounded, size: 20, color: Colors.black),
+                    ),
+                    const SizedBox(height: 6),
+                    GestureDetector(
+                      onTap: () => setState(() => _seasonHidden = true),
+                      child: const Icon(Icons.close_rounded, size: 20, color: Colors.black),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   // ===== UI =====
 
@@ -3605,10 +3854,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             onMapCreated: (controller) async {
               _googleMapController = controller;
               _mapReady = true;
+
               await _updateMarker();
-              final style = await rootBundle.loadString('assets/map_style/white_map.json');
-              _googleMapController?.setMapStyle(style);
+
+              // aplica estilo da temporada (se já tiver) ou fallback do asset
+              _applyBestMapStyle();
             },
+
             polylines: _polylines,
             polygons: {..._polygons, ..._territoryController.territoryPolygons},
             markers: _markers,
@@ -3636,6 +3888,28 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
+
+          // 🏷️ Temporada ativa (nome + descrição)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 300,
+            left: 12,
+            right: 12,
+            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _seasonStream,
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+
+                final data = snapshot.data!.data();
+                if (data == null) return const SizedBox();
+
+                final isActive = (data['isActive'] == true);
+                if (!isActive) return const SizedBox();
+
+                return _buildSeasonBanner(data);
+              },
+            ),
+          ),
+
 
           // 🏁 Desafio ativo (card moderno)
           if (_challengeStream != null)

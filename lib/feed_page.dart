@@ -35,6 +35,18 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   // 🌟 Stream para contar as notificações não lidas
   late final Stream<int> _unreadNotificationsCountStream;
 
+  String _selectedTypeFilter = 'all';
+
+  static const Map<String, String> _typeLabels = {
+    'all': 'Todos',
+    'post': 'Posts',
+    'achievement': 'Conquistas',
+    'challenge': 'Desafios',
+    'territory': 'Batalhas',
+    'promocional': 'Promoções',
+  };
+
+
   @override
   void initState() {
     super.initState();
@@ -122,6 +134,69 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       },
     );
   }
+
+  void _openTypeFilterSheet() {
+    final s = SeasonThemeScope.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: s.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(
+                    color: s.mutedForeground.withOpacity(0.24),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                Text(
+                  'Filtrar feed',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: s.foreground,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ..._typeLabels.entries.map((e) {
+                  final isSelected = _selectedTypeFilter == e.key;
+                  return ListTile(
+                    leading: Icon(
+                      isSelected ? Icons.check_circle : Icons.circle_outlined,
+                      color: isSelected ? s.primary : s.mutedForeground,
+                    ),
+                    title: Text(
+                      e.value,
+                      style: TextStyle(
+                        color: s.foreground,
+                        fontWeight: isSelected ? FontWeight.w900 : FontWeight.w700,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() => _selectedTypeFilter = e.key);
+                      Navigator.pop(context);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
 
   Widget _buildCreateOption({
     required BuildContext context,
@@ -357,16 +432,49 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _buildFeedToggleButton('Seguindo', 'following'),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildFeedToggleButton('Seguindo', 'following'),
+                    const SizedBox(width: 12),
+                    _buildFeedToggleButton('Global', 'global'),
+                  ],
+                ),
+              ),
               const SizedBox(width: 12),
-              _buildFeedToggleButton('Global', 'global'),
+              GestureDetector(
+                onTap: _openTypeFilterSheet,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: s.card,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: s.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.filter_alt_rounded, color: s.foreground.withOpacity(0.8), size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        _typeLabels[_selectedTypeFilter] ?? 'Todos',
+                        style: TextStyle(
+                          color: s.foreground,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
+
         Divider(height: 1, color: s.border.withOpacity(0.8)),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
@@ -381,9 +489,21 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               }
 
               final posts = snapshot.data!.docs;
+
+// ✅ aplica filtro por tipo (no client)
+              final filteredPosts = posts.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                final type = (data['type'] ?? 'post').toString();
+                if (_selectedTypeFilter == 'all') return true;
+                return type == _selectedTypeFilter;
+              }).toList();
+
+              if (filteredPosts.isEmpty) {
+                return _emptyFeedMessage();
+              }
               return ListView.builder(
-                itemCount: posts.length,
-                itemBuilder: (context, index) => _buildPostItem(posts[index]),
+                itemCount: filteredPosts.length,
+                itemBuilder: (context, index) => _buildPostItem(filteredPosts[index]),
               );
             },
           ),
