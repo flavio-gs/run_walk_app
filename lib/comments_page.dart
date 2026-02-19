@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 import 'package:timeago/timeago.dart' as timeago;
+
+
 
 class CommentsPage extends StatefulWidget {
   final String postId;
@@ -20,11 +23,6 @@ class CommentsPage extends StatefulWidget {
 class _CommentsPageState extends State<CommentsPage> {
   final TextEditingController _commentController = TextEditingController();
   final _currentUser = FirebaseAuth.instance.currentUser!;
-
-  // Paleta do app (igual SearchUsersPage)
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
 
   bool _sending = false;
 
@@ -83,9 +81,11 @@ class _CommentsPageState extends State<CommentsPage> {
     required String commentId,
     required String currentText,
   }) async {
+    final s = SeasonThemeScope.of(context);
+
     await showModalBottomSheet(
       context: context,
-      backgroundColor: kCard,
+      backgroundColor: s.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -101,35 +101,51 @@ class _CommentsPageState extends State<CommentsPage> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 14),
                   decoration: BoxDecoration(
-                    color: Colors.white12,
+                    color: s.border.withOpacity(0.8),
                     borderRadius: BorderRadius.circular(99),
                   ),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.edit_rounded, color: kOrange),
-                  title: const Text(
+                  leading: Icon(Icons.edit_rounded, color: s.primary),
+                  title: Text(
                     'Editar comentário',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      color: s.foreground,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  subtitle: const Text(
+                  subtitle: Text(
                     'Altere o texto e salve',
-                    style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: s.mutedForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   onTap: () {
                     Navigator.pop(context);
-                    _openEditCommentDialog(commentId: commentId, currentText: currentText);
+                    _openEditCommentDialog(
+                      commentId: commentId,
+                      currentText: currentText,
+                    );
                   },
                 ),
-                const Divider(color: Colors.white12),
+                Divider(color: s.border),
                 ListTile(
-                  leading: const Icon(Icons.delete_rounded, color: Colors.redAccent),
-                  title: const Text(
+                  leading:
+                  const Icon(Icons.delete_rounded, color: Colors.redAccent),
+                  title: Text(
                     'Excluir comentário',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      color: s.foreground,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  subtitle: const Text(
+                  subtitle: Text(
                     'Essa ação não pode ser desfeita',
-                    style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: s.mutedForeground,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   onTap: () async {
                     Navigator.pop(context);
@@ -148,6 +164,8 @@ class _CommentsPageState extends State<CommentsPage> {
     required String commentId,
     required String currentText,
   }) async {
+    final s = SeasonThemeScope.of(context);
+
     final controller = TextEditingController(text: currentText);
     bool saving = false;
 
@@ -157,40 +175,52 @@ class _CommentsPageState extends State<CommentsPage> {
         return StatefulBuilder(
           builder: (ctx, setStateDialog) {
             return AlertDialog(
-              backgroundColor: kCard,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              title: const Text(
+              backgroundColor: s.card,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: Text(
                 'Editar comentário',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                style: TextStyle(
+                  color: s.foreground,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
               content: TextField(
                 controller: controller,
-                cursorColor: kOrange,
+                cursorColor: s.primary,
                 maxLines: 4,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: s.foreground,
+                  fontWeight: FontWeight.w600,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Digite seu comentário…',
-                  hintStyle: const TextStyle(color: Colors.white54),
+                  hintStyle: TextStyle(color: s.mutedForeground),
                   filled: true,
-                  fillColor: const Color(0xFF0F0F16),
+                  fillColor: s.background,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white12),
+                    borderSide: BorderSide(color: s.border),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: Colors.white12),
+                    borderSide: BorderSide(color: s.border),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: kOrange.withOpacity(0.9), width: 1.2),
+                    borderSide:
+                    BorderSide(color: s.primary.withOpacity(0.9), width: 1.2),
                   ),
                 ),
               ),
               actions: [
                 TextButton(
                   onPressed: saving ? null : () => Navigator.pop(ctx),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+                  child: Text(
+                    'Cancelar',
+                    style: TextStyle(color: s.mutedForeground),
+                  ),
                 ),
                 ElevatedButton(
                   onPressed: saving
@@ -211,23 +241,32 @@ class _CommentsPageState extends State<CommentsPage> {
                         'text': newText,
                         'editedAt': FieldValue.serverTimestamp(),
                       });
+
                       if (mounted) Navigator.pop(ctx);
                     } finally {
                       setStateDialog(() => saving = false);
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: kOrange,
+                    backgroundColor: s.primary,
                     foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: saving
                       ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.black,
+                    ),
                   )
-                      : const Text('Salvar', style: TextStyle(fontWeight: FontWeight.w900)),
+                      : const Text(
+                    'Salvar',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
                 ),
               ],
             );
@@ -238,32 +277,48 @@ class _CommentsPageState extends State<CommentsPage> {
   }
 
   Future<void> _confirmDeleteComment({required String commentId}) async {
+    final s = SeasonThemeScope.of(context);
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: kCard,
+        backgroundColor: s.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text(
+        title: Text(
           'Excluir comentário?',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          style: TextStyle(
+            color: s.foreground,
+            fontWeight: FontWeight.w900,
+          ),
         ),
-        content: const Text(
+        content: Text(
           'Tem certeza que deseja excluir? Essa ação não pode ser desfeita.',
-          style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: s.mutedForeground,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white70)),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: s.mutedForeground),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
-            child: const Text('Excluir', style: TextStyle(fontWeight: FontWeight.w900)),
+            child: const Text(
+              'Excluir',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
           ),
         ],
       ),
@@ -284,20 +339,21 @@ class _CommentsPageState extends State<CommentsPage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        backgroundColor: kBg,
+        backgroundColor: s.background,
         elevation: 0,
-        iconTheme: const IconThemeData(color: kOrange),
-        title: const Text(
+        iconTheme: IconThemeData(color: s.primary),
+        title: Text(
           'Comentários',
           style: TextStyle(
-            color: Colors.white,
+            color: s.foreground,
             fontWeight: FontWeight.w900,
             letterSpacing: 0.2,
           ),
@@ -306,15 +362,15 @@ class _CommentsPageState extends State<CommentsPage> {
       body: SafeArea(
         child: Column(
           children: [
-            Expanded(child: _buildCommentsList()),
-            _buildCommentInputField(),
+            Expanded(child: _buildCommentsList(s)),
+            _buildCommentInputField(s),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCommentsList() {
+  Widget _buildCommentsList(dynamic s) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('posts')
@@ -324,13 +380,13 @@ class _CommentsPageState extends State<CommentsPage> {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const Center(
-            child: CircularProgressIndicator(color: kOrange),
+          return Center(
+            child: CircularProgressIndicator(color: s.primary),
           );
         }
 
         if (snapshot.data!.docs.isEmpty) {
-          return const _EmptyComments();
+          return _EmptyComments(s: s);
         }
 
         return ListView.separated(
@@ -340,6 +396,7 @@ class _CommentsPageState extends State<CommentsPage> {
           itemBuilder: (context, index) {
             final comment = snapshot.data!.docs[index];
             final data = comment.data() as Map<String, dynamic>;
+
             final time =
                 (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
             final authorId = (data['authorId'] ?? '').toString();
@@ -360,6 +417,7 @@ class _CommentsPageState extends State<CommentsPage> {
                 final isMe = authorId == _currentUser.uid;
 
                 return _CommentCard(
+                  s: s,
                   authorName: authorName,
                   photoUrl: photoUrl,
                   text: text,
@@ -373,7 +431,6 @@ class _CommentsPageState extends State<CommentsPage> {
                   )
                       : null,
                 );
-
               },
             );
           },
@@ -382,7 +439,7 @@ class _CommentsPageState extends State<CommentsPage> {
     );
   }
 
-  Widget _buildCommentInputField() {
+  Widget _buildCommentInputField(dynamic s) {
     final hasText = _commentController.text.trim().isNotEmpty;
 
     return SafeArea(
@@ -390,18 +447,18 @@ class _CommentsPageState extends State<CommentsPage> {
       child: Container(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
         decoration: BoxDecoration(
-          color: kBg,
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
+          color: s.background,
+          border: Border(top: BorderSide(color: s.border.withOpacity(0.9))),
         ),
         child: Row(
           children: [
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: kCard,
+                  color: s.card,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: hasText ? kOrange.withOpacity(0.75) : Colors.white12,
+                    color: hasText ? s.primary.withOpacity(0.75) : s.border,
                     width: 1.2,
                   ),
                   boxShadow: [
@@ -416,24 +473,24 @@ class _CommentsPageState extends State<CommentsPage> {
                   controller: _commentController,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => _postComment(),
-                  cursorColor: kOrange,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  cursorColor: s.primary,
+                  style: TextStyle(
+                    color: s.foreground,
                     fontWeight: FontWeight.w600,
                   ),
                   minLines: 1,
                   maxLines: 4,
                   decoration: InputDecoration(
                     hintText: 'Adicionar um comentário…',
-                    hintStyle: const TextStyle(color: Colors.white54),
+                    hintStyle: TextStyle(color: s.mutedForeground),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 12,
                     ),
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.chat_bubble_outline_rounded,
-                      color: Colors.white60,
+                      color: s.mutedForeground,
                       size: 20,
                     ),
                     suffixIcon: hasText
@@ -443,9 +500,9 @@ class _CommentsPageState extends State<CommentsPage> {
                         _commentController.clear();
                         setState(() {});
                       },
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.close_rounded,
-                        color: Colors.white60,
+                        color: s.mutedForeground,
                       ),
                     )
                         : null,
@@ -456,6 +513,7 @@ class _CommentsPageState extends State<CommentsPage> {
             ),
             const SizedBox(width: 10),
             _SendButton(
+              primary: s.primary,
               enabled: hasText && !_sending,
               loading: _sending,
               onTap: _postComment,
@@ -468,9 +526,8 @@ class _CommentsPageState extends State<CommentsPage> {
 }
 
 class _EmptyComments extends StatelessWidget {
-  const _EmptyComments();
-
-  static const Color kOrange = Color(0xFFFF7A00);
+  final dynamic s;
+  const _EmptyComments({required this.s});
 
   @override
   Widget build(BuildContext context) {
@@ -480,29 +537,39 @@ class _EmptyComments extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.forum_rounded, color: Colors.white.withOpacity(0.25), size: 46),
+            Icon(Icons.forum_rounded, color: s.mutedForeground.withOpacity(0.4), size: 46),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Ainda não tem comentários.',
-              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: s.mutedForeground,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'Seja o primeiro a comentar e ganhar moral no RunFeed 🧡',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white.withOpacity(0.55), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: s.mutedForeground.withOpacity(0.85),
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 18),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: kOrange.withOpacity(0.12),
+                color: s.primary.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: kOrange.withOpacity(0.35)),
+                border: Border.all(color: s.primary.withOpacity(0.35)),
               ),
-              child: const Text(
+              child: Text(
                 'Dica: comentários curtos = mais interação ⚡',
-                style: TextStyle(color: kOrange, fontWeight: FontWeight.w900, fontSize: 12),
+                style: TextStyle(
+                  color: s.primary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
               ),
             ),
           ],
@@ -513,6 +580,7 @@ class _EmptyComments extends StatelessWidget {
 }
 
 class _CommentCard extends StatelessWidget {
+  final dynamic s;
   final String authorName;
   final String photoUrl;
   final String text;
@@ -521,6 +589,7 @@ class _CommentCard extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   const _CommentCard({
+    required this.s,
     required this.authorName,
     required this.photoUrl,
     required this.text,
@@ -528,9 +597,6 @@ class _CommentCard extends StatelessWidget {
     required this.isMe,
     this.onLongPress,
   });
-
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kCard = Color(0xFF12121A);
 
   @override
   Widget build(BuildContext context) {
@@ -546,9 +612,9 @@ class _CommentCard extends StatelessWidget {
         child: Ink(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: kCard,
+            color: s.card,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: s.border),
             boxShadow: [
               BoxShadow(
                 blurRadius: 16,
@@ -565,13 +631,13 @@ class _CommentCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: (isMe ? kOrange : Colors.white24).withOpacity(0.9),
+                    color: (isMe ? s.primary : s.mutedForeground).withOpacity(0.9),
                     width: 1.2,
                   ),
                 ),
                 child: CircleAvatar(
                   radius: 18,
-                  backgroundColor: Colors.white10,
+                  backgroundColor: s.border.withOpacity(0.35),
                   backgroundImage: imageProvider,
                 ),
               ),
@@ -587,8 +653,8 @@ class _CommentCard extends StatelessWidget {
                             authorName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: s.foreground,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 0.15,
                             ),
@@ -597,16 +663,20 @@ class _CommentCard extends StatelessWidget {
                         if (isMe) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: kOrange.withOpacity(0.14),
+                              color: s.primary.withOpacity(0.14),
                               borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: kOrange.withOpacity(0.45), width: 1),
+                              border: Border.all(
+                                color: s.primary.withOpacity(0.45),
+                                width: 1,
+                              ),
                             ),
-                            child: const Text(
+                            child: Text(
                               'VOCÊ',
                               style: TextStyle(
-                                color: kOrange,
+                                color: s.primary,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.5,
@@ -617,8 +687,8 @@ class _CommentCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Text(
                           timeLabel,
-                          style: const TextStyle(
-                            color: Colors.white54,
+                          style: TextStyle(
+                            color: s.mutedForeground,
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
                           ),
@@ -628,8 +698,8 @@ class _CommentCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       text,
-                      style: const TextStyle(
-                        color: Colors.white70,
+                      style: TextStyle(
+                        color: s.mutedForeground.withOpacity(0.95),
                         fontWeight: FontWeight.w600,
                         height: 1.25,
                       ),
@@ -639,7 +709,7 @@ class _CommentCard extends StatelessWidget {
                       Text(
                         'Segure para editar/excluir',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.45),
+                          color: s.mutedForeground.withOpacity(0.8),
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
@@ -656,19 +726,18 @@ class _CommentCard extends StatelessWidget {
   }
 }
 
-
 class _SendButton extends StatelessWidget {
   final bool enabled;
   final bool loading;
   final VoidCallback onTap;
+  final Color primary;
 
   const _SendButton({
     required this.enabled,
     required this.loading,
     required this.onTap,
+    required this.primary,
   });
-
-  static const Color kOrange = Color(0xFFFF7A00);
 
   @override
   Widget build(BuildContext context) {
@@ -683,14 +752,14 @@ class _SendButton extends StatelessWidget {
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: enabled ? kOrange : kOrange.withOpacity(0.35),
+              color: enabled ? primary : primary.withOpacity(0.35),
               borderRadius: BorderRadius.circular(16),
               boxShadow: enabled
                   ? [
                 BoxShadow(
                   blurRadius: 16,
                   offset: const Offset(0, 8),
-                  color: kOrange.withOpacity(0.18),
+                  color: primary.withOpacity(0.18),
                 ),
               ]
                   : null,
@@ -699,7 +768,10 @@ class _SendButton extends StatelessWidget {
                 ? const SizedBox(
               width: 18,
               height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.black,
+              ),
             )
                 : const Icon(Icons.send_rounded, color: Colors.black, size: 20),
           ),

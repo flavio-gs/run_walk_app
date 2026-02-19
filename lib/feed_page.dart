@@ -16,6 +16,8 @@ import 'package:run_walk_app/profile_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import 'package:run_walk_app/theme/season_theme_scope.dart';
+
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
 
@@ -52,20 +54,12 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         .map((snapshot) => snapshot.docs.length);
   }
 
-
   void _showCreateOptions(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Theme.of(context).cardColor,
+      backgroundColor: s.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -80,7 +74,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: cs.onSurface.withOpacity(0.24),
+                  color: s.mutedForeground.withOpacity(0.24),
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
@@ -89,13 +83,14 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
-                  color: cs.onSurface,
+                  color: s.foreground,
                 ),
               ),
               const SizedBox(height: 16),
               _buildCreateOption(
+                context: context,
                 icon: Icons.edit,
-                color: primary,
+                color: s.primary,
                 title: 'Faça uma Publicação',
                 subtitle: 'Compartilhe sua corrida, foto ou reflexão do dia',
                 onTap: () {
@@ -106,29 +101,38 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                   );
                 },
               ),
+              const SizedBox(height: 8),
+              _buildCreateOption(
+                context: context,
+                icon: Icons.flag_rounded,
+                color: s.primary,
+                title: 'Criar Desafio',
+                subtitle: 'Convide a galera e veja quem aguenta 😈',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CreateChallengePage()),
+                  );
+                },
+              ),
             ],
           ),
         );
       },
     );
-
   }
 
   Widget _buildCreateOption({
+    required BuildContext context,
     required IconData icon,
     required Color color,
     required String title,
     required String subtitle,
     required VoidCallback onTap,
   }) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final s = SeasonThemeScope.of(context);
 
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
     return ListTile(
       leading: CircleAvatar(
         radius: 24,
@@ -137,25 +141,26 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       ),
       title: Text(
         title,
-        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: cs.onSurface),
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 16,
+          color: s.foreground,
+        ),
       ),
       subtitle: Text(
         subtitle,
-        style: TextStyle(fontSize: 13, color: cs.onSurface.withOpacity(0.6), fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 13,
+          color: s.mutedForeground.withOpacity(0.85),
+          fontWeight: FontWeight.w600,
+        ),
       ),
       onTap: onTap,
     );
   }
 
   Widget _buildFeedToggleButton(String label, String mode) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     final bool isSelected = _selectedFeed == mode;
 
@@ -172,10 +177,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? primary : card,
+          color: isSelected ? s.primary : s.card,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isSelected ? primary.withOpacity(0.9) : Colors.white12,
+            color: isSelected ? s.primary.withOpacity(0.9) : s.border,
             width: 1.2,
           ),
           boxShadow: [
@@ -189,7 +194,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.black : Colors.white,
+            color: isSelected ? Colors.black : s.foreground,
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -197,14 +202,11 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
   Future<void> _setupFeedStream() async {
-    final userRef =
-    FirebaseFirestore.instance.collection('users').doc(_currentUserId);
+    final userRef = FirebaseFirestore.instance.collection('users').doc(_currentUserId);
     final followingSnapshot = await userRef.collection('following').get();
 
-    List<String> followingIds =
-    followingSnapshot.docs.map((doc) => doc.id).toList();
+    List<String> followingIds = followingSnapshot.docs.map((doc) => doc.id).toList();
 
     Query query = FirebaseFirestore.instance.collection('posts');
 
@@ -222,8 +224,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         final excluded = [...followingIds, _currentUserId];
         query = query.where(
           'authorId',
-          whereNotIn:
-          excluded.length > 10 ? excluded.take(10).toList() : excluded,
+          whereNotIn: excluded.length > 10 ? excluded.take(10).toList() : excluded,
         );
       }
     }
@@ -262,12 +263,10 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             .collection('notifications')
             .add({
           'type': 'like',
-          'senderName':
-          FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
+          'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
           'senderId': userId,
           'senderPhotoUrl': FirebaseAuth.instance.currentUser?.photoURL,
-          'message':
-          '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
+          'message': '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
           'timestamp': FieldValue.serverTimestamp(),
           'isRead': false,
         });
@@ -283,41 +282,33 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return Scaffold(
-      backgroundColor: bg,
+      backgroundColor: s.background,
       appBar: AppBar(
-        backgroundColor: bg,
+        backgroundColor: s.background,
         elevation: 0,
         title: Text(
           'RunFeed',
           style: TextStyle(
-            color: onSurface,
+            color: s.foreground,
             fontWeight: FontWeight.w800,
             fontSize: 22,
             letterSpacing: 0.2,
           ),
         ),
-        iconTheme: IconThemeData(color: primary),
-
+        iconTheme: IconThemeData(color: s.primary),
         actions: [
           IconButton(
-            icon: Icon(Icons.search_rounded, color: onSurface.withOpacity(0.7)),
+            icon: Icon(Icons.search_rounded, color: s.foreground.withOpacity(0.7)),
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const SearchUsersPage()),
             ).then((_) => _setupFeedStream()),
           ),
           IconButton(
-            icon: Icon(Icons.add_box_outlined, color: onSurface.withOpacity(0.7)),
+            icon: Icon(Icons.add_box_outlined, color: s.foreground.withOpacity(0.7)),
             onPressed: () => _showCreateOptions(context),
           ),
           StreamBuilder<int>(
@@ -328,7 +319,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               return Stack(
                 children: [
                   IconButton(
-                    icon: Icon(Icons.favorite_border, color: onSurface.withOpacity(0.7)),
+                    icon: Icon(Icons.favorite_border, color: s.foreground.withOpacity(0.7)),
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => const NotificationsPage()),
@@ -342,9 +333,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: primary,
+                          color: s.primary,
                           shape: BoxShape.circle,
-                          border: Border.all(color: bg, width: 1.6),
+                          border: Border.all(color: s.background, width: 1.6),
                         ),
                       ),
                     )
@@ -355,21 +346,13 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: primary))
+          ? Center(child: CircularProgressIndicator(color: s.primary))
           : _buildFeedBody(),
     );
-
   }
 
   Widget _buildFeedBody() {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return Column(
       children: [
@@ -384,13 +367,13 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        Divider(height: 1, color: cs.onSurface.withOpacity(0.12)),
+        Divider(height: 1, color: s.border.withOpacity(0.8)),
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
             stream: _postsStream,
             builder: (context, snapshot) {
               if (_isLoading) {
-                return const Center(child: CircularProgressIndicator());
+                return Center(child: CircularProgressIndicator(color: s.primary));
               }
 
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -414,15 +397,13 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     final data = post.data() as Map<String, dynamic>;
 
     final postId = post.id;
-    final postTime =
-        (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+    final postTime = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
     final type = (data['type'] ?? 'post').toString();
     final authorId = (data['authorId'] ?? '').toString();
 
     // ✅ TERRITORY BATTLE (VS)
-    if (type == 'territory' &&
-        (data['loserId'] != null || data['previousOwner'] != null)) {
+    if (type == 'territory' && (data['loserId'] != null || data['previousOwner'] != null)) {
       return TerritoryBattlePostCard(
         postId: postId,
         data: data,
@@ -430,20 +411,17 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         onComment: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) =>
-                CommentsPage(postId: postId, postAuthorId: authorId),
+            builder: (context) => CommentsPage(postId: postId, postAuthorId: authorId),
           ),
         ),
       );
     }
 
     return StreamBuilder<DocumentSnapshot>(
-      stream:
-      FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
+      stream: FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
       builder: (context, userSnapshot) {
         final userData = userSnapshot.data?.data() as Map<String, dynamic>?;
-        final authorName =
-            userData?['displayName'] ?? data['authorName'] ?? 'Usuário';
+        final authorName = userData?['displayName'] ?? data['authorName'] ?? 'Usuário';
         final photoUrl = userData?['photoURL'];
 
         if (type == 'challenge') {
@@ -484,8 +462,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 ? 'video'
                 : (imageUrl != null && imageUrl.isNotEmpty ? 'image' : 'none'));
 
-        final resolvedUrl =
-        resolvedType == 'video' ? (mediaUrl ?? videoUrl) : (mediaUrl ?? imageUrl);
+        final resolvedUrl = resolvedType == 'video' ? (mediaUrl ?? videoUrl) : (mediaUrl ?? imageUrl);
 
         // 🏃‍♂️ resumo da corrida (opcional)
         final hasRun = data['hasRun'] == true;
@@ -544,8 +521,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           onComment: () => Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) =>
-                  CommentsPage(postId: postId, postAuthorId: authorId),
+              builder: (context) => CommentsPage(postId: postId, postAuthorId: authorId),
             ),
           ),
         );
@@ -553,16 +529,8 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
     );
   }
 
-
   Widget _emptyFeedMessage() {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return Center(
       child: Padding(
@@ -570,11 +538,11 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.photo_library_outlined, size: 60, color: cs.onSurface.withOpacity(0.38)),
+            Icon(Icons.photo_library_outlined, size: 60, color: s.mutedForeground.withOpacity(0.75)),
             const SizedBox(height: 14),
             Text(
               'Nenhuma publicação encontrada',
-              style: TextStyle(color: primary, fontSize: 16, fontWeight: FontWeight.w800),
+              style: TextStyle(color: s.primary, fontSize: 16, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 18),
             ElevatedButton.icon(
@@ -585,7 +553,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
               icon: const Icon(Icons.add, color: Colors.black),
               label: const Text('Fazer uma publicação'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: primary,
+                backgroundColor: s.primary,
                 foregroundColor: Colors.black,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -598,41 +566,35 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       ),
     );
   }
-
 }
 
 class _AchievementPostCard extends StatelessWidget {
   final Map<String, dynamic> data;
   const _AchievementPostCard({required this.data});
 
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     final icon = (data['icon'] ?? '🏆').toString();
     final title = (data['title'] ?? 'Conquista Desconhecida').toString();
     final userName = (data['authorName'] ?? 'Jogador').toString();
     final timestamp = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
 
+    final muted = s.mutedForeground;
+    final border = s.border;
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 14),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: s.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: cs.onSurface.withOpacity(0.1)),
+        border: Border.all(color: border),
         boxShadow: [
           BoxShadow(
             blurRadius: 18,
             offset: const Offset(0, 8),
-            color: Colors.black.withOpacity(0.35),
+            color: Colors.black.withOpacity(0.28),
           ),
         ],
       ),
@@ -648,76 +610,64 @@ class _AchievementPostCard extends StatelessWidget {
                 height: 180,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: primary.withOpacity(0.10),
+                  color: s.primary.withOpacity(0.10),
                 ),
               ),
             ),
-
             Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  // Ícone da conquista com aro laranja
                   Container(
                     padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: primary.withOpacity(0.9), width: 1.3),
+                      border: Border.all(color: s.primary.withOpacity(0.9), width: 1.3),
                     ),
                     child: CircleAvatar(
                       radius: 26,
-                      backgroundColor: Colors.white10,
-                      child: Text(
-                        icon,
-                        style: const TextStyle(fontSize: 26),
-                      ),
+                      backgroundColor: s.foreground.withOpacity(0.06),
+                      child: Text(icon, style: const TextStyle(fontSize: 26)),
                     ),
                   ),
-
                   const SizedBox(width: 12),
-
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // linha superior
                         Text(
                           '$userName conquistou',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12.5,
-                            color: Colors.white60,
+                            color: muted,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.2,
                           ),
                         ),
                         const SizedBox(height: 4),
-
-                        // título da conquista
                         Text(
                           title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 15.5,
-                            color: Colors.white,
+                            color: s.foreground,
                             fontWeight: FontWeight.w900,
                             height: 1.15,
                           ),
                         ),
                         const SizedBox(height: 6),
-
-                        // tempo + badge
                         Row(
                           children: [
-                            const Icon(Icons.schedule_rounded, size: 14, color: Colors.white54),
+                            Icon(Icons.schedule_rounded, size: 14, color: muted),
                             const SizedBox(width: 6),
                             Text(
                               timeago.format(timestamp, locale: 'pt_BR'),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11.5,
-                                color: Colors.white54,
+                                color: muted,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -725,15 +675,15 @@ class _AchievementPostCard extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
-                                color: primary.withOpacity(0.14),
+                                color: s.primary.withOpacity(0.14),
                                 borderRadius: BorderRadius.circular(999),
-                                border: Border.all(color: primary.withOpacity(0.45)),
+                                border: Border.all(color: s.primary.withOpacity(0.45)),
                               ),
                               child: Text(
                                 'CONQUISTA',
                                 style: TextStyle(
                                   fontSize: 10.5,
-                                  color: primary,
+                                  color: s.primary,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: 0.7,
                                 ),
@@ -754,7 +704,6 @@ class _AchievementPostCard extends StatelessWidget {
   }
 }
 
-
 class _RunStat extends StatelessWidget {
   final String label;
   final String value;
@@ -762,32 +711,26 @@ class _RunStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: const TextStyle(fontSize: 11, color: Colors.black54)),
+        Text(label, style: TextStyle(fontSize: 11, color: s.mutedForeground, fontWeight: FontWeight.w600)),
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
             fontSize: 13,
+            color: s.foreground,
           ),
         ),
       ],
     );
   }
 }
+
 
 // =======================
 // CARD DO POST + REAÇÕES
@@ -842,8 +785,7 @@ class _AnimatedPostCard extends StatefulWidget {
   State<_AnimatedPostCard> createState() => _AnimatedPostCardState();
 }
 
-class _AnimatedPostCardState extends State<_AnimatedPostCard>
-    with TickerProviderStateMixin {
+class _AnimatedPostCardState extends State<_AnimatedPostCard> with TickerProviderStateMixin {
   bool showHeart = false;
   VideoPlayerController? _videoController;
   bool _isVideoInitialized = false;
@@ -876,10 +818,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   @override
   void didUpdateWidget(covariant _AnimatedPostCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldIsVideo =
-        oldWidget.mediaType == 'video' && oldWidget.mediaUrl != null;
-    final newIsVideo =
-        widget.mediaType == 'video' && widget.mediaUrl != null;
+    final oldIsVideo = oldWidget.mediaType == 'video' && oldWidget.mediaUrl != null;
+    final newIsVideo = widget.mediaType == 'video' && widget.mediaUrl != null;
 
     if (newIsVideo && (!oldIsVideo || oldWidget.mediaUrl != widget.mediaUrl)) {
       _initVideoController();
@@ -898,37 +838,27 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   }
 
   Widget _buildRunAndLocationCard() {
+    final s = SeasonThemeScope.of(context);
+
     final hasRunData = widget.hasRun &&
         widget.distanceKm != null &&
         widget.durationSec != null &&
         widget.pace != null;
 
-    final hasLocData =
-        widget.hasLocation && widget.locLat != null && widget.locLng != null;
+    final hasLocData = widget.hasLocation && widget.locLat != null && widget.locLng != null;
 
-    if (!hasRunData && !hasLocData) {
-      return const SizedBox.shrink();
-    }
+    if (!hasRunData && !hasLocData) return const SizedBox.shrink();
+
+    final muted = s.mutedForeground;
+    final border = s.border;
 
     Widget metric(String label, String value) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.black54,
-            ),
-          ),
+          Text(label, style: TextStyle(fontSize: 11, color: muted, fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: s.foreground)),
         ],
       );
     }
@@ -938,9 +868,9 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFF6F6F6),
+          color: s.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: border),
         ),
         child: Row(
           children: [
@@ -948,11 +878,11 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: const Color(0xFFE0F5E9),
+                color: s.primary.withOpacity(0.14),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: s.primary.withOpacity(0.35)),
               ),
-              child: const Icon(Icons.directions_run,
-                  color: Colors.green, size: 24),
+              child: Icon(Icons.directions_run, color: s.primary, size: 24),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -963,28 +893,21 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        metric('Distância',
-                            '${widget.distanceKm!.toStringAsFixed(2)} km'),
+                        metric('Distância', '${widget.distanceKm!.toStringAsFixed(2)} km'),
                         metric('Tempo', _formatDuration(widget.durationSec!)),
-                        metric('Pace',
-                            '${widget.pace!.toStringAsFixed(2)} min/km'),
+                        metric('Pace', '${widget.pace!.toStringAsFixed(2)} min/km'),
                       ],
                     ),
                   if (hasRunData && hasLocData) const SizedBox(height: 6),
                   if (hasLocData)
                     Row(
                       children: [
-                        const Icon(Icons.location_on,
-                            size: 16, color: Colors.redAccent),
-                        const SizedBox(width: 4),
+                        Icon(Icons.location_on, size: 16, color: s.primary.withOpacity(0.9)),
+                        const SizedBox(width: 6),
                         Flexible(
                           child: Text(
-                            'Perto de (${widget.locLat!.toStringAsFixed(4)}, '
-                                '${widget.locLng!.toStringAsFixed(4)})',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
+                            'Perto de (${widget.locLat!.toStringAsFixed(4)}, ${widget.locLng!.toStringAsFixed(4)})',
+                            style: TextStyle(fontSize: 12, color: muted, fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
@@ -1058,12 +981,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   }
 
   Widget _buildVideoPlayer() {
+    final s = SeasonThemeScope.of(context);
+
     if (_videoController == null) {
       return Container(
         height: 260,
-        color: Colors.black12,
-        child: const Center(
-          child: Icon(Icons.videocam_off, size: 40, color: Colors.black45),
+        color: s.card,
+        child: Center(
+          child: Icon(Icons.videocam_off, size: 40, color: s.mutedForeground),
         ),
       );
     }
@@ -1071,16 +996,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     if (!_isVideoInitialized) {
       return Container(
         height: 260,
-        color: Colors.black12,
-        child: const Center(
-          child: CircularProgressIndicator(),
+        color: s.card,
+        child: Center(
+          child: CircularProgressIndicator(color: s.primary),
         ),
       );
     }
 
-    final aspect = _videoController!.value.aspectRatio == 0
-        ? 16 / 9
-        : _videoController!.value.aspectRatio;
+    final aspect = _videoController!.value.aspectRatio == 0 ? 16 / 9 : _videoController!.value.aspectRatio;
 
     return AspectRatio(
       aspectRatio: aspect,
@@ -1089,6 +1012,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   }
 
   void _showPostOptions(BuildContext context) async {
+    final s = SeasonThemeScope.of(context);
+
     final currentUserId = FirebaseAuth.instance.currentUser!.uid;
     final isOwner = widget.authorId == currentUserId;
 
@@ -1102,11 +1027,13 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: s.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
+        final ss = SeasonThemeScope.of(context);
+
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1116,14 +1043,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 height: 4,
                 margin: const EdgeInsets.only(top: 10, bottom: 16),
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: ss.mutedForeground.withOpacity(0.20),
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
               if (isOwner) ...[
                 ListTile(
                   leading: const Icon(Icons.edit, color: Colors.blueAccent),
-                  title: const Text('Editar publicação'),
+                  title: Text('Editar publicação', style: TextStyle(color: ss.foreground)),
                   onTap: () {
                     Navigator.pop(context);
                     _openEditPostModal(context);
@@ -1131,7 +1058,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 ),
                 ListTile(
                   leading: const Icon(Icons.delete, color: Colors.redAccent),
-                  title: const Text('Excluir publicação'),
+                  title: Text('Excluir publicação', style: TextStyle(color: ss.foreground)),
                   onTap: () async {
                     Navigator.pop(context);
                     await _confirmDeletePost(context);
@@ -1139,9 +1066,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 ),
               ] else if (!isFollowing) ...[
                 ListTile(
-                  leading: const Icon(Icons.person_add_alt_1_rounded,
-                      color: Colors.green),
-                  title: const Text('Seguir jogador'),
+                  leading: const Icon(Icons.person_add_alt_1_rounded, color: Colors.green),
+                  title: Text('Seguir jogador', style: TextStyle(color: ss.foreground)),
                   onTap: () async {
                     Navigator.pop(context);
                     await FirebaseFirestore.instance
@@ -1153,18 +1079,16 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                       'timestamp': FieldValue.serverTimestamp(),
                     });
 
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content:
-                          Text('✅ Agora você está seguindo este jogador!')),
+                      const SnackBar(content: Text('✅ Agora você está seguindo este jogador!')),
                     );
                   },
                 ),
               ] else ...[
                 ListTile(
-                  leading: const Icon(Icons.person_remove_alt_1,
-                      color: Colors.orange),
-                  title: const Text('Deixar de seguir jogador'),
+                  leading: const Icon(Icons.person_remove_alt_1, color: Colors.orange),
+                  title: Text('Deixar de seguir jogador', style: TextStyle(color: ss.foreground)),
                   onTap: () async {
                     Navigator.pop(context);
                     await FirebaseFirestore.instance
@@ -1174,10 +1098,9 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         .doc(widget.authorId)
                         .delete();
 
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content:
-                          Text('👋 Você deixou de seguir este jogador.')),
+                      const SnackBar(content: Text('👋 Você deixou de seguir este jogador.')),
                     );
                   },
                 ),
@@ -1190,36 +1113,35 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   }
 
   Future<void> _confirmDeletePost(BuildContext context) async {
+    final s = SeasonThemeScope.of(context);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        backgroundColor: s.card,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Excluir publicação'),
-        content: const Text(
+        title: Text('Excluir publicação', style: TextStyle(color: s.foreground)),
+        content: Text(
           'Tem certeza que deseja excluir esta publicação?\nEssa ação não pode ser desfeita.',
-          style: TextStyle(fontSize: 15),
+          style: TextStyle(fontSize: 15, color: s.mutedForeground),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
+            child: Text('Cancelar', style: TextStyle(color: s.mutedForeground)),
           ),
           ElevatedButton.icon(
             onPressed: () async {
               Navigator.pop(context);
-              await FirebaseFirestore.instance
-                  .collection('posts')
-                  .doc(widget.postId)
-                  .delete();
+              await FirebaseFirestore.instance.collection('posts').doc(widget.postId).delete();
+              if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('🗑️ Publicação excluída com sucesso!')),
+                const SnackBar(content: Text('🗑️ Publicação excluída com sucesso!')),
               );
             },
             icon: const Icon(Icons.delete, color: Colors.white),
             label: const Text('Excluir'),
-            style:
-            ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
           ),
         ],
       ),
@@ -1227,6 +1149,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
   }
 
   void _openEditPostModal(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     final TextEditingController captionController =
     TextEditingController(text: widget.caption ?? '');
     String? updatedImageUrl = widget.imageUrl;
@@ -1235,11 +1159,13 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: s.card,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
+        final ss = SeasonThemeScope.of(context);
+
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Padding(
@@ -1253,21 +1179,29 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    Text(
                       '✏️ Editar Publicação',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
+                        color: ss.foreground,
                       ),
                     ),
                     const SizedBox(height: 20),
                     TextField(
                       controller: captionController,
                       maxLines: null,
+                      style: TextStyle(color: ss.foreground),
                       decoration: InputDecoration(
                         hintText: 'Escreva algo...',
-                        border: OutlineInputBorder(
+                        hintStyle: TextStyle(color: ss.mutedForeground),
+                        enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ss.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: ss.primary.withOpacity(0.9)),
                         ),
                       ),
                     ),
@@ -1289,9 +1223,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         if (context.mounted) {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text(
-                                    '✅ Publicação atualizada com sucesso!')),
+                            const SnackBar(content: Text('✅ Publicação atualizada com sucesso!')),
                           );
                         }
                       },
@@ -1304,8 +1236,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           color: Colors.white,
                         ),
                       )
-                          : const Icon(Icons.check_circle_outline,
-                          color: Colors.white),
+                          : const Icon(Icons.check_circle_outline, color: Colors.white),
                       label: const Text('Salvar alterações'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
@@ -1336,31 +1267,33 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
     'like': 'Curtir',
   };
 
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    final s = SeasonThemeScope.of(context);
 
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
-
-    final reactionsCol = FirebaseFirestore.instance
+    final CollectionReference<Map<String, dynamic>> reactionsCol =
+    FirebaseFirestore.instance
         .collection('posts')
         .doc(widget.postId)
         .collection('reactions');
 
-    final myDoc =
-    reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
-    final allDocs = reactionsCol.snapshots();
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
 
-    final hasImage =
-        widget.imageUrl != null && widget.imageUrl!.isNotEmpty;
-    final isVideo =
-        widget.mediaType == 'video' && widget.mediaUrl != null;
+    final Stream<DocumentSnapshot<Map<String, dynamic>>> myDoc =
+    (uid != null)
+        ? reactionsCol.doc(uid).snapshots()
+        : Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
+
+
+    final DocumentReference<Map<String, dynamic>> myRef =
+    reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid);
+
+    final Stream<QuerySnapshot<Map<String, dynamic>>> allDocs =
+    reactionsCol.snapshots();
+
+
+    final hasImage = widget.imageUrl != null && widget.imageUrl!.isNotEmpty;
+    final isVideo = widget.mediaType == 'video' && widget.mediaUrl != null;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -1371,14 +1304,14 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
         }
       },
       child: Container(
-        color: bg,
+        color: s.background,
         margin: const EdgeInsets.only(bottom: 10),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: card,
+            color: s.card,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: s.border),
             boxShadow: [
               BoxShadow(
                 blurRadius: 18,
@@ -1410,11 +1343,11 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(color: primary.withOpacity(0.9), width: 1.3),
+                            border: Border.all(color: s.primary.withOpacity(0.9), width: 1.3),
                           ),
                           child: CircleAvatar(
                             radius: 20,
-                            backgroundColor: Colors.white10,
+                            backgroundColor: s.foreground.withOpacity(0.06),
                             backgroundImage: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
                                 ? NetworkImage(widget.photoUrl!)
                                 : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
@@ -1432,18 +1365,18 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         },
                         child: Text(
                           widget.authorName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w800,
-                            color: Colors.white,
+                            color: s.foreground,
                           ),
                         ),
                       ),
                       subtitle: Text(
                         timeago.format(widget.postTime, locale: 'pt_BR'),
-                        style: const TextStyle(color: Colors.white60, fontSize: 12),
+                        style: TextStyle(color: s.mutedForeground, fontSize: 12),
                       ),
                       trailing: IconButton(
-                        icon: const Icon(Icons.more_vert, color: Colors.white60),
+                        icon: Icon(Icons.more_vert, color: s.mutedForeground),
                         onPressed: () => _showPostOptions(context),
                       ),
                     ),
@@ -1534,13 +1467,11 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               (mySnap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
 
                               final isActive = myType != null;
-
                               final text = _label[myType ?? 'like'] ?? 'Curtir';
 
-                              // 🎨 cores no dark
                               final color = myType == 'love'
                                   ? Colors.redAccent
-                                  : (isActive ? primary : onSurface.withOpacity(0.7));
+                                  : (isActive ? s.primary : s.foreground.withOpacity(0.7));
 
                               final icon = myType == 'love'
                                   ? Icons.favorite_rounded
@@ -1596,12 +1527,12 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
+                                      Icon(Icons.chat_bubble_outline, color: s.foreground.withOpacity(0.7)),
                                       const SizedBox(width: 6),
                                       Text(
                                         count.toString(),
                                         style: TextStyle(
-                                          color: onSurface.withOpacity(0.7),
+                                          color: s.foreground.withOpacity(0.7),
                                           fontWeight: FontWeight.w800,
                                           fontSize: 13,
                                         ),
@@ -1616,7 +1547,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                           const Spacer(),
 
                           IconButton(
-                            icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
+                            icon: Icon(Icons.share_outlined, color: s.foreground.withOpacity(0.7)),
                             onPressed: () {},
                           ),
                         ],
@@ -1664,9 +1595,9 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                                         const SizedBox(width: 4),
                                         Text(
                                           e.value.toString(),
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontWeight: FontWeight.w900,
-                                            color: Colors.white,
+                                            color: s.foreground,
                                           ),
                                         ),
                                       ],
@@ -1677,8 +1608,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               const Spacer(),
                               Text(
                                 '$total',
-                                style: const TextStyle(
-                                  color: Colors.white60,
+                                style: TextStyle(
+                                  color: s.mutedForeground,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -1694,7 +1625,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                         child: RichText(
                           text: TextSpan(
-                            style: const TextStyle(color: Colors.white),
+                            style: TextStyle(color: s.foreground),
                             children: [
                               TextSpan(
                                 text: '${widget.authorName} ',
@@ -1702,7 +1633,10 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                               ),
                               TextSpan(
                                 text: widget.caption!,
-                                style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                  color: s.foreground.withOpacity(0.75),
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ],
                           ),
@@ -1717,7 +1651,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
                 if (showOverlay)
                   Positioned(
                     left: 12,
-                    bottom: 72,
+                    bottom: 330,
                     child: FadeTransition(
                       opacity: _overlayFade,
                       child: ScaleTransition(
@@ -1740,10 +1674,10 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard>
           ),
         ),
       ),
-
     );
   }
 }
+
 
 // ============================
 // OVERLAY DE REAÇÕES (balão)
@@ -1761,22 +1695,14 @@ class _ReactionsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return Material(
       color: Colors.transparent,
       child: Container(
-        padding:
-        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: s.card,
           borderRadius: BorderRadius.circular(28),
           boxShadow: const [
             BoxShadow(
@@ -1785,7 +1711,7 @@ class _ReactionsOverlay extends StatelessWidget {
               offset: Offset(0, 6),
             ),
           ],
-          border: Border.all(color: Colors.black12),
+          border: Border.all(color: s.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1816,18 +1742,15 @@ class _ReactionBubble extends StatefulWidget {
   });
 
   @override
-  State<_ReactionBubble> createState() =>
-      _ReactionBubbleState();
+  State<_ReactionBubble> createState() => _ReactionBubbleState();
 }
 
-class _ReactionBubbleState extends State<_ReactionBubble>
-    with SingleTickerProviderStateMixin {
+class _ReactionBubbleState extends State<_ReactionBubble> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 140),
   );
-  late final Animation<double> _scale =
-  Tween<double>(begin: 1.0, end: 1.2).animate(_c);
+  late final Animation<double> _scale = Tween<double>(begin: 1.0, end: 1.2).animate(_c);
 
   @override
   void dispose() {
@@ -1837,14 +1760,7 @@ class _ReactionBubbleState extends State<_ReactionBubble>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final s = SeasonThemeScope.of(context);
 
     return MouseRegion(
       onEnter: (_) => _c.forward(),
@@ -1862,17 +1778,15 @@ class _ReactionBubbleState extends State<_ReactionBubble>
               ScaleTransition(
                 scale: _scale,
                 child: CircleAvatar(
-                  backgroundColor: Colors.white,
+                  backgroundColor: s.background,
                   radius: 22,
-                  child: Text(widget.emoji,
-                      style: const TextStyle(fontSize: 22)),
+                  child: Text(widget.emoji, style: const TextStyle(fontSize: 22)),
                 ),
               ),
               const SizedBox(height: 6),
               Text(
                 widget.label,
-                style: const TextStyle(
-                    fontSize: 11, color: Colors.black87),
+                style: TextStyle(fontSize: 11, color: s.mutedForeground),
               ),
             ],
           ),
@@ -1882,8 +1796,9 @@ class _ReactionBubbleState extends State<_ReactionBubble>
   }
 }
 
+
 // ====================================
-// ChallengePostCard (desafios)
+// ChallengePostCard (desafios) — corrigido/otimizado
 // ====================================
 class ChallengePostCard extends StatefulWidget {
   final String postId;
@@ -1898,13 +1813,15 @@ class ChallengePostCard extends StatefulWidget {
   });
 
   @override
-  State<ChallengePostCard> createState() =>
-      _ChallengePostCardState();
+  State<ChallengePostCard> createState() => _ChallengePostCardState();
 }
 
 class _ChallengePostCardState extends State<ChallengePostCard> {
   bool _loading = false;
   Map<String, dynamic>? _authorData;
+
+  // ✅ cache simples pra não ficar dando get() repetido
+  static final Map<String, Map<String, dynamic>?> _userCache = {};
 
   @override
   void initState() {
@@ -1912,38 +1829,56 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     _loadAuthorData();
   }
 
-  Future<void> _loadAuthorData() async {
+  Future<Map<String, dynamic>?> _fetchUser(String uid) async {
+    if (_userCache.containsKey(uid)) return _userCache[uid];
+
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.data['authorId'])
-          .get();
-      if (doc.exists) setState(() => _authorData = doc.data());
-    } catch (e) {
-      debugPrint("Erro ao carregar autor do desafio: $e");
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final data = doc.data();
+      _userCache[uid] = data;
+      return data;
+    } catch (_) {
+      _userCache[uid] = null;
+      return null;
     }
   }
 
+  Future<void> _loadAuthorData() async {
+    final authorId = (widget.data['authorId'] ?? '').toString();
+    if (authorId.isEmpty) return;
+
+    final data = await _fetchUser(authorId);
+    if (!mounted) return;
+    setState(() => _authorData = data);
+  }
+
   Future<void> _acceptChallenge() async {
+    if (_loading) return;
+
     setState(() => _loading = true);
-    final ref =
-    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
-    await ref.update({
-      'participants':
-      FieldValue.arrayUnion([widget.currentUserId]),
-      'progress.${widget.currentUserId}': {
-        'distance': 0.0,
-        'status': 'in_progress',
-      },
-    });
+    try {
+      await ref.update({
+        'participants': FieldValue.arrayUnion([widget.currentUserId]),
+        'progress.${widget.currentUserId}': {
+          'distance': 0.0,
+          'status': 'in_progress',
+        },
+      });
 
-    setState(() => _loading = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('🔥 Você entrou no desafio! Boa sorte!')),
-    );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🔥 Você entrou no desafio! Boa sorte!')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao entrar no desafio: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _confirmCancelChallenge() async {
@@ -1953,27 +1888,20 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder:
-          (context, animation, secondaryAnimation, child) {
-        final curvedValue =
-            Curves.easeOutBack.transform(animation.value) - 1.0;
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curvedValue = Curves.easeOutBack.transform(animation.value) - 1.0;
 
         return Transform.translate(
           offset: Offset(curvedValue * 20, 0),
           child: Opacity(
             opacity: animation.value,
             child: AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Row(
                 children: const [
-                  Icon(Icons.warning_amber_rounded,
-                      color: Colors.orange, size: 28),
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
                   SizedBox(width: 8),
-                  Text(
-                    'Tem certeza?',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                  Text('Tem certeza?', style: TextStyle(fontWeight: FontWeight.bold)),
                 ],
               ),
               content: const Text(
@@ -1982,27 +1910,19 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, height: 1.4),
               ),
-              actionsAlignment:
-              MainAxisAlignment.spaceBetween,
+              actionsAlignment: MainAxisAlignment.spaceBetween,
               actions: [
                 TextButton.icon(
-                  icon: const Icon(
-                      Icons.sports_motorsports_rounded,
-                      color: Colors.green),
-                  label: const Text(
-                    'Continuar no desafio',
-                    style: TextStyle(color: Colors.green),
-                  ),
+                  icon: const Icon(Icons.sports_motorsports_rounded, color: Colors.green),
+                  label: const Text('Continuar no desafio', style: TextStyle(color: Colors.green)),
                   onPressed: () => Navigator.pop(context),
                 ),
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.exit_to_app_rounded,
-                      color: Colors.white),
+                  icon: const Icon(Icons.exit_to_app_rounded, color: Colors.white),
                   label: const Text('Desistir'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () async {
                     Navigator.pop(context);
@@ -2018,24 +1938,44 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
   }
 
   Future<void> _cancelChallenge() async {
+    if (_loading) return;
+
     setState(() => _loading = true);
-    final ref =
-    FirebaseFirestore.instance.collection('posts').doc(widget.postId);
+    final ref = FirebaseFirestore.instance.collection('posts').doc(widget.postId);
 
-    await ref.update({
-      'participants':
-      FieldValue.arrayRemove([widget.currentUserId]),
-      'quitters':
-      FieldValue.arrayUnion([widget.currentUserId]),
-      'progress.${widget.currentUserId}.status': 'cancelled',
-    });
+    try {
+      await ref.update({
+        'participants': FieldValue.arrayRemove([widget.currentUserId]),
+        'quitters': FieldValue.arrayUnion([widget.currentUserId]),
+        'progress.${widget.currentUserId}.status': 'cancelled',
+      });
 
-    setState(() => _loading = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('❌ Você cancelou sua inscrição neste desafio.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao cancelar desafio: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('❌ Você cancelou sua inscrição neste desafio.')),
-    );
+  DateTime _safePostTime(Map<String, dynamic> d) {
+    final t = d['timestamp'];
+    if (t is Timestamp) return t.toDate();
+    if (t is DateTime) return t;
+    return DateTime.now();
+  }
+
+  DateTime? _safeDeadline(Map<String, dynamic> d) {
+    final dl = d['deadline'];
+    if (dl is Timestamp) return dl.toDate();
+    if (dl is DateTime) return dl;
+    return null;
   }
 
   @override
@@ -2043,93 +1983,71 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
-
     final d = widget.data;
-    final participants = List<String>.from(d['participants'] ?? []);
-    final quitters = List<String>.from(d['quitters'] ?? []);
-    final progress = Map<String, dynamic>.from(d['progress'] ?? {});
-    final joined =
-    participants.contains(widget.currentUserId);
-    final totalKm = (d['distance'] ?? 0.0).toDouble();
 
-    final authorName = _authorData?['displayName'] ??
-        d['authorName'] ??
-        'Jogador';
-    final authorPhoto = _authorData?['photoURL'];
+    final participants = List<String>.from((d['participants'] ?? const []) as List);
+    final quitters = List<String>.from((d['quitters'] ?? const []) as List);
+    final progress = Map<String, dynamic>.from((d['progress'] ?? const {}) as Map);
+
+    final joined = participants.contains(widget.currentUserId);
+    final totalKm = (d['distance'] is num) ? (d['distance'] as num).toDouble() : 0.0;
+
+    final authorName =
+    (_authorData?['displayName'] ?? d['authorName'] ?? 'Jogador').toString();
+    final authorPhoto = (_authorData?['photoURL'] ?? '').toString();
+
+    final postTime = _safePostTime(d);
+    final deadline = _safeDeadline(d);
 
     return Card(
-      margin: const EdgeInsets.symmetric(
-          vertical: 8, horizontal: 12),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-          CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header autor
             Row(
               children: [
                 GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ProfilePage(
-                            userId: widget.data['authorId']),
-                      ),
-                    );
-                  },
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProfilePage(userId: (d['authorId'] ?? '').toString()),
+                    ),
+                  ),
                   child: CircleAvatar(
                     radius: 22,
-                    backgroundImage: authorPhoto != null &&
-                        authorPhoto.isNotEmpty
+                    backgroundImage: authorPhoto.trim().isNotEmpty
                         ? NetworkImage(authorPhoto)
-                        : const AssetImage(
-                        'assets/icon/logo_principal.png')
-                    as ImageProvider,
+                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ProfilePage(
-                              userId: widget.data['authorId']),
-                        ),
-                      );
-                    },
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ProfilePage(userId: (d['authorId'] ?? '').toString()),
+                      ),
+                    ),
                     child: Column(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Criado por $authorName',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
                             fontSize: 14,
-                            color: Colors.black,
+                            color: cs.onSurface,
                           ),
                         ),
                         Text(
-                          timeago.format(
-                            (d['timestamp'] as Timestamp?)
-                                ?.toDate() ??
-                                DateTime.now(),
-                            locale: 'pt_BR',
-                          ),
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54),
+                          timeago.format(postTime, locale: 'pt_BR'),
+                          style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.6)),
                         ),
                       ],
                     ),
@@ -2137,76 +2055,72 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 ),
               ],
             ),
-            const Divider(
-                height: 24,
-                thickness: 1,
-                color: Colors.black12),
 
-            Text('🏁 ${d['title'] ?? 'Desafio de Corrida'}',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('Distância: ${d['distance']} km',
-                style: const TextStyle(
-                    color: Colors.black87)),
+            const Divider(height: 24, thickness: 1),
+
             Text(
-              'Prazo: ${d['deadline'].toDate().day}/${d['deadline'].toDate().month}/${d['deadline'].toDate().year}',
-              style: const TextStyle(
-                  color: Colors.black54),
+              '🏁 ${(d['title'] ?? 'Desafio de Corrida').toString()}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Distância: ${totalKm.toStringAsFixed(2)} km',
+              style: TextStyle(color: cs.onSurface.withOpacity(0.9)),
+            ),
+            if (deadline != null)
+              Text(
+                'Prazo: ${deadline.day}/${deadline.month}/${deadline.year}',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.6)),
+              ),
             const SizedBox(height: 16),
 
+            // CTA
             if (joined)
               ElevatedButton.icon(
-                onPressed:
-                _loading ? null : _confirmCancelChallenge,
-                icon: const Icon(Icons.cancel,
-                    color: Colors.white),
+                onPressed: _loading ? null : _confirmCancelChallenge,
+                icon: const Icon(Icons.cancel, color: Colors.white),
                 label: _loading
-                    ? const CircularProgressIndicator(
-                    color: Colors.white)
+                    ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                )
                     : const Text('Cancelar inscrição'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                  Colors.redAccent,
-                  minimumSize:
-                  const Size(double.infinity, 45),
+                  backgroundColor: Colors.redAccent,
+                  minimumSize: const Size(double.infinity, 45),
                 ),
               )
-            else if (quitters
-                .contains(widget.currentUserId))
+            else if (quitters.contains(widget.currentUserId))
               ElevatedButton.icon(
                 onPressed: null,
                 icon: const Icon(Icons.block),
-                label: const Text(
-                    'Você desistiu deste desafio 😬'),
+                label: const Text('Você desistiu deste desafio 😬'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.grey,
-                  minimumSize:
-                  const Size(double.infinity, 45),
+                  minimumSize: const Size(double.infinity, 45),
                 ),
               )
             else
               ElevatedButton.icon(
-                onPressed:
-                _loading ? null : _acceptChallenge,
+                onPressed: _loading ? null : _acceptChallenge,
                 icon: const Icon(Icons.flag),
                 label: _loading
-                    ? const CircularProgressIndicator(
-                    color: Colors.white)
+                    ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                )
                     : const Text('Aceito o Desafio'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
-                  minimumSize:
-                  const Size(double.infinity, 45),
+                  minimumSize: const Size(double.infinity, 45),
                 ),
               ),
+
             const SizedBox(height: 20),
 
-            const Text('Jogadores inscritos:',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600)),
+            const Text('Jogadores inscritos:', style: TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             if (participants.isEmpty)
               const Text('Ainda ninguém se inscreveu 😅')
@@ -2215,87 +2129,40 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 spacing: 10,
                 runSpacing: 10,
                 children: participants.map((uid) {
-                  return _buildPlayerAvatar(
-                      uid, progress, totalKm);
+                  return _buildPlayerAvatar(uid, progress, totalKm);
                 }).toList(),
               ),
+
             const SizedBox(height: 16),
 
             if (quitters.isNotEmpty) ...[
               const Divider(),
               const SizedBox(height: 6),
-              const Text('Jogadores desistentes:',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.red)),
+              const Text(
+                'Jogadores desistentes:',
+                style: TextStyle(fontWeight: FontWeight.w700, color: Colors.red),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
-                children: quitters.map((uid) {
-                  return FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(uid)
-                        .get(),
-                    builder: (context, snapshot) {
-                      final user =
-                      snapshot.data?.data()
-                      as Map<String, dynamic>?;
-                      final name =
-                          user?['displayName'] ?? 'Jogador';
-                      final photo =
-                      user?['photoURL'];
-                      return Column(
-                        mainAxisSize:
-                        MainAxisSize.min,
-                        children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundImage: photo !=
-                                null
-                                ? NetworkImage(photo)
-                                : const AssetImage(
-                                'assets/icon/logo_principal.png')
-                            as ImageProvider,
-                            backgroundColor:
-                            Colors.red.shade100,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            name.split(' ').first,
-                            style: const TextStyle(
-                                fontSize: 11,
-                                color:
-                                Colors.redAccent),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                }).toList(),
+                children: quitters.map((uid) => _buildQuitterAvatar(uid)).toList(),
               ),
             ],
+
             const SizedBox(height: 20),
 
             if (participants.isNotEmpty)
               Center(
                 child: OutlinedButton.icon(
-                  onPressed: () => _showRanking(
-                      context, progress, totalKm),
-                  icon: const Icon(
-                      Icons.bar_chart_rounded,
-                      color: Colors.blueAccent),
+                  onPressed: () => _showRanking(context, progress, totalKm),
+                  icon: const Icon(Icons.bar_chart_rounded, color: Colors.blueAccent),
                   label: const Text(
                     "Ver Ranking",
-                    style: TextStyle(
-                        color: Colors.blueAccent,
-                        fontWeight:
-                        FontWeight.bold),
+                    style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(
-                        color: Colors.blueAccent),
+                    side: const BorderSide(color: Colors.blueAccent),
                   ),
                 ),
               ),
@@ -2305,51 +2172,67 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
     );
   }
 
-  Widget _buildPlayerAvatar(String uid,
-      Map<String, dynamic> progress, double totalKm) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get(),
+  Widget _buildQuitterAvatar(String uid) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _fetchUser(uid),
       builder: (context, snapshot) {
-        final user =
-        snapshot.data?.data() as Map<String, dynamic>?;
-        final name =
-            user?['displayName'] ?? 'Jogador';
-        final photo =
-        user?['photoURL'];
-        final playerProgress =
-        (progress[uid]?['distance'] ?? 0.0)
-            .toDouble();
-        final status =
-            progress[uid]?['status'] ?? 'in_progress';
+        final user = snapshot.data;
+        final name = (user?['displayName'] ?? 'Jogador').toString();
+        final photo = (user?['photoURL'] ?? '').toString();
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundImage: photo.trim().isNotEmpty
+                  ? NetworkImage(photo)
+                  : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+              backgroundColor: Colors.red.shade100,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              name.split(' ').first,
+              style: const TextStyle(fontSize: 11, color: Colors.redAccent),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPlayerAvatar(String uid, Map<String, dynamic> progress, double totalKm) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _fetchUser(uid),
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        final name = (user?['displayName'] ?? 'Jogador').toString();
+        final photo = (user?['photoURL'] ?? '').toString();
+
+        final p = (progress[uid] is Map) ? Map<String, dynamic>.from(progress[uid] as Map) : const {};
+        final playerProgress = (p['distance'] is num) ? (p['distance'] as num).toDouble() : 0.0;
+        final status = (p['status'] ?? 'in_progress').toString();
 
         return GestureDetector(
           onTap: () => _showPlayerProgress(
             context,
             name,
-            photo,
+            photo.trim().isEmpty ? null : photo,
             playerProgress,
             totalKm,
             status,
           ),
           child: Column(
-            mainAxisSize:
-            MainAxisSize.min,
+            mainAxisSize: MainAxisSize.min,
             children: [
               CircleAvatar(
                 radius: 25,
-                backgroundImage: photo != null
+                backgroundImage: photo.trim().isNotEmpty
                     ? NetworkImage(photo)
-                    : const AssetImage(
-                    'assets/icon/logo_principal.png')
-                as ImageProvider,
+                    : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
               ),
               const SizedBox(height: 4),
-              Text(name.split(' ').first,
-                  style: const TextStyle(
-                      fontSize: 11)),
+              Text(name.split(' ').first, style: const TextStyle(fontSize: 11)),
             ],
           ),
         );
@@ -2365,59 +2248,47 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
       double totalKm,
       String status,
       ) {
-    final percent =
-    (currentKm / totalKm).clamp(0.0, 1.0);
+    final safeTotal = totalKm <= 0 ? 1.0 : totalKm;
+    final percent = (currentKm / safeTotal).clamp(0.0, 1.0);
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius:
-        BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
+        final cs = Theme.of(context).colorScheme;
+
         return SafeArea(
           top: false,
           child: Padding(
             padding: EdgeInsets.only(
               left: 24,
               right: 24,
-              bottom: MediaQuery.of(context)
-                  .viewInsets
-                  .bottom +
-                  20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
               top: 24,
             ),
             child: SingleChildScrollView(
               child: Column(
-                mainAxisSize:
-                MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   CircleAvatar(
                     radius: 35,
                     backgroundImage: photoUrl != null
                         ? NetworkImage(photoUrl)
-                        : const AssetImage(
-                        'assets/icon/logo_principal.png')
-                    as ImageProvider,
+                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
                   ),
                   const SizedBox(height: 12),
-                  Text(name,
-                      style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight:
-                          FontWeight.bold)),
+                  Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
                   LinearProgressIndicator(
                     value: percent,
-                    backgroundColor:
-                    Colors.grey[300],
-                    color: status ==
-                        'completed'
+                    backgroundColor: Colors.grey[300],
+                    color: status == 'completed'
                         ? Colors.green
-                        : status ==
-                        'cancelled'
+                        : status == 'cancelled'
                         ? Colors.red
                         : Colors.orange,
                     minHeight: 10,
@@ -2425,26 +2296,22 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                   const SizedBox(height: 8),
                   Text(
                     '${currentKm.toStringAsFixed(2)} km / ${totalKm.toStringAsFixed(2)} km',
-                    style: const TextStyle(
-                        fontWeight:
-                        FontWeight.w500),
+                    style: TextStyle(fontWeight: FontWeight.w600, color: cs.onSurface),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     status == 'completed'
                         ? '✅ Desafio concluído!'
-                        : status ==
-                        'cancelled'
+                        : status == 'cancelled'
                         ? '❌ Desafio cancelado'
                         : '🏃 Em andamento...',
                     style: TextStyle(
-                      color: status ==
-                          'completed'
+                      color: status == 'completed'
                           ? Colors.green
-                          : status ==
-                          'cancelled'
+                          : status == 'cancelled'
                           ? Colors.red
                           : Colors.orange,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -2461,66 +2328,62 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
       Map<String, dynamic> progress,
       double totalKm,
       ) {
-    final ranking = progress.entries.toList()
-      ..sort((a, b) =>
-          (b.value['distance'] ?? 0).compareTo(a.value['distance'] ?? 0));
+    final entries = progress.entries
+        .where((e) => e.value is Map)
+        .map((e) => MapEntry(e.key, Map<String, dynamic>.from(e.value as Map)))
+        .toList();
+
+    entries.sort((a, b) {
+      final da = (a.value['distance'] is num) ? (a.value['distance'] as num).toDouble() : 0.0;
+      final db = (b.value['distance'] is num) ? (b.value['distance'] as num).toDouble() : 0.0;
+      return db.compareTo(da);
+    });
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius:
-        BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
       ),
       builder: (context) {
+        final cs = Theme.of(context).colorScheme;
+
         return SafeArea(
           top: false,
           child: Padding(
             padding: EdgeInsets.only(
               left: 20,
               right: 20,
-              bottom: MediaQuery.of(context)
-                  .viewInsets
-                  .bottom +
-                  20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
               top: 20,
             ),
             child: SingleChildScrollView(
               child: Column(
-                mainAxisSize:
-                MainAxisSize.min,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
                     '🏆 Ranking do Desafio',
                     style: TextStyle(
                       fontSize: 20,
-                      fontWeight:
-                      FontWeight.bold,
+                      fontWeight: FontWeight.bold,
                       color: Colors.blueAccent,
                     ),
                   ),
                   const SizedBox(height: 20),
-                  if (ranking.isEmpty)
-                    const Text(
-                        'Nenhum progresso registrado ainda 😅')
+                  if (entries.isEmpty)
+                    const Text('Nenhum progresso registrado ainda 😅')
                   else
                     ListView.builder(
                       shrinkWrap: true,
-                      physics:
-                      const NeverScrollableScrollPhysics(),
-                      itemCount: ranking.length,
-                      itemBuilder:
-                          (context, index) {
-                        final uid =
-                            ranking[index].key;
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: entries.length,
+                      itemBuilder: (context, index) {
+                        final uid = entries[index].key;
                         final dist =
-                        (ranking[index].value['distance'] ??
-                            0.0)
-                            .toDouble();
-                        final status =
-                            ranking[index].value['status'] ??
-                                'in_progress';
+                        (entries[index].value['distance'] is num) ? (entries[index].value['distance'] as num).toDouble() : 0.0;
+                        final status = (entries[index].value['status'] ?? 'in_progress').toString();
+
                         final medal = index == 0
                             ? '🥇'
                             : index == 1
@@ -2528,68 +2391,39 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                             : index == 2
                             ? '🥉'
                             : '🏃';
-                        final percent =
-                        (dist / totalKm)
-                            .clamp(0.0, 1.0);
 
-                        return FutureBuilder<
-                            DocumentSnapshot>(
-                          future: FirebaseFirestore
-                              .instance
-                              .collection('users')
-                              .doc(uid)
-                              .get(),
-                          builder:
-                              (context, snapshot) {
-                            final user = snapshot
-                                .data
-                                ?.data()
-                            as Map<String,
-                                dynamic>?;
-                            final name =
-                                user?['displayName'] ??
-                                    'Jogador';
-                            final photo =
-                            user?['photoURL'];
+                        final safeTotal = totalKm <= 0 ? 1.0 : totalKm;
+                        final percent = (dist / safeTotal).clamp(0.0, 1.0);
+
+                        return FutureBuilder<Map<String, dynamic>?>(
+                          future: _fetchUser(uid),
+                          builder: (context, snapshot) {
+                            final user = snapshot.data;
+                            final name = (user?['displayName'] ?? 'Jogador').toString();
+                            final photo = (user?['photoURL'] ?? '').toString();
 
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundImage:
-                                photo != null
-                                    ? NetworkImage(
-                                    photo)
-                                    : const AssetImage(
-                                    'assets/icon/logo_principal.png')
-                                as ImageProvider,
+                                backgroundImage: photo.trim().isNotEmpty
+                                    ? NetworkImage(photo)
+                                    : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
                               ),
                               title: Text(
                                 '$medal $name',
-                                style: const TextStyle(
-                                    fontWeight:
-                                    FontWeight
-                                        .bold),
+                                style: TextStyle(fontWeight: FontWeight.bold, color: cs.onSurface),
                               ),
-                              subtitle:
-                              LinearProgressIndicator(
+                              subtitle: LinearProgressIndicator(
                                 value: percent,
-                                backgroundColor:
-                                Colors.grey[300],
-                                color: status ==
-                                    'completed'
-                                    ? Colors
-                                    .green
-                                    : Colors
-                                    .orange,
+                                backgroundColor: Colors.grey[300],
+                                color: status == 'completed' ? Colors.green : Colors.orange,
                                 minHeight: 6,
                               ),
                               trailing: Text(
                                 '${dist.toStringAsFixed(2)} km',
-                                style: const TextStyle(
-                                    fontWeight:
-                                    FontWeight
-                                        .w600,
-                                    color: Colors
-                                        .black87),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.onSurface.withOpacity(0.9),
+                                ),
                               ),
                             );
                           },
@@ -2606,6 +2440,9 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
   }
 }
 
+// ====================================
+// TerritoryBattlePostCard (batalhas) — só ajustes pequenos de robustez
+// ====================================
 class TerritoryBattlePostCard extends StatelessWidget {
   final String postId;
   final Map<String, dynamic> data;
@@ -2620,17 +2457,11 @@ class TerritoryBattlePostCard extends StatelessWidget {
     required this.onComment,
   });
 
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    var s = SeasonThemeScope.of(context);
+    final primary = s.primary;
+    final onSurface = s.primaryForeground;
 
     final winnerName = (data['winnerName'] ?? data['authorName'] ?? 'Jogador').toString();
     final winnerPhoto = (data['winnerPhoto'] ?? data['authorPhoto'] ?? '').toString();
@@ -2648,17 +2479,21 @@ class TerritoryBattlePostCard extends StatelessWidget {
     final double winnerBar = (0.55 + (progress * 0.45)).clamp(0.0, 1.0);
     final double loserBar = (1.0 - winnerBar).clamp(0.0, 1.0);
 
-    final reactionsCol = FirebaseFirestore.instance
+    final CollectionReference<Map<String, dynamic>> reactionsCol =
+    FirebaseFirestore.instance
         .collection('posts')
         .doc(postId)
         .collection('reactions');
-
-    final myDoc = reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final Stream<DocumentSnapshot<Map<String, dynamic>>> myDoc =
+    (uid != null)
+        ? reactionsCol.doc(uid).snapshots()
+        : Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: card,
+        color: s.card,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white10),
         boxShadow: [
@@ -2699,7 +2534,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                   const Spacer(),
                   Text(
                     timeago.format(postTime, locale: 'pt_BR'),
-                    style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+                    style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700, fontSize: 12),
                   ),
                 ],
               ),
@@ -2711,15 +2546,15 @@ class TerritoryBattlePostCard extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.white.withOpacity(0.06),
-                    Colors.white.withOpacity(0.02),
+                    s.secondaryForeground.withOpacity(0.06),
+                    s.secondaryForeground.withOpacity(0.02),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                border: const Border(
-                  top: BorderSide(color: Colors.white10),
-                  bottom: BorderSide(color: Colors.white10),
+                border: Border(
+                  top: BorderSide(color: s.border),
+                  bottom: BorderSide(color: s.border),
                 ),
               ),
               child: Row(
@@ -2729,6 +2564,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                     photoUrl: winnerPhoto,
                     sideLabel: "WIN",
                     sideColor: Colors.greenAccent,
+                    context: context, s: s = SeasonThemeScope.of(context),
                   ),
                   const SizedBox(width: 10),
                   SizedBox(width: 56, child: _vsCenter(progress: progress)),
@@ -2739,6 +2575,8 @@ class TerritoryBattlePostCard extends StatelessWidget {
                     sideLabel: "LOSE",
                     sideColor: Colors.redAccent,
                     alignRight: true,
+                    context: context,
+                    s: s = SeasonThemeScope.of(context),
                   ),
                 ],
               ),
@@ -2749,65 +2587,55 @@ class TerritoryBattlePostCard extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
               child: Column(
                 children: [
-                  _hpBar(
-                    label: winnerName,
-                    value: winnerBar,
-                    alignRight: false,
-                  ),
+                  _hpBar(label: winnerName, value: winnerBar, alignRight: false,context: context,
+                    s: s = SeasonThemeScope.of(context),),
                   const SizedBox(height: 8),
-                  _hpBar(
-                    label: loserName,
-                    value: loserBar,
-                    alignRight: true,
-                  ),
+                  _hpBar(label: loserName, value: loserBar, alignRight: true, context: context,
+                    s: s = SeasonThemeScope.of(context),),
                 ],
               ),
             ),
 
-            // texto gamer
             if (battleTitle.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 2),
                 child: Text(
                   battleTitle,
-                  style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w700, height: 1.2),
+                  style: TextStyle(color: s.secondary.withOpacity(0.7), fontWeight: FontWeight.w700, height: 1.2),
                 ),
               ),
 
-            // extra info
             if (territoryId.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
                 child: Text(
                   'Território: $territoryId',
-                  style: const TextStyle(color: Colors.white38, fontWeight: FontWeight.w700, fontSize: 12),
+                  style: TextStyle(color: s.primary, fontWeight: FontWeight.w700, fontSize: 12),
                 ),
               ),
 
-            // ações (curtir + comentar)
+            // ações
             Padding(
               padding: const EdgeInsets.fromLTRB(6, 6, 6, 10),
               child: Row(
                 children: [
-                  StreamBuilder<DocumentSnapshot>(
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: myDoc,
                     builder: (context, snap) {
-                      final myType =
-                      (snap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
+                      final data = snap.data?.data();
+                      final myType = data?['type'] as String?;
                       final isLiked = myType == 'like' || myType == 'love';
 
                       return IconButton(
                         icon: Icon(
                           isLiked ? Icons.favorite_rounded : Icons.favorite_border,
-                          color: isLiked ? Colors.redAccent : onSurface.withOpacity(0.7),
+                          color: isLiked ? Colors.redAccent : s.mutedForeground,
                         ),
                         onPressed: () async {
                           final uid = FirebaseAuth.instance.currentUser!.uid;
-                          final ref = FirebaseFirestore.instance
-                              .collection('posts')
-                              .doc(postId)
-                              .collection('reactions')
-                              .doc(uid);
+
+                          // ✅ usa o reactionsCol tipado
+                          final ref = reactionsCol.doc(uid);
 
                           if (myType != null) {
                             await ref.delete();
@@ -2817,6 +2645,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
                               'timestamp': FieldValue.serverTimestamp(),
                             });
                           }
+
                           HapticFeedback.selectionClick();
                         },
                       );
@@ -2824,27 +2653,22 @@ class TerritoryBattlePostCard extends StatelessWidget {
                   ),
 
                   StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('posts')
-                        .doc(postId)
-                        .collection('comments')
-                        .snapshots(),
+                    stream: FirebaseFirestore.instance.collection('posts').doc(postId).collection('comments').snapshots(),
                     builder: (context, snap) {
                       final count = snap.data?.docs.length ?? 0;
                       return TextButton.icon(
                         onPressed: onComment,
-                        icon: Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
+                        icon: Icon(Icons.chat_bubble_outline, color: s.mutedForeground),
                         label: Text(
                           count.toString(),
-                          style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w800),
+                          style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w800),
                         ),
                       );
                     },
                   ),
-
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
+                    icon: Icon(Icons.share_outlined, color: s.mutedForeground),
                     onPressed: () {},
                   ),
                 ],
@@ -2895,19 +2719,20 @@ class TerritoryBattlePostCard extends StatelessWidget {
   }
 
   Widget _fighter({
+    required BuildContext context,
     required String name,
     required String photoUrl,
     required String sideLabel,
     required Color sideColor,
     bool alignRight = false,
+    required dynamic s,
   }) {
+
     final avatar = CircleAvatar(
       radius: 22,
       backgroundColor: Colors.white10,
       backgroundImage: (photoUrl.isNotEmpty) ? NetworkImage(photoUrl) : null,
-      child: (photoUrl.isEmpty)
-          ? const Icon(Icons.person, color: Colors.white54)
-          : null,
+      child: (photoUrl.isEmpty) ? const Icon(Icons.person, color: Colors.white54) : null,
     );
 
     final label = Container(
@@ -2933,7 +2758,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       textAlign: alignRight ? TextAlign.right : TextAlign.left,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+      style: TextStyle(color: s.primary, fontWeight: FontWeight.w900),
     );
 
     final info = Column(
@@ -2942,9 +2767,8 @@ class TerritoryBattlePostCard extends StatelessWidget {
       children: [
         label,
         const SizedBox(height: 6),
-        // ✅ nada de width fixa: ocupa o que der e corta com ellipsis
         ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 110), // ajuste se quiser
+          constraints: const BoxConstraints(maxWidth: 110),
           child: nameText,
         ),
       ],
@@ -2954,26 +2778,17 @@ class TerritoryBattlePostCard extends StatelessWidget {
       child: Row(
         mainAxisAlignment: alignRight ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: alignRight
-            ? [
-          // ✅ deixa o texto encolher antes de cortar o avatar
-          Flexible(child: info),
-          const SizedBox(width: 8),
-          avatar,
-        ]
-            : [
-          avatar,
-          const SizedBox(width: 8),
-          Flexible(child: info),
-        ],
+            ? [Flexible(child: info), const SizedBox(width: 8), avatar]
+            : [avatar, const SizedBox(width: 8), Flexible(child: info)],
       ),
     );
   }
-
 
   Widget _hpBar({
     required String label,
     required double value,
     required bool alignRight,
+    required dynamic s, required BuildContext context,
   }) {
     final v = value.clamp(0.0, 1.0);
     return Row(
@@ -2984,7 +2799,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+              style: TextStyle(color: s.secondaryForeground, fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
         Expanded(
@@ -2994,7 +2809,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: v,
               minHeight: 10,
-              backgroundColor: Colors.white10,
+              backgroundColor: s.muted,
               valueColor: AlwaysStoppedAnimation<Color>(
                 alignRight ? Colors.redAccent : Colors.greenAccent,
               ),
@@ -3008,7 +2823,7 @@ class TerritoryBattlePostCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.right,
-              style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700, fontSize: 12),
+              style: TextStyle(color: s.secondaryForeground, fontWeight: FontWeight.w700, fontSize: 12),
             ),
           ),
       ],
@@ -3016,6 +2831,9 @@ class TerritoryBattlePostCard extends StatelessWidget {
   }
 }
 
+// ====================================
+// PromoPostCard — corrigido/robusto
+// ====================================
 class PromoPostCard extends StatelessWidget {
   final String postId;
   final Map<String, dynamic> data;
@@ -3032,20 +2850,14 @@ class PromoPostCard extends StatelessWidget {
     required this.onComment,
   });
 
-
   Future<void> _openUrl(BuildContext context, String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Link inválido.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link inválido.')));
       return;
     }
 
-    final ok = await launchUrl(
-      uri,
-      mode: LaunchMode.externalApplication,
-    );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3056,14 +2868,12 @@ class PromoPostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
+    var s = SeasonThemeScope.of(context);
+    final primary = s.primary;
+    final onSurface = s.primaryForeground;
 
-    final bg = theme.scaffoldBackgroundColor;
-    final card = theme.cardColor;
-    final primary = cs.primary;
-    final onPrimary = cs.onPrimary;
-    final onSurface = cs.onSurface;
+    final muted = s.mutedForeground;
+    final border = s.border;
 
     final title = (data['title'] ?? 'Promoção').toString();
     final text = (data['text'] ?? '').toString();
@@ -3073,28 +2883,30 @@ class PromoPostCard extends StatelessWidget {
     final ctaUrl = (data['ctaButtonUrl'] ?? '').toString();
     final promoCode = (data['promoCode'] ?? '').toString();
 
-    // Se quiser: impedir promo sem URL
     final hasCta = ctaUrl.trim().isNotEmpty;
 
-    // Reações e comentários (usa mesma estrutura do resto)
-    final reactionsCol = FirebaseFirestore.instance
+    final CollectionReference<Map<String, dynamic>> reactionsCol =
+    FirebaseFirestore.instance
         .collection('posts')
         .doc(postId)
         .collection('reactions');
-
-    final myDoc = reactionsCol.doc(FirebaseAuth.instance.currentUser!.uid).snapshots();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final Stream<DocumentSnapshot<Map<String, dynamic>>> myDoc =
+    (uid != null)
+        ? reactionsCol.doc(uid).snapshots()
+        : Stream<DocumentSnapshot<Map<String, dynamic>>>.empty();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: card,
+        color: s.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: s.border),
         boxShadow: [
           BoxShadow(
             blurRadius: 18,
             offset: const Offset(0, 8),
-            color: Colors.black.withOpacity(0.35),
+            color: s.mutedForeground.withOpacity(0.35),
           ),
         ],
       ),
@@ -3103,7 +2915,7 @@ class PromoPostCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header (badge + time)
+            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
               child: Row(
@@ -3128,8 +2940,8 @@ class PromoPostCard extends StatelessWidget {
                   const Spacer(),
                   Text(
                     timeago.format(postTime, locale: 'pt_BR'),
-                    style: const TextStyle(
-                      color: Colors.white54,
+                    style: TextStyle(
+                      color: s.mutedForeground,
                       fontWeight: FontWeight.w700,
                       fontSize: 12,
                     ),
@@ -3139,11 +2951,12 @@ class PromoPostCard extends StatelessWidget {
             ),
 
             // Imagem
-            if (imageUrl.isNotEmpty)
+            if (imageUrl.trim().isNotEmpty)
               Image.network(
                 imageUrl,
                 width: double.infinity,
                 fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
 
             // Conteúdo
@@ -3154,8 +2967,8 @@ class PromoPostCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: s.primary,
                       fontWeight: FontWeight.w900,
                       fontSize: 16,
                       height: 1.15,
@@ -3166,14 +2979,13 @@ class PromoPostCard extends StatelessWidget {
                     Text(
                       text,
                       style: TextStyle(
-                        color: onSurface.withOpacity(0.7),
+                        color: muted.withOpacity(0.7),
                         fontWeight: FontWeight.w600,
                         height: 1.25,
                       ),
                     ),
                   ],
 
-                  // Promo Code
                   if (promoCode.trim().isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Row(
@@ -3181,7 +2993,7 @@ class PromoPostCard extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.06),
+                            color: s.accent.withOpacity(0.8),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: Colors.white12),
                           ),
@@ -3192,8 +3004,8 @@ class PromoPostCard extends StatelessWidget {
                               const SizedBox(width: 8),
                               Text(
                                 promoCode,
-                                style: const TextStyle(
-                                  color: Colors.white,
+                                style: TextStyle(
+                                  color: s.accentForeground,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: 1.0,
                                 ),
@@ -3211,10 +3023,7 @@ class PromoPostCard extends StatelessWidget {
                             HapticFeedback.selectionClick();
                           },
                           icon: Icon(Icons.copy_rounded, size: 18, color: primary),
-                          label: Text(
-                            'Copiar',
-                            style: TextStyle(color: primary, fontWeight: FontWeight.w900),
-                          ),
+                          label: Text('Copiar', style: TextStyle(color: primary, fontWeight: FontWeight.w900)),
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(color: primary.withOpacity(0.65)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -3224,7 +3033,6 @@ class PromoPostCard extends StatelessWidget {
                     ),
                   ],
 
-                  // CTA
                   const SizedBox(height: 14),
                   SizedBox(
                     width: double.infinity,
@@ -3233,10 +3041,7 @@ class PromoPostCard extends StatelessWidget {
                       icon: const Icon(Icons.open_in_new_rounded, color: Colors.black),
                       label: Text(
                         ctaText,
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.w900,
-                        ),
+                        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primary,
@@ -3251,30 +3056,28 @@ class PromoPostCard extends StatelessWidget {
               ),
             ),
 
-            // Ações (curtir + comentar + share) — reaproveita tua lógica simples
+            // Ações
             Padding(
               padding: const EdgeInsets.fromLTRB(6, 0, 6, 10),
               child: Row(
                 children: [
-                  StreamBuilder<DocumentSnapshot>(
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: myDoc,
                     builder: (context, snap) {
-                      final myType =
-                      (snap.data?.data() as Map<String, dynamic>?)?['type'] as String?;
-                      final isLiked = myType != null;
+                      final data = snap.data?.data();
+                      final myType = data?['type'] as String?;
+                      final isLiked = myType == 'like' || myType == 'love';
 
                       return IconButton(
                         icon: Icon(
                           isLiked ? Icons.favorite_rounded : Icons.favorite_border,
-                          color: isLiked ? Colors.redAccent : onSurface.withOpacity(0.7),
+                          color: isLiked ? Colors.redAccent : muted.withOpacity(0.7),
                         ),
                         onPressed: () async {
                           final uid = FirebaseAuth.instance.currentUser!.uid;
-                          final ref = FirebaseFirestore.instance
-                              .collection('posts')
-                              .doc(postId)
-                              .collection('reactions')
-                              .doc(uid);
+
+                          // ✅ usa o reactionsCol tipado
+                          final ref = reactionsCol.doc(uid);
 
                           if (myType != null) {
                             await ref.delete();
@@ -3284,6 +3087,7 @@ class PromoPostCard extends StatelessWidget {
                               'timestamp': FieldValue.serverTimestamp(),
                             });
                           }
+
                           HapticFeedback.selectionClick();
                         },
                       );
@@ -3291,27 +3095,22 @@ class PromoPostCard extends StatelessWidget {
                   ),
 
                   StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('posts')
-                        .doc(postId)
-                        .collection('comments')
-                        .snapshots(),
+                    stream: FirebaseFirestore.instance.collection('posts').doc(postId).collection('comments').snapshots(),
                     builder: (context, snap) {
                       final count = snap.data?.docs.length ?? 0;
                       return TextButton.icon(
                         onPressed: onComment,
-                        icon: Icon(Icons.chat_bubble_outline, color: onSurface.withOpacity(0.7)),
+                        icon: Icon(Icons.chat_bubble_outline, color: muted.withOpacity(0.7)),
                         label: Text(
                           count.toString(),
-                          style: TextStyle(color: onSurface.withOpacity(0.7), fontWeight: FontWeight.w800),
+                          style: TextStyle(color: muted.withOpacity(0.7), fontWeight: FontWeight.w800),
                         ),
                       );
                     },
                   ),
-
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.share_outlined, color: onSurface.withOpacity(0.7)),
+                    icon: Icon(Icons.share_outlined, color: muted.withOpacity(0.7)),
                     onPressed: () {},
                   ),
                 ],

@@ -3,17 +3,18 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
-import 'model/run_model.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
+import 'model/run_model.dart';
 import 'run_share_overlay_editor.dart';
-
-
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class DetalheCorridaPageShare extends StatefulWidget {
   final RunModel corrida;
@@ -24,7 +25,7 @@ class DetalheCorridaPageShare extends StatefulWidget {
 }
 
 class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
-  final List<String> backgrounds = [
+  final List<String> backgrounds = const [
     'https://images.unsplash.com/photo-1508609349937-5ec4ae374ebf?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
     'https://images.unsplash.com/photo-1505678261036-a3fcc5e884ee?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
     'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?crop=entropy&cs=tinysrgb&w=1080&h=1920&fit=crop',
@@ -34,15 +35,20 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
   VideoPlayerController? _videoController;
   bool isVideo = false;
 
-
   late String selectedBackground;
   bool sharing = false;
-  bool storyMode = false; // false = Feed, true = Story
+  bool storyMode = false; // false = Feed (4:5), true = Story (9:16)
 
   @override
   void initState() {
     super.initState();
     selectedBackground = backgrounds[Random().nextInt(backgrounds.length)];
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
   }
 
   String _formatDuration(int seconds) {
@@ -58,61 +64,100 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
     return "$dia/$mes/$ano";
   }
 
+  // ✅ loader robusto pra URL (sem depender de NetworkAssetBundle.load(""))
+  Future<Uint8List> _downloadUrlBytes(String url) async {
+    final uri = Uri.parse(url);
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(uri);
+      req.headers.set(HttpHeaders.userAgentHeader, 'RunnerApp/1.0');
+      final res = await req.close();
+      if (res.statusCode != 200) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+      final bytes = await consolidateHttpClientResponseBytes(res);
+      return bytes;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<void> _compartilhar() async {
+    if (sharing) return;
     setState(() => sharing = true);
 
     try {
-      final bytes =
-      await _gerarImagemCompartilhamento(widget.corrida, selectedBackground, storyMode);
+      final bytes = await _gerarImagemCompartilhamento(
+        widget.corrida,
+        selectedBackground,
+        storyMode,
+      );
       final dir = await Directory.systemTemp.createTemp();
       final file = File("${dir.path}/runner_share.png");
       await file.writeAsBytes(bytes);
 
-      await Share.shareXFiles([XFile(file.path)],
-          text:
-          "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp");
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text:
+        "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp",
+      );
     } catch (e) {
       debugPrint("Erro ao compartilhar: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erro ao compartilhar: $e")),
+        );
+      }
     }
 
-    setState(() => sharing = false);
+    if (mounted) setState(() => sharing = false);
   }
 
   Future<Uint8List> _gerarImagemCompartilhamento(
-      RunModel corrida, String backgroundUrl, bool story) async {
+      RunModel corrida,
+      String backgroundUrl,
+      bool story,
+      ) async {
     final width = 1080;
     final height = story ? 1920 : 1350;
 
     final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
+    final canvas = Canvas(
+      recorder,
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    );
 
-    // 🖼️ Fundo (detecta URL ou arquivo local)
+    // 🖼️ Fundo (URL ou arquivo local)
     ui.Image bgImage;
     if (backgroundUrl.startsWith('http')) {
-      final imageData =
-      (await NetworkAssetBundle(Uri.parse(backgroundUrl)).load("")).buffer.asUint8List();
-      final codec =
-      await ui.instantiateImageCodec(imageData, targetWidth: width, targetHeight: height);
+      final imageData = await _downloadUrlBytes(backgroundUrl);
+      final codec = await ui.instantiateImageCodec(
+        imageData,
+        targetWidth: width,
+        targetHeight: height,
+      );
       final frame = await codec.getNextFrame();
       bgImage = frame.image;
     } else {
       final fileData = await File(backgroundUrl).readAsBytes();
-      final codec =
-      await ui.instantiateImageCodec(fileData, targetWidth: width, targetHeight: height);
+      final codec = await ui.instantiateImageCodec(
+        fileData,
+        targetWidth: width,
+        targetHeight: height,
+      );
       final frame = await codec.getNextFrame();
       bgImage = frame.image;
     }
     canvas.drawImage(bgImage, Offset.zero, Paint());
 
-    // 🌫️ Fundo branco translúcido na parte inferior (mesmo do preview)
+    // 🌫️ Faixa translúcida inferior
     final overlayRect = Rect.fromLTWH(0, height - 450, width.toDouble(), 450);
     canvas.drawRect(
       overlayRect,
       Paint()..color = const Color(0xFFFFFFFF).withOpacity(0.40),
     );
 
-
-    // ✍️ Helper para texto
+    // ✍️ Helper de texto
     void drawText(
         String text,
         double size,
@@ -135,153 +180,139 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
       tp.paint(canvas, offset);
     }
 
-    // 🧩 Carrega logo Runner branca (local asset)
+    // 🧩 Logo
     final logoData = await rootBundle.load('assets/icon/logo_principal.png');
-    final logoCodec = await ui.instantiateImageCodec(logoData.buffer.asUint8List(),
-        targetWidth: 280); // tamanho ajustado
+    final logoCodec = await ui.instantiateImageCodec(
+      logoData.buffer.asUint8List(),
+      targetWidth: 280,
+    );
     final logoFrame = await logoCodec.getNextFrame();
     final logo = logoFrame.image;
+    canvas.drawImage(logo, const Offset(1080 - 350, 120), Paint());
 
-    // 🏁 Cabeçalho (logo no topo direito)
-    final logoOffset = Offset(width - 350, 120);
-    canvas.drawImage(logo, logoOffset, Paint());
+    // 🔹 Título
+    drawText(
+      "CORRIDA",
+      58,
+      Offset(60, height - 400),
+      weight: FontWeight.w700,
+      color: const Color(0xFFFF6D00),
+    );
 
-    // 🔹 Título principal
-    drawText("CORRIDA", 58, Offset(60, height - 400),
-        weight: FontWeight.w700, color: Colors.deepOrange);
-
-    // 🔹 Cálculos
+    // 🔹 Dados
     final dist = "${(corrida.distance / 1000).toStringAsFixed(2)} km";
     final duracao = _formatDuration(corrida.duration);
     final ritmo = _calcularRitmo(corrida.distance, corrida.duration);
 
     final colY = height - 280.0;
-    final labelColor = Colors.deepOrange;
+    const labelColor = Color(0xFFFF6D00);
 
-    // 📊 Colunas de dados
     drawText(dist, 50, Offset(60, colY), weight: FontWeight.bold);
     drawText("Distância", 28, Offset(60, colY + 60), color: labelColor);
 
     drawText(duracao, 50, Offset(width / 3 + 10, colY), weight: FontWeight.bold);
     drawText("Duração", 28, Offset(width / 3 + 10, colY + 60), color: labelColor);
 
-    drawText(ritmo, 50, Offset(width / 1.7 + 60, colY - 10),
-        weight: FontWeight.bold);
-    drawText("Ritmo Médio", 28, Offset(width / 1.7 + 60, colY + 50),
-        color: labelColor);
+    drawText(ritmo, 50, Offset(width / 1.7 + 60, colY - 10), weight: FontWeight.bold);
+    drawText("Ritmo Médio", 28, Offset(width / 1.7 + 60, colY + 50), color: labelColor);
 
-// 🗺️ Traçado da rota (laranja Runner) — ajustado para não sobrepor o texto
-    final double routeSize = 240;
-    final double routeRightMargin = 100;
-    final double routeBottomMargin = 600;
+    // 🗺️ Mini mapa + rota (só se tiver route)
+    if (corrida.route.isNotEmpty) {
+      final double routeSize = 240;
+      final double routeRightMargin = 100;
+      final double routeBottomMargin = 600;
 
-    final routeRect = Rect.fromLTWH(
-      width - routeSize - routeRightMargin,
-      height - routeSize - routeBottomMargin,
-      routeSize,
-      routeSize,
-    );
-
-// calcula o centro da rota (lat/lng médios)
-    final centerLat = corrida.route.map((p) => p['lat']!).reduce((a, b) => a + b) / corrida.route.length;
-    final centerLng = corrida.route.map((p) => p['lng']!).reduce((a, b) => a + b) / corrida.route.length;
-
-// gera o mapa estático real (Yandex Maps — leve, sem API key)
-    final mapUrl =
-        "https://static-maps.yandex.ru/1.x/?ll=$centerLng,$centerLat&z=15&size=450,450&l=map";
-
-    try {
-      final mapBytes = (await NetworkAssetBundle(Uri.parse(mapUrl)).load("")).buffer.asUint8List();
-      final mapCodec = await ui.instantiateImageCodec(
-        mapBytes,
-        targetWidth: routeRect.width.toInt(),
-        targetHeight: routeRect.height.toInt(),
-      );
-      final mapFrame = await mapCodec.getNextFrame();
-      final mapImage = mapFrame.image;
-
-      // cria máscara radial para fade (bordas suaves)
-      final fadeShader = ui.Gradient.radial(
-        routeRect.center,
-        routeRect.width / 1.1,
-        [
-          Colors.white.withOpacity(1.0),
-          Colors.white.withOpacity(0.0),
-        ],
-        [0.75, 1.0],
+      final routeRect = Rect.fromLTWH(
+        width - routeSize - routeRightMargin,
+        height - routeSize - routeBottomMargin,
+        routeSize,
+        routeSize,
       );
 
-      // salva camada para aplicar blend
-      canvas.saveLayer(routeRect, Paint());
+      final centerLat =
+          corrida.route.map((p) => p['lat']!).reduce((a, b) => a + b) / corrida.route.length;
+      final centerLng =
+          corrida.route.map((p) => p['lng']!).reduce((a, b) => a + b) / corrida.route.length;
 
-      // desenha mapa real
-      canvas.drawImageRect(
-        mapImage,
-        Rect.fromLTWH(0, 0, mapImage.width.toDouble(), mapImage.height.toDouble()),
-        routeRect,
-        Paint(),
-      );
+      final mapUrl =
+          "https://static-maps.yandex.ru/1.x/?ll=$centerLng,$centerLat&z=15&size=450,450&l=map";
 
-      // aplica fade radial
-      canvas.drawRect(
-        routeRect,
-        Paint()
-          ..shader = fadeShader
-          ..blendMode = BlendMode.dstIn,
-      );
+      try {
+        final mapBytes = await _downloadUrlBytes(mapUrl);
+        final mapCodec = await ui.instantiateImageCodec(
+          mapBytes,
+          targetWidth: routeRect.width.toInt(),
+          targetHeight: routeRect.height.toInt(),
+        );
+        final mapFrame = await mapCodec.getNextFrame();
+        final mapImage = mapFrame.image;
 
-      canvas.restore();
+        final fadeShader = ui.Gradient.radial(
+          routeRect.center,
+          routeRect.width / 1.1,
+          [Colors.white.withOpacity(1.0), Colors.white.withOpacity(0.0)],
+          [0.75, 1.0],
+        );
 
-      // === 💫 EFEITO LENTE 3D ===
-      // cria gradiente elíptico na parte inferior (brilho e sombra)
-      final lensShader = ui.Gradient.linear(
-        Offset(routeRect.left, routeRect.bottom - 10),
-        Offset(routeRect.right, routeRect.bottom),
-        [
-          Colors.white.withOpacity(0.25), // brilho inferior esquerdo
-          Colors.black.withOpacity(0.15), // sombra inferior direita
-        ],
-      );
+        canvas.saveLayer(routeRect, Paint());
 
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(routeRect.inflate(8), const Radius.circular(20)),
-        Paint()
-          ..shader = lensShader
-          ..blendMode = BlendMode.overlay,
-      );
+        canvas.drawImageRect(
+          mapImage,
+          Rect.fromLTWH(0, 0, mapImage.width.toDouble(), mapImage.height.toDouble()),
+          routeRect,
+          Paint(),
+        );
 
-      // borda e sombra suave externa
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(routeRect.inflate(12), const Radius.circular(22)),
-        Paint()
-          ..color = Colors.black.withOpacity(0.08)
-          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6),
-      );
+        canvas.drawRect(
+          routeRect,
+          Paint()
+            ..shader = fadeShader
+            ..blendMode = BlendMode.dstIn,
+        );
 
-      // traçado Runner laranja
-      _drawRoute(canvas, corrida.route, routeRect, color: const Color(0xFFFF6D00));
-    } catch (e) {
-      debugPrint("⚠️ Erro ao carregar mapa estático: $e");
+        canvas.restore();
+
+        final lensShader = ui.Gradient.linear(
+          Offset(routeRect.left, routeRect.bottom - 10),
+          Offset(routeRect.right, routeRect.bottom),
+          [Colors.white.withOpacity(0.25), Colors.black.withOpacity(0.15)],
+        );
+
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(routeRect.inflate(8), const Radius.circular(20)),
+          Paint()
+            ..shader = lensShader
+            ..blendMode = BlendMode.overlay,
+        );
+
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(routeRect.inflate(12), const Radius.circular(22)),
+          Paint()
+            ..color = Colors.black.withOpacity(0.08)
+            ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 6),
+        );
+
+        _drawRoute(canvas, corrida.route, routeRect, color: const Color(0xFFFF6D00));
+      } catch (e) {
+        debugPrint("⚠️ Erro ao carregar mapa estático: $e");
+      }
     }
 
+    // 📅 Data
+    drawText(
+      "🏁 ${_formatarData(corrida.date)}",
+      32,
+      Offset(60, height - 100),
+      color: Colors.black54,
+    );
 
-
-    // 📅 Data da corrida
-    drawText("🏁 ${_formatarData(corrida.date)}", 32, Offset(60, height - 100),
-        color: Colors.black54);
-
-    // 🖼️ Finaliza
     final picture = recorder.endRecording();
     final img = await picture.toImage(width, height);
     final pngBytes = await img.toByteData(format: ui.ImageByteFormat.png);
     return pngBytes!.buffer.asUint8List();
   }
 
-
-
-
-  void _drawRoute(Canvas canvas, List<Map<String, double>> route, Rect rect,
-      {Color color = Colors.black}) {
+  void _drawRoute(Canvas canvas, List<Map<String, double>> route, Rect rect, {Color color = Colors.black}) {
     if (route.isEmpty) return;
 
     final paint = Paint()
@@ -302,8 +333,8 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
       maxLng = max(maxLng, p['lng']!);
     }
 
-    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
-    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+    final latRange = (maxLat - minLat == 0) ? 0.0001 : (maxLat - minLat);
+    final lngRange = (maxLng - minLng == 0) ? 0.0001 : (maxLng - minLng);
 
     final path = Path();
     for (int i = 0; i < route.length; i++) {
@@ -319,13 +350,14 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
+    final theme = SeasonThemeScope.of(context);
     final corrida = widget.corrida;
+
     final ratio = storyMode ? (9 / 16) : (4 / 5);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -334,13 +366,13 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _circleButton(Icons.arrow_back_ios_new, () => Navigator.pop(context)),
+                  _circleButton(theme, Icons.arrow_back_ios_new, () => Navigator.pop(context)),
                   Text(
                     "Criar Imagem",
                     style: GoogleFonts.poppins(
                       fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.black, // <- texto preto
+                      fontWeight: FontWeight.w900,
+                      color: theme.foreground,
                     ),
                   ),
                   const SizedBox(width: 44),
@@ -348,13 +380,11 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
               ),
             ),
 
-            // 🔹 Conteúdo com rolagem (preview + seleção de fundo)
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
                   children: [
-                    // 🖼️ Preview com proporção variável (foto ou vídeo)
                     AspectRatio(
                       aspectRatio: ratio,
                       child: Container(
@@ -362,11 +392,12 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                         clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
+                          color: theme.card,
+                          border: Border.all(color: theme.border.withOpacity(0.35)),
                         ),
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            // 🎥 Fundo — vídeo ou imagem
                             if (isVideo && _videoController != null && _videoController!.value.isInitialized)
                               FittedBox(
                                 fit: BoxFit.cover,
@@ -377,7 +408,6 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                                 ),
                               )
                             else
-                            // 📸 Fundo — imagem padrão
                               Container(
                                 decoration: BoxDecoration(
                                   image: DecorationImage(
@@ -389,19 +419,17 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                                 ),
                               ),
 
-                            // 🔸 Container translúcido para legibilidade
                             Align(
                               alignment: Alignment.bottomCenter,
                               child: Container(
                                 height: 260,
                                 decoration: BoxDecoration(
                                   borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
-                                  color: Colors.white.withOpacity(0.8),
+                                  color: Colors.white.withOpacity(0.82),
                                 ),
                               ),
                             ),
 
-                            // 🔹 Conteúdo textual + dados
                             Positioned(
                               bottom: 50,
                               left: 20,
@@ -412,29 +440,27 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                                   Text(
                                     "CORRIDA",
                                     style: GoogleFonts.poppins(
-                                      color: const Color(0xFFFF6D00),
+                                      color: theme.accent,
                                       fontSize: 26,
-                                      fontWeight: FontWeight.w700,
+                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
                                   const SizedBox(height: 20),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      _infoItem("Distância",
-                                          "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
+                                      _infoItem("Distância", "${(corrida.distance / 1000).toStringAsFixed(2)} km"),
                                       _infoItem("Duração", _formatDuration(corrida.duration)),
                                       Column(
                                         crossAxisAlignment: CrossAxisAlignment.center,
                                         children: [
-                                          _infoItem("Ritmo Médio",
-                                              _calcularRitmo(corrida.distance, corrida.duration)),
+                                          _infoItem("Ritmo Médio", _calcularRitmo(corrida.distance, corrida.duration)),
                                           const SizedBox(height: 8),
                                           SizedBox(
                                             width: 80,
                                             height: 80,
                                             child: CustomPaint(
-                                              painter: _RoutePreviewPainter(corrida.route),
+                                              painter: _RoutePreviewPainter(corrida.route, color: theme.accent),
                                             ),
                                           ),
                                         ],
@@ -449,64 +475,59 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                       ),
                     ),
 
-
-
-
-                    // 🔘 Alternar modo
                     Padding(
                       padding: const EdgeInsets.only(top: 10, bottom: 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _toggleButton("Feed", !storyMode, () {
-                            setState(() => storyMode = false);
-                          }),
+                          _toggleButton(theme, "Feed", !storyMode, () => setState(() => storyMode = false)),
                           const SizedBox(width: 12),
-                          _toggleButton("Story", storyMode, () {
-                            setState(() => storyMode = true);
-                          }),
+                          _toggleButton(theme, "Story", storyMode, () => setState(() => storyMode = true)),
                         ],
                       ),
                     ),
 
-                    // 🖼️ Seleção de fundos + botão de câmera (em primeiro lugar)
                     SizedBox(
                       height: 100,
                       child: ListView.separated(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         scrollDirection: Axis.horizontal,
-                        itemCount: backgrounds.length + 1, // +1 para incluir o botão da câmera
+                        itemCount: backgrounds.length + 1,
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
                         itemBuilder: (context, i) {
-                          // 📸 O primeiro item agora é o botão de adicionar imagem
                           if (i == 0) {
                             return GestureDetector(
                               onTap: _selecionarImagemPersonalizada,
                               child: Container(
                                 width: 90,
                                 decoration: BoxDecoration(
-                                  color: Colors.white10,
+                                  color: theme.card,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: const Color(0xFFFF6D00), width: 2),
+                                  border: Border.all(color: theme.accent, width: 2),
                                 ),
-                                child: const Center(
-                                  child: Icon(Icons.add_a_photo, color: Color(0xFFFF6D00), size: 30),
+                                child: Center(
+                                  child: Icon(Icons.add_a_photo, color: theme.accent, size: 30),
                                 ),
                               ),
                             );
                           }
 
-                          // 🎨 Demais itens são as imagens padrão
                           final img = backgrounds[i - 1];
                           final selected = img == selectedBackground;
+
                           return GestureDetector(
-                            onTap: () => setState(() => selectedBackground = img),
+                            onTap: () => setState(() {
+                              selectedBackground = img;
+                              isVideo = false;
+                              _videoController?.dispose();
+                              _videoController = null;
+                            }),
                             child: Container(
                               width: 90,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: selected ? const Color(0xFFFF6D00) : Colors.transparent,
+                                  color: selected ? theme.accent : Colors.transparent,
                                   width: 2,
                                 ),
                                 image: DecorationImage(
@@ -519,59 +540,38 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                         },
                       ),
                     ),
-
-
                   ],
                 ),
               ),
             ),
 
-            // 🔘 Botões fixos (Compartilhar + Imagem Customizada)
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              decoration: const BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: Colors.black12, width: 0.5),
-                ),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: theme.background,
+                border: Border(top: BorderSide(color: theme.border.withOpacity(0.35), width: 1)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // ✅ Compartilhar (igual o seu)
-                  GestureDetector(
+                  _bigAction(
+                    theme,
+                    icon: Icons.share,
+                    label: "Compartilhar",
+                    color: theme.accent,
+                    fg: theme.accentForeground,
                     onTap: sharing ? null : _compartilhar,
-                    child: Column(
-                      children: [
-                        Container(
-                          height: 60,
-                          width: 60,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: sharing ? Colors.grey[300] : const Color(0xFFFF6D00),
-                          ),
-                          child: const Icon(Icons.share, color: Colors.white, size: 26),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "Compartilhar",
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
-
-                  const SizedBox(width: 28),
-
-                  // 🧩 Imagem Customizada
-                  GestureDetector(
+                  const SizedBox(width: 18),
+                  _bigAction(
+                    theme,
+                    icon: Icons.tune,
+                    label: "Transparência\nCustomizada",
+                    color: theme.secondary,
+                    fg: theme.secondaryForeground,
                     onTap: sharing
                         ? null
                         : () {
-                      // 👉 aqui você navega pro editor do PNG transparente / overlay
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -579,35 +579,10 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                         ),
                       );
                     },
-                    child: Column(
-                      children: [
-                        Container(
-                          height: 60,
-                          width: 60,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: sharing ? Colors.grey[300] : const Color(0xFF1E88E5), // azulzinho pra diferenciar
-                          ),
-                          child: const Icon(Icons.tune, color: Colors.white, size: 26),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "Transparência\nCustomizada",
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.poppins(
-                            fontSize: 12,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
-                            height: 1.1,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),
             ),
-
           ],
         ),
       ),
@@ -621,7 +596,8 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
     final ritmo = minutos / distanciaKm;
     final min = ritmo.floor();
     final seg = ((ritmo - min) * 60).round();
-    return "${min.toString().padLeft(2, '0')}:${seg.toString().padLeft(2, '0')} min/km";
+    final safeSeg = seg >= 60 ? 59 : seg;
+    return "${min.toString().padLeft(2, '0')}:${safeSeg.toString().padLeft(2, '0')} min/km";
   }
 
   Widget _infoItem(String label, String value) {
@@ -633,23 +609,21 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
           style: GoogleFonts.poppins(
             color: Colors.black,
             fontSize: 18,
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w900,
           ),
         ),
         const SizedBox(height: 4),
         Text(
           label,
           style: GoogleFonts.poppins(
-            color: Colors.deepOrange,
+            color: const Color(0xFFFF6D00),
             fontSize: 13,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ],
     );
   }
-
-
-
 
   Future<void> _selecionarImagemPersonalizada() async {
     final picker = ImagePicker();
@@ -670,18 +644,22 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                 title: const Text("Gravar vídeo (10s)", style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
-                  final XFile? video =
-                  await picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(seconds: 10));
+                  final XFile? video = await picker.pickVideo(
+                    source: ImageSource.camera,
+                    maxDuration: const Duration(seconds: 10),
+                  );
                   if (video != null) {
-                    _videoController = VideoPlayerController.file(File(video.path))
-                      ..initialize().then((_) {
-                        setState(() {
-                          selectedBackground = video.path;
-                          isVideo = true;
-                          _videoController!.setLooping(true);
-                          _videoController!.play();
-                        });
-                      });
+                    _videoController?.dispose();
+                    _videoController = VideoPlayerController.file(File(video.path));
+                    await _videoController!.initialize();
+
+                    if (!mounted) return;
+                    setState(() {
+                      selectedBackground = video.path;
+                      isVideo = true;
+                      _videoController!.setLooping(true);
+                      _videoController!.play();
+                    });
                   }
                 },
               ),
@@ -692,6 +670,8 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                   Navigator.pop(context);
                   final XFile? foto = await picker.pickImage(source: ImageSource.camera);
                   if (foto != null) {
+                    _videoController?.dispose();
+                    _videoController = null;
                     setState(() {
                       selectedBackground = foto.path;
                       isVideo = false;
@@ -708,16 +688,20 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                   if (arquivo != null) {
                     final ext = arquivo.path.split('.').last.toLowerCase();
                     if (['mp4', 'mov', 'm4v'].contains(ext)) {
-                      _videoController = VideoPlayerController.file(File(arquivo.path))
-                        ..initialize().then((_) {
-                          setState(() {
-                            selectedBackground = arquivo.path;
-                            isVideo = true;
-                            _videoController!.setLooping(true);
-                            _videoController!.play();
-                          });
-                        });
+                      _videoController?.dispose();
+                      _videoController = VideoPlayerController.file(File(arquivo.path));
+                      await _videoController!.initialize();
+
+                      if (!mounted) return;
+                      setState(() {
+                        selectedBackground = arquivo.path;
+                        isVideo = true;
+                        _videoController!.setLooping(true);
+                        _videoController!.play();
+                      });
                     } else {
+                      _videoController?.dispose();
+                      _videoController = null;
                       setState(() {
                         selectedBackground = arquivo.path;
                         isVideo = false;
@@ -733,54 +717,78 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
     );
   }
 
-
-
-
-  Widget _toggleButton(String label, bool active, VoidCallback onTap) {
+  Widget _toggleButton(SeasonTheme theme, String label, bool active, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         decoration: BoxDecoration(
-          color: active ? Colors.blueAccent : Colors.grey[800],
+          color: active ? theme.accent : theme.card,
           borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: theme.border.withOpacity(0.35)),
         ),
-        child: Text(label,
-            style: GoogleFonts.poppins(
-                color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+        child: Text(
+          label,
+          style: GoogleFonts.poppins(
+            color: active ? theme.accentForeground : theme.foreground,
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+          ),
+        ),
       ),
     );
   }
 
-  Widget _circleButton(IconData icon, VoidCallback onTap) {
+  Widget _circleButton(SeasonTheme theme, IconData icon, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         height: 44,
         width: 44,
-        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.black),
+        decoration: BoxDecoration(
+          color: theme.card,
+          shape: BoxShape.circle,
+          border: Border.all(color: theme.border.withOpacity(0.35)),
+        ),
+        child: Icon(icon, color: theme.foreground),
       ),
     );
   }
 
-  Widget _shareButton(IconData icon, String label, VoidCallback onTap) {
+  Widget _bigAction(
+      SeasonTheme theme, {
+        required IconData icon,
+        required String label,
+        required Color color,
+        required Color fg,
+        required VoidCallback? onTap,
+      }) {
     return GestureDetector(
-      onTap: sharing ? null : onTap,
+      onTap: onTap,
       child: Column(
         children: [
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             height: 60,
             width: 60,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: sharing ? Colors.grey : Colors.white,
+              color: onTap == null ? theme.muted : color,
+              border: Border.all(color: theme.border.withOpacity(0.35)),
             ),
-            child: Icon(icon, color: Colors.black, size: 26),
+            child: Icon(icon, color: onTap == null ? theme.mutedForeground : fg, size: 26),
           ),
           const SizedBox(height: 6),
-          Text(label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.white.withOpacity(0.9))),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: theme.foreground,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
         ],
       ),
     );
@@ -790,14 +798,15 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
 // 🎨 Desenha o traçado da corrida (preview)
 class _RoutePreviewPainter extends CustomPainter {
   final List<Map<String, double>> route;
-  _RoutePreviewPainter(this.route);
+  final Color color;
+  _RoutePreviewPainter(this.route, {required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (route.isEmpty) return;
 
     final paint = Paint()
-      ..color = const Color(0xFFFF6D00)
+      ..color = color
       ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
@@ -814,8 +823,8 @@ class _RoutePreviewPainter extends CustomPainter {
       maxLng = max(maxLng, p['lng']!);
     }
 
-    final latRange = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
-    final lngRange = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+    final latRange = (maxLat - minLat == 0) ? 0.0001 : (maxLat - minLat);
+    final lngRange = (maxLng - minLng == 0) ? 0.0001 : (maxLng - minLng);
 
     final path = Path();
     for (int i = 0; i < route.length; i++) {
@@ -832,5 +841,5 @@ class _RoutePreviewPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _RoutePreviewPainter oldDelegate) =>
-      oldDelegate.route != route;
+      oldDelegate.route != route || oldDelegate.color != color;
 }

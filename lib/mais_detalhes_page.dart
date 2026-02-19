@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class MaisDetalhesPage extends StatefulWidget {
   final String runId;
@@ -57,7 +58,7 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
     for (int i = 1; i < samples.length; i++) {
       final s = samples[i];
       if (s.distTotalM >= nextKm) {
-        // tenta interpolar o tempo exato do ponto 1km para ficar mais bonito
+        // interpola o tempo exato do ponto 1km
         final prev = samples[i - 1];
         final distA = prev.distTotalM;
         final distB = s.distTotalM;
@@ -73,8 +74,6 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
         final segmentSecs = max(1, tAtKm - lastMarkT);
         final segmentDist = max(1.0, nextKm - lastMarkDist);
 
-        // como é “split por km”, usamos 1000m como base
-        // se interpolação deu um pouco diferente, normaliza para pace
         final paceSecsPerKm = (segmentSecs * (1000.0 / segmentDist)).round();
 
         splits.add(_SplitKm(
@@ -94,18 +93,25 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = SeasonThemeScope.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F7),
+      backgroundColor: theme.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        backgroundColor: theme.background,
+        surfaceTintColor: theme.background,
+        centerTitle: true,
         title: Text(
           "MAIS DETALHES",
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.black, fontSize: 16),
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w800,
+            color: theme.foreground,
+            fontSize: 16,
+          ),
         ),
-        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: theme.foreground),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -115,14 +121,14 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
           final docs = snap.data?.docs ?? [];
 
           if (snap.connectionState == ConnectionState.waiting && docs.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(child: CircularProgressIndicator(color: theme.accent));
           }
 
           if (docs.isEmpty) {
             return Center(
               child: Text(
                 "Sem samples para essa corrida.",
-                style: GoogleFonts.poppins(color: Colors.black54),
+                style: GoogleFonts.poppins(color: theme.mutedForeground, fontWeight: FontWeight.w700),
               ),
             );
           }
@@ -149,47 +155,60 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
             padding: const EdgeInsets.all(16),
             children: [
               _kpiRow(
+                theme,
                 left: _Kpi("Tempo", _formatDuration(totalSecs)),
                 right: _Kpi("Samples", "${samples.length}"),
               ),
               const SizedBox(height: 12),
               _kpiRow(
+                theme,
                 left: _Kpi("Vel máx", "${maxSpeed.toStringAsFixed(1).replaceAll('.', ',')} km/h"),
                 right: _Kpi("Vel média", "${avgSpeed.toStringAsFixed(1).replaceAll('.', ',')} km/h"),
               ),
               const SizedBox(height: 12),
               _kpiRow(
+                theme,
                 left: _Kpi("Alt min", "${minAlt.toStringAsFixed(0)} m"),
                 right: _Kpi("Alt max", "${maxAlt.toStringAsFixed(0)} m"),
               ),
 
               const SizedBox(height: 18),
 
-              _sectionTitle("Velocidade (km/h)"),
+              _sectionTitle(theme, "Velocidade (km/h)"),
               const SizedBox(height: 10),
               _chartCard(
+                theme,
                 child: _LineChart(
                   points: samples.map((s) => _ChartPoint(x: s.t.toDouble(), y: s.speedKmh)).toList(),
                   yLabel: "km/h",
+                  accent: theme.accent,
+                  fg: theme.foreground,
+                  muted: theme.mutedForeground,
+                  border: theme.border,
                 ),
               ),
 
               const SizedBox(height: 18),
 
-              _sectionTitle("Elevação (m)"),
+              _sectionTitle(theme, "Elevação (m)"),
               const SizedBox(height: 10),
               _chartCard(
+                theme,
                 child: _LineChart(
                   points: samples.map((s) => _ChartPoint(x: s.t.toDouble(), y: s.alt)).toList(),
                   yLabel: "m",
+                  accent: theme.accent,
+                  fg: theme.foreground,
+                  muted: theme.mutedForeground,
+                  border: theme.border,
                 ),
               ),
 
               const SizedBox(height: 18),
 
-              _sectionTitle("Splits por km"),
+              _sectionTitle(theme, "Splits por km"),
               const SizedBox(height: 10),
-              _splitsCard(splits),
+              _splitsCard(theme, splits),
             ],
           );
         },
@@ -197,67 +216,84 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
     );
   }
 
-  Widget _sectionTitle(String text) {
+  Widget _sectionTitle(SeasonTheme theme, String text) {
     return Text(
       text,
-      style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black),
+      style: GoogleFonts.poppins(
+        fontSize: 16,
+        fontWeight: FontWeight.w900,
+        color: theme.foreground,
+      ),
     );
   }
 
-  Widget _chartCard({required Widget child}) {
+  Widget _chartCard(SeasonTheme theme, {required Widget child}) {
     return Container(
       height: 220,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(color: theme.border.withOpacity(0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.25),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: child,
     );
   }
 
-  Widget _kpiRow({required _Kpi left, required _Kpi right}) {
+  Widget _kpiRow(SeasonTheme theme, {required _Kpi left, required _Kpi right}) {
     return Row(
       children: [
-        Expanded(child: _kpiCard(left)),
+        Expanded(child: _kpiCard(theme, left)),
         const SizedBox(width: 12),
-        Expanded(child: _kpiCard(right)),
+        Expanded(child: _kpiCard(theme, right)),
       ],
     );
   }
 
-  Widget _kpiCard(_Kpi k) {
+  Widget _kpiCard(SeasonTheme theme, _Kpi k) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(color: theme.border.withOpacity(0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(k.label, style: GoogleFonts.poppins(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600)),
+          Text(
+            k.label,
+            style: GoogleFonts.poppins(fontSize: 12, color: theme.mutedForeground, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 6),
-          Text(k.value, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w800)),
+          Text(
+            k.value,
+            style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w900, color: theme.foreground),
+          ),
         ],
       ),
     );
   }
 
-  Widget _splitsCard(List<_SplitKm> splits) {
+  Widget _splitsCard(SeasonTheme theme, List<_SplitKm> splits) {
     if (splits.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.black12),
+          border: Border.all(color: theme.border.withOpacity(0.35)),
         ),
         child: Text(
           "Ainda não deu 1km pra calcular splits.",
-          style: GoogleFonts.poppins(color: Colors.black54),
+          style: GoogleFonts.poppins(color: theme.mutedForeground, fontWeight: FontWeight.w700),
         ),
       );
     }
@@ -265,17 +301,17 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black12),
+        border: Border.all(color: theme.border.withOpacity(0.35)),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              Expanded(child: Text("KM", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: Colors.black54))),
-              Expanded(child: Text("Tempo", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: Colors.black54))),
-              Expanded(child: Text("Pace", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: Colors.black54))),
+              Expanded(child: Text("KM", style: GoogleFonts.poppins(fontWeight: FontWeight.w900, color: theme.mutedForeground))),
+              Expanded(child: Text("Tempo", style: GoogleFonts.poppins(fontWeight: FontWeight.w900, color: theme.mutedForeground))),
+              Expanded(child: Text("Pace", style: GoogleFonts.poppins(fontWeight: FontWeight.w900, color: theme.mutedForeground))),
             ],
           ),
           const SizedBox(height: 10),
@@ -284,9 +320,9 @@ class _MaisDetalhesPageState extends State<MaisDetalhesPage> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
                 children: [
-                  Expanded(child: Text("${s.kmIndex}", style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
-                  Expanded(child: Text(_formatDuration(s.segmentSecs), style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
-                  Expanded(child: Text("${_formatPaceFromSeconds(s.paceSecsPerKm)}/km", style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
+                  Expanded(child: Text("${s.kmIndex}", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: theme.foreground))),
+                  Expanded(child: Text(_formatDuration(s.segmentSecs), style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: theme.foreground))),
+                  Expanded(child: Text("${_formatPaceFromSeconds(s.paceSecsPerKm)}/km", style: GoogleFonts.poppins(fontWeight: FontWeight.w800, color: theme.foreground))),
                 ],
               ),
             );
@@ -333,7 +369,7 @@ class _Kpi {
 }
 
 // ─────────────────────────────
-// Simple Line Chart (no deps)
+// Simple Line Chart (no deps) - themed
 // ─────────────────────────────
 class _ChartPoint {
   final double x;
@@ -345,12 +381,32 @@ class _LineChart extends StatelessWidget {
   final List<_ChartPoint> points;
   final String yLabel;
 
-  const _LineChart({required this.points, required this.yLabel});
+  // theme tokens
+  final Color accent;
+  final Color fg;
+  final Color muted;
+  final Color border;
+
+  const _LineChart({
+    required this.points,
+    required this.yLabel,
+    required this.accent,
+    required this.fg,
+    required this.muted,
+    required this.border,
+  });
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _LineChartPainter(points: points, yLabel: yLabel),
+      painter: _LineChartPainter(
+        points: points,
+        yLabel: yLabel,
+        accent: accent,
+        fg: fg,
+        muted: muted,
+        border: border,
+      ),
       child: const SizedBox.expand(),
     );
   }
@@ -360,13 +416,25 @@ class _LineChartPainter extends CustomPainter {
   final List<_ChartPoint> points;
   final String yLabel;
 
-  _LineChartPainter({required this.points, required this.yLabel});
+  final Color accent;
+  final Color fg;
+  final Color muted;
+  final Color border;
+
+  _LineChartPainter({
+    required this.points,
+    required this.yLabel,
+    required this.accent,
+    required this.fg,
+    required this.muted,
+    required this.border,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
 
-    final padL = 42.0;
+    final padL = 44.0;
     final padR = 12.0;
     final padT = 12.0;
     final padB = 26.0;
@@ -391,58 +459,68 @@ class _LineChartPainter extends CustomPainter {
       return Offset(x, y);
     }
 
-    // grid paint
     final gridPaint = Paint()
-      ..color = Colors.black12
+      ..color = border.withOpacity(0.22)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 
-    // axis paint
     final axisPaint = Paint()
-      ..color = Colors.black26
+      ..color = border.withOpacity(0.45)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
 
-    // line paint
     final linePaint = Paint()
-      ..color = Colors.black
+      ..color = accent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
+      ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round;
 
-    // draw grid (horizontal lines)
+    // grid horizontal
     for (int i = 0; i <= 4; i++) {
       final y = padT + (plotH * i / 4.0);
       canvas.drawLine(Offset(padL, y), Offset(padL + plotW, y), gridPaint);
     }
 
-    // draw axis box
+    // axis box
     final rect = Rect.fromLTWH(padL, padT, plotW, plotH);
     canvas.drawRect(rect, axisPaint);
 
-    // build path
+    // path
     final path = Path();
-    path.moveTo(toPlot(points.first).dx, toPlot(points.first).dy);
+    final first = toPlot(points.first);
+    path.moveTo(first.dx, first.dy);
     for (int i = 1; i < points.length; i++) {
       final o = toPlot(points[i]);
       path.lineTo(o.dx, o.dy);
     }
     canvas.drawPath(path, linePaint);
 
-    // draw last point dot
+    // last dot
     final last = toPlot(points.last);
-    canvas.drawCircle(last, 3, Paint()..color = Colors.black);
+    canvas.drawCircle(last, 3.2, Paint()..color = fg);
 
     // labels
-    final tpStyle = GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54);
+    final tpStyle = GoogleFonts.poppins(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      color: muted,
+    );
 
-    // y labels: min/max
     _drawText(canvas, "${minY.toStringAsFixed(0)} $yLabel", Offset(6, padT + plotH - 10), tpStyle);
     _drawText(canvas, "${maxY.toStringAsFixed(0)} $yLabel", Offset(6, padT - 2), tpStyle);
 
-    // x labels: start/end time
     _drawText(canvas, "${minX.toStringAsFixed(0)}s", Offset(padL, padT + plotH + 6), tpStyle);
-    _drawText(canvas, "${maxX.toStringAsFixed(0)}s", Offset(padL + plotW - 28, padT + plotH + 6), tpStyle);
+
+    // tenta encaixar no final sem estourar
+    final endText = "${maxX.toStringAsFixed(0)}s";
+    final endTp = TextPainter(
+      text: TextSpan(text: endText, style: tpStyle),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+
+    final endX = max(padL, padL + plotW - endTp.width);
+    endTp.paint(canvas, Offset(endX, padT + plotH + 6));
   }
 
   void _drawText(Canvas canvas, String text, Offset pos, TextStyle style) {
@@ -457,6 +535,10 @@ class _LineChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _LineChartPainter oldDelegate) {
     return oldDelegate.points.length != points.length ||
-        oldDelegate.yLabel != yLabel;
+        oldDelegate.yLabel != yLabel ||
+        oldDelegate.accent != accent ||
+        oldDelegate.fg != fg ||
+        oldDelegate.muted != muted ||
+        oldDelegate.border != border;
   }
 }

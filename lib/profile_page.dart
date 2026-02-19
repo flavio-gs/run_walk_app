@@ -410,7 +410,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   onRefreshSocial: _loadUserAndSocial,
                 ),
                 const _AchievementsTab(),
-                _HistoryTab(userId: _profileUserId),
+                _HistoryTab(userId: _profileUserId, isOwner: _isCurrentUserProfile),
                 _ChallengesTab(userId: _profileUserId),
               ],
             )
@@ -1370,7 +1370,9 @@ class _AchievementsTabState extends State<_AchievementsTab> {
 
 class _HistoryTab extends StatelessWidget {
   final String userId;
-  const _HistoryTab({required this.userId});
+  final bool isOwner;
+
+  const _HistoryTab({required this.userId, required this.isOwner});
 
   @override
   Widget build(BuildContext context) {
@@ -1387,12 +1389,24 @@ class _HistoryTab extends StatelessWidget {
           return Center(child: CircularProgressIndicator(color: s.accent));
         }
 
-        final docs = snapshot.data!.docs;
+        final allDocs = snapshot.data!.docs;
+
+        // ✅ Regra: corrida com isArchived:true só aparece para o dono
+        final docs = isOwner
+            ? allDocs
+            : allDocs.where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return (data['isArchived'] == true) ? false : true;
+        }).toList();
+
         if (docs.isEmpty) {
           return Center(
             child: Text(
               "Nenhuma corrida ainda",
-              style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: s.mutedForeground,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           );
         }
@@ -1413,16 +1427,23 @@ class _HistoryTab extends StatelessWidget {
 
             final corrida = RunModel.fromMap({
               ...data,
-              'id': doc.id, // ✅ injeta o id aqui
+              'id': doc.id,
             });
 
-            return _RunCard(corrida: corrida);
+            final bool isArchived = (data['isArchived'] == true);
+
+            return _RunCard(
+              corrida: corrida,
+              isArchived: isArchived,
+              showArchivedBadge: isOwner, // ✅ só o dono vê o badge
+            );
           },
         );
       },
     );
   }
 }
+
 
 class _ChallengesTab extends StatelessWidget {
   final String userId;
@@ -1491,7 +1512,14 @@ class _ChallengesTab extends StatelessWidget {
 
 class _RunCard extends StatelessWidget {
   final RunModel corrida;
-  const _RunCard({required this.corrida});
+  final bool isArchived;
+  final bool showArchivedBadge;
+
+  const _RunCard({
+    required this.corrida,
+    this.isArchived = false,
+    this.showArchivedBadge = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1502,43 +1530,78 @@ class _RunCard extends StatelessWidget {
         context,
         MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corrida)),
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: s.card,
-          border: Border.all(color: s.border),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            Expanded(
-              child: CustomPaint(
-                painter: _RoutePainter(corrida.route, color: s.accent),
-                child: const SizedBox.expand(),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: s.card,
+              border: Border.all(color: s.border),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomPaint(
+                    painter: _RoutePainter(corrida.route, color: s.accent),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "${(corrida.distance / 1000).toStringAsFixed(2)} km",
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: s.foreground,
+                  ),
+                ),
+                Text(
+                  "${(corrida.duration / 60).toStringAsFixed(1)} min",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: s.mutedForeground,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ✅ Badge de arquivado (somente dono vê)
+          if (showArchivedBadge && isArchived)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: s.card.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: s.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.archive_rounded, size: 16, color: s.mutedForeground),
+                    const SizedBox(width: 6),
+                    Text(
+                      "Arquivada",
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: s.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              "${(corrida.distance / 1000).toStringAsFixed(2)} km",
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-                color: s.foreground,
-              ),
-            ),
-            Text(
-              "${(corrida.duration / 60).toStringAsFixed(1)} min",
-              style: TextStyle(
-                fontSize: 12,
-                color: s.mutedForeground,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
 }
+
 
 class _RoutePainter extends CustomPainter {
   final List<Map<String, double>> route;

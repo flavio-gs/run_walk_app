@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:run_walk_app/theme/season_theme_scope.dart';
 
-
 class CreateChallengePage extends StatefulWidget {
   const CreateChallengePage({super.key});
 
@@ -25,7 +24,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
   bool _isPublic = true; // privacidade
   bool _loading = false;
 
-  List<Map<String, dynamic>> _goals = []; // metas
+  final List<Map<String, dynamic>> _goals = []; // metas
 
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
@@ -43,9 +42,14 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
     final theme = SeasonThemeScope.of(context);
     final now = DateTime.now();
 
+    // ✅ se já tiver data selecionada, usa ela como initialDate pra ficar mais natural
+    final initial = isStart
+        ? (_startDate ?? now)
+        : (_endDate ?? (_startDate ?? now));
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
+      initialDate: initial.isBefore(now) ? now : initial,
       firstDate: now,
       lastDate: DateTime(now.year + 1),
       builder: (context, child) {
@@ -65,6 +69,8 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
       setState(() {
         if (isStart) {
           _startDate = picked;
+
+          // ✅ mantém consistência: se final ficar antes da inicial, zera a final
           if (_endDate != null && _endDate!.isBefore(_startDate!)) {
             _endDate = null;
           }
@@ -85,11 +91,11 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: theme.card,
+          backgroundColor: theme.background,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text(
+          title: Text(
             'Nova Meta',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+            style: TextStyle(color: theme.primary, fontWeight: FontWeight.w900),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -116,7 +122,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
               const SizedBox(height: 10),
               TextField(
                 controller: targetController,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 style: const TextStyle(color: Colors.white),
                 decoration: _inputDeco(theme, 'Valor alvo'),
               ),
@@ -139,16 +145,20 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
               ),
               child: const Text('Adicionar', style: TextStyle(fontWeight: FontWeight.w900)),
               onPressed: () {
-                if (labelController.text.isNotEmpty && targetController.text.isNotEmpty) {
-                  setState(() {
-                    _goals.add({
-                      'label': labelController.text.trim(),
-                      'metric': metric,
-                      'target': double.tryParse(targetController.text) ?? 0,
-                    });
+                final label = labelController.text.trim();
+                final targetRaw = targetController.text.trim();
+
+                if (label.isEmpty || targetRaw.isEmpty) return;
+
+                setState(() {
+                  _goals.add({
+                    'label': label,
+                    'metric': metric,
+                    'target': double.tryParse(targetRaw.replaceAll(',', '.')) ?? 0,
                   });
-                  Navigator.pop(context);
-                }
+                });
+
+                Navigator.pop(context);
               },
             ),
           ],
@@ -172,6 +182,16 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
         const SnackBar(content: Text('Adicione pelo menos uma meta.')),
       );
       return;
+    }
+
+    // ✅ validação extra: se for "grupo", garante que os times tenham nome
+    if (_type == 'grupo') {
+      if (_teamAController.text.trim().isEmpty || _teamBController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Preencha os nomes dos dois times.')),
+        );
+        return;
+      }
     }
 
     try {
@@ -254,13 +274,13 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
       backgroundColor: theme.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: theme.background,
-        surfaceTintColor: theme.background,
-        iconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: theme.card,
+        surfaceTintColor: theme.cardForeground,
+        iconTheme: IconThemeData(color: theme.accent),
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Criar Desafio',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          style: TextStyle(color: theme.primary, fontWeight: FontWeight.w900),
         ),
       ),
       body: Form(
@@ -268,10 +288,10 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
           children: [
-            const Text(
+            Text(
               '📅 Informações do Desafio',
               style: TextStyle(
-                color: Colors.white,
+                color: theme.primaryForeground,
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
               ),
@@ -280,24 +300,24 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
 
             TextFormField(
               controller: _titleController,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+              style: TextStyle(color: theme.secondary, fontWeight: FontWeight.w800),
               decoration: _inputDeco(theme, 'Título do desafio'),
-              validator: (v) => v!.trim().isEmpty ? 'Obrigatório' : null,
+              validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
             ),
             const SizedBox(height: 16),
 
             TextFormField(
               controller: _descController,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+              style: TextStyle(color: theme.secondary, fontWeight: FontWeight.w800),
               decoration: _inputDeco(theme, 'Descrição'),
               maxLines: 3,
-              validator: (v) => v!.trim().isEmpty ? 'Obrigatório' : null,
+              validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
             ),
             const SizedBox(height: 16),
 
-            const Text(
+            Text(
               'Tipo:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+              style: TextStyle(color: theme.primaryForeground, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -309,21 +329,21 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
             ),
             const SizedBox(height: 20),
 
-            const Text(
+            Text(
               'Privacidade:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+              style: TextStyle(color: theme.primaryForeground, fontWeight: FontWeight.w900),
             ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: Text(
                 _isPublic ? 'Público' : 'Apenas Seguidores',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                style: TextStyle(color: theme.secondary, fontWeight: FontWeight.w900),
               ),
               subtitle: Text(
                 _isPublic
                     ? 'Qualquer usuário poderá ver e participar.'
                     : 'Apenas seus seguidores aprovados poderão participar.',
-                style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700),
+                style: TextStyle(color: theme.secondaryForeground, fontWeight: FontWeight.w700),
               ),
               value: _isPublic,
               onChanged: (v) => setState(() => _isPublic = v),
@@ -378,14 +398,14 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
                 controller: _teamAController,
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                 decoration: _inputDeco(theme, 'Nome do Time A'),
-                validator: (v) => v!.trim().isEmpty ? 'Obrigatório' : null,
+                validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _teamBController,
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                 decoration: _inputDeco(theme, 'Nome do Time B'),
-                validator: (v) => v!.trim().isEmpty ? 'Obrigatório' : null,
+                validator: (v) => (v ?? '').trim().isEmpty ? 'Obrigatório' : null,
               ),
               const SizedBox(height: 16),
             ],
@@ -409,11 +429,11 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
                     child: ListTile(
                       leading: Icon(Icons.flag, color: theme.accent),
                       title: Text(
-                        e.value['label'],
+                        (e.value['label'] ?? '').toString(),
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
                       ),
                       subtitle: Text(
-                        '${e.value['metric']} • Meta: ${e.value['target']}',
+                        '${(e.value['metric'] ?? '').toString()} • Meta: ${(e.value['target'] ?? '').toString()}',
                         style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700),
                       ),
                       trailing: IconButton(
@@ -471,7 +491,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
 
   InputDecoration _inputDeco(SeasonTheme theme, String label) => InputDecoration(
     labelText: label,
-    labelStyle: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+    labelStyle: TextStyle(color: theme.primaryForeground, fontWeight: FontWeight.w800),
     filled: true,
     fillColor: theme.card,
     border: OutlineInputBorder(
@@ -498,7 +518,7 @@ class _CreateChallengePageState extends State<CreateChallengePage> {
       backgroundColor: theme.card,
       side: BorderSide(color: Colors.white.withOpacity(0.14)),
       labelStyle: TextStyle(
-        color: selected ? Colors.black : Colors.white,
+        color: selected ? theme.foreground : theme.accent,
         fontWeight: FontWeight.w900,
       ),
       onSelected: (_) => setState(() => _type = value),
