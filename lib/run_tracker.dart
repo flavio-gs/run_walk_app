@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -10,6 +11,7 @@ import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'dart:math' as math;
@@ -23,6 +25,7 @@ import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:run_walk_app/service/weather_service.dart';
 import 'package:run_walk_app/territory_danger_map_page.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'UI/territory_toggle.dart';
 import 'controller/territory_controller.dart';
@@ -545,6 +548,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   String? _seasonMapStyle; // cache do estilo vindo do Firestore (string JSON)
   String? _fallbackMapStyle; // cache do asset
 
+  String? _preRunAdvice;
+  bool _loadingAdvice = false;
+
+  Timer? _adviceTimer;
+  int _adviceSecondsLeft = 0;
+
 
 // reaplica SEM consultar banco (instantâneo)
   void _reapplyTerritoryCacheToMap() {
@@ -612,7 +621,106 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
+  Future<void> _loadPreRunAdvice() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint("❌ Usuário não autenticado");
+        return;
+      }
 
+      debugPrint("👤 Buscando CEP do usuário: ${user.uid}");
+
+      setState(() => _loadingAdvice = true);
+
+      // 🔹 Busca o CEP no Firestore
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!userDoc.exists) {
+        debugPrint("❌ Documento do usuário não existe");
+        return;
+      }
+
+      final cep = userDoc.data()?['cep'];
+      debugPrint("📍 CEP encontrado: $cep");
+
+      if (cep == null || cep.toString().isEmpty) {
+        debugPrint("⚠️ CEP vazio");
+        return;
+      }
+
+      if (!await _canShowAdviceToday()) {
+        debugPrint("🟡 Advice já exibido hoje.");
+        return;
+      }
+
+      debugPrint("🌐 Chamando API get-pre-run-advice...");
+
+
+      final response = await http.post(
+        Uri.parse(
+          'https://studio--studio-4298368751-f334d.us-central1.hosted.app/api/get-pre-run-advice',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'cep': cep}),
+      );
+
+      debugPrint("📡 Status da API: ${response.statusCode}");
+      debugPrint("📨 Body da resposta: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        final advice = data['advice'];
+
+        if (advice != null && advice.toString().isNotEmpty) {
+          await _markAdviceShownToday();
+
+          if (mounted) {
+            setState(() {
+              _preRunAdvice = advice;
+              _adviceSecondsLeft = 30;
+            });
+
+            _startAdviceCountdown();
+          }
+        } else {
+          debugPrint("⚠️ API respondeu mas advice está vazio");
+        }
+      } else {
+        debugPrint("❌ Erro na API: ${response.statusCode}");
+      }
+    } catch (e, stack) {
+      debugPrint("🔥 Erro ao carregar pre-run advice: $e");
+      debugPrint("📌 Stack: $stack");
+    } finally {
+      if (mounted) {
+        setState(() => _loadingAdvice = false);
+      }
+    }
+  }
+
+  void _startAdviceCountdown() {
+    _adviceTimer?.cancel();
+
+    _adviceTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+
+      if (_adviceSecondsLeft <= 1) {
+        timer.cancel();
+        setState(() {
+          _preRunAdvice = null; // 🔥 some o card
+        });
+      } else {
+        setState(() {
+          _adviceSecondsLeft--;
+        });
+      }
+    });
+  }
 
 
   Future<BitmapDescriptor> _createVsDisputeIcon({
@@ -834,6 +942,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     required BuildContext context,
     required _Territory territory,
   }) {
+    final theme = SeasonThemeScope.of(context);
     final dispute = territory.dispute;
     if (dispute == null) return;
 
@@ -845,29 +954,44 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         return Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           decoration: BoxDecoration(
-            color: const Color(0xFF0E0E12),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: Colors.white12),
+            color: theme.card,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(24),
+            ),
+            border: Border.all(color: theme.border),
+            boxShadow: [
+              BoxShadow(
+                color: theme.primary.withOpacity(0.25),
+                blurRadius: 20,
+                offset: const Offset(0, -4),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // drag handle
+
+              // Drag handle
               Container(
                 width: 42,
                 height: 5,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: theme.muted,
                   borderRadius: BorderRadius.circular(99),
                 ),
               ),
 
-              const Text(
+              Text(
                 "⚔️ Disputa de Território",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: theme.foreground,
+                ),
               ),
-              const SizedBox(height: 12),
+
+              const SizedBox(height: 16),
 
               _DisputeUserRow(
                 leftId: dispute.attackerId,
@@ -875,34 +999,59 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 progress: dispute.lastProgress,
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
 
               LinearProgressIndicator(
                 value: (dispute.lastProgress ?? 0).clamp(0, 1),
-                backgroundColor: Colors.white12,
-                color: Colors.orange,
+                backgroundColor: theme.muted,
+                color: theme.primary,
                 minHeight: 10,
+                borderRadius: BorderRadius.circular(20),
               ),
 
               const SizedBox(height: 12),
 
               Text(
                 "${((dispute.lastProgress ?? 0) * 100).toStringAsFixed(1)}% conquistado",
-                style: const TextStyle(color: Colors.white70),
+                style: TextStyle(
+                  color: theme.mutedForeground,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
 
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        theme.primary,
+                        theme.secondary,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.primary.withOpacity(0.4),
+                        blurRadius: 12,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      "Fechar",
+                      style: TextStyle(
+                        color: theme.primaryForeground,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: () {
-                  Navigator.pop(context);
-                },
-                child: const Text("Fechar"),
               ),
             ],
           ),
@@ -916,6 +1065,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     required String rightId,
     required double? progress,
   }) {
+    final theme = SeasonThemeScope.of(context);
+
     Widget userChip(String uid) {
       return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         future: FirebaseFirestore.instance.collection('users').doc(uid).get(),
@@ -929,11 +1080,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor: Colors.white12,
-                backgroundImage: (photo != null && photo.isNotEmpty) ? NetworkImage(photo) : null,
+                backgroundColor: theme.muted,
+                backgroundImage:
+                (photo != null && photo.isNotEmpty)
+                    ? NetworkImage(photo)
+                    : null,
                 child: (photo == null || photo.isEmpty)
-                    ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900))
+                    ? Text(
+                  name.isNotEmpty
+                      ? name[0].toUpperCase()
+                      : '?',
+                  style: TextStyle(
+                    color: theme.foreground,
+                    fontWeight: FontWeight.w900,
+                  ),
+                )
                     : null,
               ),
               const SizedBox(width: 10),
@@ -942,7 +1103,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 child: Text(
                   name,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                    color: theme.foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
@@ -951,22 +1115,42 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       );
     }
 
-    final pct = ((progress ?? 0) * 100).clamp(0, 100).toStringAsFixed(0);
+    final pct =
+    ((progress ?? 0) * 100).clamp(0, 100).toStringAsFixed(0);
 
     return Row(
       children: [
         Expanded(child: userChip(leftId)),
+
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Column(
             children: [
-              const Text("VS", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w900)),
+              Text(
+                "VS",
+                style: TextStyle(
+                  color: theme.primary,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text("$pct%", style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+              Text(
+                "$pct%",
+                style: TextStyle(
+                  color: theme.mutedForeground,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
-        Expanded(child: Align(alignment: Alignment.centerRight, child: userChip(rightId))),
+
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: userChip(rightId),
+          ),
+        ),
       ],
     );
   }
@@ -1392,6 +1576,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   @override
   void initState() {
     super.initState();
+
+    _loadPreRunAdvice();
 
     // ✅ Stream (se você usa pra banner, pode manter)
     _seasonStream = FirebaseFirestore.instance
@@ -2658,165 +2844,208 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _showPreRunCountdown() async {
+    final theme = SeasonThemeScope.of(context);
+
     int secondsLeft = 15;
     bool skipPressed = false;
     bool showGo = false;
     bool showFlash = false;
     Timer? countdownTimer;
 
-    // 🎲 Sorteia frase e áudio
     final random = Random();
     final selected = preRunPhrases[random.nextInt(preRunPhrases.length)];
     final phrase = selected["text"]!;
     final audioPath = selected["audio"]!;
 
-    // 🎧 Prepara e toca o áudio
     final player = AudioPlayer();
     await player.play(AssetSource(audioPath));
 
     await showDialog(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.white,
+      barrierColor: theme.background,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            countdownTimer ??= Timer.periodic(const Duration(seconds: 1), (timer) async {
-              if (skipPressed) {
-                timer.cancel();
-                return;
-              }
+            countdownTimer ??= Timer.periodic(
+              const Duration(seconds: 1),
+                  (timer) async {
+                if (skipPressed) {
+                  timer.cancel();
+                  return;
+                }
 
-              if (secondsLeft > 1) {
-                setState(() => secondsLeft--);
-              } else if (secondsLeft == 1) {
-                setState(() {
-                  secondsLeft = 0;
-                  showGo = true;
-                });
+                if (secondsLeft > 1) {
+                  setState(() => secondsLeft--);
+                } else if (secondsLeft == 1) {
+                  setState(() {
+                    secondsLeft = 0;
+                    showGo = true;
+                  });
 
-                // 🔆 Flash + “GO!”
-                await Future.delayed(const Duration(milliseconds: 100));
-                setState(() => showFlash = true);
-                await Future.delayed(const Duration(milliseconds: 300));
-                setState(() => showFlash = false);
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  setState(() => showFlash = true);
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  setState(() => showFlash = false);
 
-                await Future.delayed(const Duration(milliseconds: 400));
-                Navigator.pop(context);
-                _startRun();
-
-                timer.cancel();
-              }
-            });
+                  await Future.delayed(const Duration(milliseconds: 400));
+                  Navigator.pop(context);
+                  _startRun();
+                  timer.cancel();
+                }
+              },
+            );
 
             return Scaffold(
-              backgroundColor: Colors.white,
+              backgroundColor: theme.background,
               body: SafeArea(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // 🔢 Número da contagem regressiva centralizado corretamente
-                    if (!showGo)
-                      Align(
-                        alignment: Alignment.center,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 400),
-                          transitionBuilder: (child, anim) =>
-                              ScaleTransition(scale: anim, child: child),
-                          child: Text(
-                            "$secondsLeft",
-                            key: ValueKey(secondsLeft),
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 160,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.black,
-                              height: 1, // garante centralização vertical visual
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return Stack(
+                      children: [
+
+                        // 🌫️ Fundo suave com glow da temporada
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: RadialGradient(
+                              center: Alignment.center,
+                              radius: 0.9,
+                              colors: [
+                                theme.primary.withOpacity(0.06),
+                                theme.background,
+                              ],
                             ),
                           ),
                         ),
-                      ),
 
+                        // 📦 Conteúdo principal
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
 
-                    // 🏁 Frase motivacional
-                    Positioned(
-                      top: 100,
-                      left: 20,
-                      right: 20,
-                      child: Text(
-                        phrase,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+                              // 🏁 FRASE MOTIVACIONAL
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 32),
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 400),
+                                  opacity: showGo ? 0 : 1,
+                                  child: Text(
+                                    phrase,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: theme.foreground,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
 
-                    // ⏩ Botão “Iniciar agora”
-                    Positioned(
-                      bottom: 60,
-                      left: 40,
-                      right: 40,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          skipPressed = true;
-                          countdownTimer?.cancel();
-                          await player.stop();
-                          Navigator.pop(context);
-                          _startRun();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 32),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                              // 🔢 CONTAGEM
+                              if (!showGo)
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 350),
+                                  transitionBuilder: (child, anim) =>
+                                      ScaleTransition(scale: anim, child: child),
+                                  child: Text(
+                                    "$secondsLeft",
+                                    key: ValueKey(secondsLeft),
+                                    style: TextStyle(
+                                      fontSize: constraints.maxWidth * 0.35,
+                                      fontWeight: FontWeight.w900,
+                                      color: theme.primary,
+                                    ),
+                                  ),
+                                ),
+
+                              // ⚡ GO FINAL
+                              if (showGo)
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 0.5, end: 1),
+                                  duration: const Duration(milliseconds: 500),
+                                  builder: (context, scale, child) {
+                                    return Transform.scale(
+                                      scale: scale,
+                                      child: ShaderMask(
+                                        shaderCallback: (bounds) =>
+                                            LinearGradient(
+                                              colors: [
+                                                theme.primary,
+                                                theme.secondary,
+                                              ],
+                                            ).createShader(bounds),
+                                        child: const Text(
+                                          "GO!",
+                                          style: TextStyle(
+                                            fontSize: 140,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.white,
+                                            letterSpacing: -4,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+
+                              // ⏩ BOTÃO
+                              GestureDetector(
+                                onTap: () async {
+                                  skipPressed = true;
+                                  countdownTimer?.cancel();
+                                  await player.stop();
+                                  Navigator.pop(context);
+                                  _startRun();
+                                },
+                                child: Container(
+                                  width: 240,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        theme.primary,
+                                        theme.secondary,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(18),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: theme.primary.withOpacity(0.4),
+                                        blurRadius: 14,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "INICIAR AGORA",
+                                      style: TextStyle(
+                                        color: theme.primaryForeground,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          elevation: 4,
                         ),
-                        child: const Text(
-                          "INICIAR AGORA",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ),
-                    ),
 
-                    // ⚡ GO! no final — centralizado e com animação suave
-                    if (showGo)
-                      Center(
-                        child: AnimatedOpacity(
-                          opacity: showFlash ? 0 : 1,
-                          duration: const Duration(milliseconds: 300),
-                          child: const Text(
-                            "GO!",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 160,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.black,
-                              letterSpacing: -5,
-                              height: 1,
+                        // ✨ FLASH
+                        if (showFlash)
+                          AnimatedOpacity(
+                            opacity: showFlash ? 1 : 0,
+                            duration: const Duration(milliseconds: 200),
+                            child: Container(
+                              color: theme.primary.withOpacity(0.12),
                             ),
                           ),
-                        ),
-                      ),
-
-
-                    // ✨ Flash branco rápido
-                    if (showFlash)
-                      AnimatedOpacity(
-                        opacity: showFlash ? 1 : 0,
-                        duration: const Duration(milliseconds: 200),
-                        child: Container(color: Colors.white),
-                      ),
-                  ],
+                      ],
+                    );
+                  },
                 ),
               ),
             );
@@ -3186,6 +3415,16 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     // 🚫 Evita corrida inválida
     if (_totalDistance < 10) {
       debugPrint("[RUN] Corrida muito curta (${_totalDistance.toStringAsFixed(2)} m) — não salva.");
+
+      // 🔴 PARA TUDO
+      _timer?.cancel();
+      _stopwatch.stop();
+      _stopwatch.reset();
+
+      setState(() {
+        _seconds = 0;
+      });
+
       return;
     }
 
@@ -3300,6 +3539,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     });
   }
 
+  Future<bool> _canShowAdviceToday() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final today = DateTime.now();
+    final todayString = "${today.year}-${today.month}-${today.day}";
+
+    final lastShown = prefs.getString('last_advice_date');
+
+    return lastShown != todayString;
+  }
+
+  Future<void> _markAdviceShownToday() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final today = DateTime.now();
+    final todayString = "${today.year}-${today.month}-${today.day}";
+
+    await prefs.setString('last_advice_date', todayString);
+  }
+
   Future<void> _toggleOnlineStatus() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -3329,6 +3588,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   void dispose() {
+    _adviceTimer?.cancel();
     _territoriesSub?.cancel();
     _territoriesSub = null;
     _powerupTicker?.cancel();
@@ -3347,14 +3607,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   Widget _buildSeasonBanner(Map<String, dynamic> data) {
     if (_seasonHidden) return const SizedBox();
 
+    final seasonTheme = SeasonThemeScope.of(context);
+    final primary = seasonTheme.primary;
+    final secondary = seasonTheme.secondary;
+
     final String name = (data['name'] ?? '').toString().trim();
     final String desc = (data['description'] ?? '').toString().trim();
     final String imageUrl = (data['imageUrl'] ?? '').toString().trim();
 
-    if (name.isEmpty && desc.isEmpty && imageUrl.isEmpty) return const SizedBox();
+    if (name.isEmpty && desc.isEmpty && imageUrl.isEmpty) {
+      return const SizedBox();
+    }
 
     Widget leadingExpanded() {
-      // ✅ Se tiver imagem, usa ela. Se não, usa o ícone.
       if (imageUrl.isNotEmpty) {
         return ClipRRect(
           borderRadius: BorderRadius.circular(12),
@@ -3363,52 +3628,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             width: 38,
             height: 38,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) {
-              return Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.emoji_events_rounded, color: Colors.black),
-              );
-            },
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              );
-            },
+            errorBuilder: (_, __, ___) => _seasonFallbackIcon(primary),
           ),
         );
       }
 
-      return Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Icon(Icons.emoji_events_rounded, color: Colors.black),
-      );
+      return _seasonFallbackIcon(primary);
     }
 
     Widget minimizedChip() {
-      // ✅ Minimizado: se tiver imagem, vira bolinha com a imagem
       if (imageUrl.isNotEmpty) {
         return ClipOval(
           child: Image.network(
@@ -3416,30 +3644,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             width: 34,
             height: 34,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Icon(
-              Icons.emoji_events_rounded,
-              color: Colors.black,
-              size: 20,
-            ),
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return const SizedBox(
-                width: 34,
-                height: 34,
-                child: Center(
-                  child: SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
-              );
-            },
+            errorBuilder: (_, __, ___) =>
+                Icon(Icons.emoji_events_rounded, color: primary, size: 20),
           ),
         );
       }
 
-      return const Icon(Icons.emoji_events_rounded, color: Colors.black, size: 20);
+      return Icon(Icons.emoji_events_rounded, color: primary, size: 20);
     }
 
     return AnimatedSwitcher(
@@ -3447,18 +3658,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       child: _seasonMinimized
           ? GestureDetector(
         key: const ValueKey("season_minimized"),
-        onTap: () {
-          setState(() => _seasonMinimized = false);
-        },
+        onTap: () => setState(() => _seasonMinimized = false),
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.85),
+            gradient: LinearGradient(
+              colors: [
+                primary.withOpacity(0.9),
+                secondary.withOpacity(0.9),
+              ],
+            ),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 8,
+                color: primary.withOpacity(0.4),
+                blurRadius: 10,
               ),
             ],
           ),
@@ -3471,14 +3685,25 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.78),
+              gradient: LinearGradient(
+                colors: [
+                  primary.withOpacity(0.18),
+                  secondary.withOpacity(0.15),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.black.withOpacity(0.06)),
+              border: Border.all(
+                color: primary.withOpacity(0.35),
+                width: 1.2,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.12),
+                  color: primary.withOpacity(0.25),
                   blurRadius: 14,
                   offset: const Offset(0, 6),
                 ),
@@ -3501,7 +3726,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                           style: GoogleFonts.poppins(
                             fontSize: 14,
                             fontWeight: FontWeight.w800,
-                            color: Colors.black,
+                            color: primary,
                           ),
                         ),
                       if (desc.isNotEmpty) ...[
@@ -3525,19 +3750,114 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 Column(
                   children: [
                     GestureDetector(
-                      onTap: () => setState(() => _seasonMinimized = true),
-                      child: const Icon(Icons.remove_rounded, size: 20, color: Colors.black),
+                      onTap: () =>
+                          setState(() => _seasonMinimized = true),
+                      child: Icon(Icons.remove_rounded,
+                          size: 20, color: primary),
                     ),
                     const SizedBox(height: 6),
                     GestureDetector(
-                      onTap: () => setState(() => _seasonHidden = true),
-                      child: const Icon(Icons.close_rounded, size: 20, color: Colors.black),
+                      onTap: () =>
+                          setState(() => _seasonHidden = true),
+                      child: Icon(Icons.close_rounded,
+                          size: 20, color: primary),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _seasonFallbackIcon(Color primary) {
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: primary.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(Icons.emoji_events_rounded, color: primary),
+    );
+  }
+
+  Widget _buildPreRunAdviceCard(String advice) {
+    final seasonTheme = SeasonThemeScope.of(context);
+
+    final primary = seasonTheme.primary;
+    final secondary = seasonTheme.secondary;
+
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 300),
+      opacity: _preRunAdvice != null ? 1 : 0,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              primary.withOpacity(0.15),
+              secondary.withOpacity(0.10),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: primary.withOpacity(0.4),
+            width: 1.2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withOpacity(0.25),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.tips_and_updates_rounded,
+                  color: primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "Conselho do Império",
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: primary,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  "⏳ $_adviceSecondsLeft s",
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: primary.withOpacity(0.8),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              advice,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -3825,8 +4145,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // Mobile: UI completa com Google Map e tudo
   Widget _buildMobileBody() {
+    final theme = SeasonThemeScope.of(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -3834,7 +4156,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         title: Text(
           "RUNNER",
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: theme.primary,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
             fontSize: 22,
@@ -3844,7 +4166,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       ),
       body: Stack(
         children: [
-          // 🗺️ Mapa branco e cinza
+
+          // 🗺️ MAPA
           GoogleMap(
             mapType: MapType.normal,
             initialCameraPosition: CameraPosition(
@@ -3856,11 +4179,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               _mapReady = true;
 
               await _updateMarker();
-
-              // aplica estilo da temporada (se já tiver) ou fallback do asset
               _applyBestMapStyle();
             },
-
             polylines: _polylines,
             polygons: {..._polygons, ..._territoryController.territoryPolygons},
             markers: _markers,
@@ -3869,7 +4189,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             myLocationButtonEnabled: false,
           ),
 
-          // 🌫️ Vinheta branca suave — estilo névoa real
+          // 🌫️ Vinheta
           IgnorePointer(
             ignoring: true,
             child: Container(
@@ -3878,10 +4198,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   center: Alignment.center,
                   radius: 1.0,
                   colors: [
-                    Colors.white.withOpacity(0.0),   // centro transparente
-                    Colors.white.withOpacity(0.8),   // camada média
-                    Colors.white.withOpacity(1.0),   // bordas levemente brancas
-                    Colors.white,                    // extremidades totalmente brancas
+                    Colors.transparent,
+                    theme.primary.withOpacity(0.05),
+                    theme.primary.withOpacity(0.08),
+                    theme.primary.withOpacity(0.12),
                   ],
                   stops: const [0.4, 0.7, 0.9, 1.0],
                 ),
@@ -3889,7 +4209,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
-          // 🏷️ Temporada ativa (nome + descrição)
+          // 🏷️ Temporada + Advice
           Positioned(
             top: MediaQuery.of(context).padding.top + 300,
             left: 12,
@@ -3897,7 +4217,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               stream: _seasonStream,
               builder: (context, snapshot) {
-                if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
+                if (!snapshot.hasData || !snapshot.data!.exists) {
+                  return const SizedBox();
+                }
 
                 final data = snapshot.data!.data();
                 if (data == null) return const SizedBox();
@@ -3905,111 +4227,93 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 final isActive = (data['isActive'] == true);
                 if (!isActive) return const SizedBox();
 
-                return _buildSeasonBanner(data);
+                return Column(
+                  children: [
+                    _buildSeasonBanner(data),
+                    if (_preRunAdvice != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: _buildPreRunAdviceCard(_preRunAdvice!),
+                      ),
+                  ],
+                );
               },
             ),
           ),
 
-
-          // 🏁 Desafio ativo (card moderno)
-          if (_challengeStream != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 220,
-              left: 0,
-              right: 0,
-              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: _challengeStream,
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
-
-                  final data = snapshot.data!.data();
-                  if (data == null) return const SizedBox();
-
-                  final participants = (data['participants'] ?? []) as List;
-                  final userId = FirebaseAuth.instance.currentUser!.uid;
-                  final isAuthor = data['authorId'] == userId;
-
-                  // só mostra se o usuário participa do desafio ou é o criador
-                  if (!participants.contains(userId) && !isAuthor) return const SizedBox();
-
-                  return _buildActiveChallengePanel(data, snapshot.data!.id);
-                },
-              ),
-            ),
-
+          // 🔁 SELETOR DE MODO (RESTORED)
           Positioned(
             top: MediaQuery.of(context).padding.top + 230,
             left: 0,
             right: 0,
-            child: Center(
-              child: TerritoryModeToggle(
-                mode: _territoryController.mode,
-                onChange: (newMode) async {
-                  if (newMode == _territoryController.mode) return;
+            child: Column(
+              children: [
+                Center(
+                  child: TerritoryModeToggle(
+                    mode: _territoryController.mode,
+                    onChange: (newMode) async {
+                      if (newMode == _territoryController.mode) return;
 
-                  _invalidateOverlayJobs();
+                      _invalidateOverlayJobs();
 
-                  _territoryController.setMode(
-                    newMode,
-                    onUpdate: () {
-                      if (mounted) setState(() {});
+                      // 🔥 MOSTRA LOADING AO TROCAR
+                      if (mounted) {
+                        setState(() {
+                          _loadingTerritoryMarkers = true;
+                          _markersDone = 0;
+                          _markersTotal = 0;
+                        });
+                      }
+
+                      _territoryController.setMode(
+                        newMode,
+                        onUpdate: () {
+                          if (mounted) setState(() {});
+                        },
+                      );
+
+                      if (newMode == MapTerritoryMode.livre) {
+                        _territoryPaused = true;
+
+                        if (mounted) {
+                          setState(() {
+                            _loadingTerritoryMarkers = false;
+                            _clearMapOverlaysForFreeMode();
+                          });
+                        }
+
+                        if (!isWearOS) _updateMarker();
+                        return;
+                      }
+
+                      _territoryPaused = false;
+
+                      await _restoreGlobalOverlays();
+
+                      _lastQueryCenter = null;
+                      await _loadTerritories();
+
+                      // 🔥 ESCONDE LOADING QUANDO TERMINAR
+                      if (mounted) {
+                        setState(() {
+                          _loadingTerritoryMarkers = false;
+                        });
+                      }
                     },
-                  );
+                  ),
+                ),
 
-                  if (newMode == MapTerritoryMode.livre) {
-                    // ✅ PAUSA (não cancela listeners)
-                    _territoryPaused = true;
-
-                    if (mounted) {
-                      setState(() {
-                        _loadingTerritoryMarkers = false;
-                        _markersDone = 0;
-                        _markersTotal = 0;
-                        _clearMapOverlaysForFreeMode(); // some do mapa
-                      });
-                    }
-
-                    if (!isWearOS) _updateMarker();
-                    return;
-                  }
-
-                  // ==========================
-                  // ✅ VOLTOU PRO TERRITÓRIO/GLOBAL
-                  // ==========================
-
-                  _territoryPaused = false;
-
-                  // ✅ reaplica cache instantâneo (sem loading)
-                  if (mounted) {
-                    setState(() {
-                      _loadingTerritoryMarkers = false;
-                      _markersDone = 0;
-                      _markersTotal = 0;
-                      _reapplyTerritoryCacheToMap();
-                    });
-                  }
-
-                  // ✅ restaura overlays globais (pin/corrida)
-                  await _restoreGlobalOverlays();
-
-                  // ✅ opcional: refresh silencioso (sem banner)
-                  // Só se quiser garantir que pegou mudanças enquanto estava no Livre.
-                  // Não precisa setar loading!
-                  _lastQueryCenter = null;
-                  await _loadTerritories();
-
-                  if (mounted) setState(() {});
-                },
-
-
-              ),
+                // 👇 Banner aparece logo abaixo do seletor
+                if (_loadingTerritoryMarkers)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: _buildTerritoryLoadingBanner(),
+                  ),
+              ],
             ),
           ),
 
-
-
-
-          // 🕒 Cronômetro e métricas superiores
+          // 🕒 CRONÔMETRO
           Positioned(
             top: MediaQuery.of(context).padding.top + 30,
             left: 0,
@@ -4021,7 +4325,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   style: GoogleFonts.poppins(
                     fontSize: 50,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black,
+                    color: theme.primary,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -4029,128 +4333,74 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _buildMetricCard(Icons.route, (_totalDistance / 1000).toStringAsFixed(2), "Km"),
-                    _buildMetricCard(Icons.local_fire_department, _caloriesBurned.round().toString(), "Kcal"),
-                    _buildMetricCard(Icons.timer, _formatPace(_averagePace), "Ritmo"),
+                    _buildMetricCard(Icons.route,
+                        (_totalDistance / 1000).toStringAsFixed(2), "Km"),
+                    _buildMetricCard(Icons.local_fire_department,
+                        _caloriesBurned.round().toString(), "Kcal"),
+                    _buildMetricCard(
+                        Icons.timer, _formatPace(_averagePace), "Ritmo"),
                   ],
                 ),
               ],
             ),
           ),
 
-
-          // ⚫ Controles da corrida (start / pausar / retomar + slide para parar)
+          // ⬇️ CONTROLES
           Positioned(
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: 30,
             child: _buildBottomRunControls(),
           ),
 
-
-          // 🔘 Botão recenter
+          // 🔘 RECENTER
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.74,
+            top: MediaQuery.of(context).padding.top +
+                MediaQuery.of(context).size.height * 0.74,
             right: 20,
             child: GestureDetector(
               onTap: _recenterMap,
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  gradient: LinearGradient(
+                    colors: [theme.primary, theme.secondary],
+                  ),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black26,
+                      color: theme.primary.withOpacity(0.4),
                       blurRadius: 8,
-                      spreadRadius: 1,
                       offset: const Offset(0, 3),
                     ),
                   ],
                 ),
-                child: const Icon(Icons.my_location_rounded, color: Colors.black, size: 26),
+                child: Icon(
+                  Icons.my_location_rounded,
+                  color: theme.primaryForeground,
+                  size: 26,
+                ),
               ),
             ),
           ),
 
-          if (_activeDisputeTerritoryId != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top +
-                  MediaQuery.of(context).size.height * 0.74 -
-                  60, // 👈 fica acima do Online/Offline
-              right: 20,
-              child: GestureDetector(
-                onTap: () async {
-                  final id = _activeDisputeTerritoryId!;
-                  await _cancelGlobalDispute(id);
-
-                  if (!mounted) return;
-                  setState(() {
-                    _activeDisputeTerritoryId = null;
-                  });
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("❌ Disputa cancelada"),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent,
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 6,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.cancel_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        "Cancelar disputa",
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-
-          // 🌐 Online/Offline — minimalista
+          // 🌐 ONLINE / OFFLINE (mantido igual)
           Positioned(
-            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.74,
+            top: MediaQuery.of(context).padding.top +
+                MediaQuery.of(context).size.height * 0.74,
             left: 20,
             child: GestureDetector(
               onTap: _toggleOnlineStatus,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: theme.card,
                   borderRadius: BorderRadius.circular(30),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black26,
+                      color: theme.primary.withOpacity(0.25),
                       blurRadius: 6,
-                      spreadRadius: 1,
                     ),
                   ],
                 ),
@@ -4159,14 +4409,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                   children: [
                     Icon(
                       _isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                      color: Colors.black,
+                      color: theme.cardForeground,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
                     Text(
                       _isOnline ? "Online" : "Offline",
                       style: GoogleFonts.poppins(
-                        color: Colors.black,
+                        color: theme.cardForeground,
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
                       ),
@@ -4176,43 +4426,55 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               ),
             ),
           ),
-          if (_loadingTerritoryMarkers)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 290, // acima do toggle
-              left: 12,
-              right: 12,
-              child: _buildTerritoryLoadingBanner(),
-            ),
         ],
       ),
     );
   }
 
   Widget _buildTerritoryLoadingBanner() {
+    final theme = SeasonThemeScope.of(context);
+
     final text = (_markersTotal <= 0)
         ? "Carregando territórios…"
         : "Carregando marcadores… $_markersDone/$_markersTotal";
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.65),
-        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          colors: [
+            theme.primary,
+            theme.secondary,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: theme.primary.withOpacity(0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          const SizedBox(
+          SizedBox(
             width: 18,
             height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(theme.primaryForeground),
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: theme.primaryForeground,
                 fontWeight: FontWeight.w700,
+                fontSize: 13,
               ),
               overflow: TextOverflow.ellipsis,
             ),
@@ -4224,6 +4486,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
 
   Widget _buildSlideToStopButton() {
+    final theme = SeasonThemeScope.of(context);
     final double progress = (_slideDragValue / 180).clamp(0.0, 1.0);
 
     return GestureDetector(
@@ -4236,14 +4499,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       onHorizontalDragEnd: (details) async {
         if (_slideDragValue > 120) {
           HapticFeedback.mediumImpact();
-
-          // 👉 encerra a corrida
           await _stopRun();
-
-          setState(() {
-            _slideDragValue = 0.0;
-            // _isRunning = false;  // se o _stopRun já seta, nem precisa aqui
-          });
+          setState(() => _slideDragValue = 0.0);
         } else {
           HapticFeedback.lightImpact();
           setState(() => _slideDragValue = 0.0);
@@ -4252,43 +4509,55 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       child: Stack(
         alignment: Alignment.centerLeft,
         children: [
+
+          // 🔲 Fundo do slider
           Container(
             height: 65,
             width: 240,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(40),
-              color: Colors.black,
+              color: theme.card,
+              border: Border.all(color: theme.border),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 8,
+                  color: theme.primary.withOpacity(0.2),
+                  blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
               ],
             ),
           ),
 
+          // 🔥 Barra de progresso
           AnimatedContainer(
             duration: const Duration(milliseconds: 50),
             height: 65,
             width: (240 * progress).clamp(0, 240),
             decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.destructive,
+                  theme.primary,
+                ],
+              ),
               borderRadius: BorderRadius.horizontal(
                 left: const Radius.circular(40),
                 right: Radius.circular(progress > 0.98 ? 40 : 10),
               ),
-              color: Colors.grey[300],
             ),
           ),
 
+          // 📝 Texto central
           SizedBox(
             height: 65,
             width: 240,
             child: Center(
               child: Text(
-                progress > 0.9 ? "Solte para parar 🏁" : "⬅️ Deslize para parar",
+                progress > 0.9
+                    ? "Solte para parar 🏁"
+                    : "⬅️ Deslize para parar",
                 style: GoogleFonts.poppins(
-                  color: Colors.white.withOpacity(progress > 0.9 ? 1 : 0.9),
+                  color: theme.cardForeground,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.8,
                   fontSize: 14,
@@ -4297,6 +4566,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
 
+          // 🔘 Bolinha do slider
           Positioned(
             left: _slideDragValue.clamp(0, 175),
             child: AnimatedContainer(
@@ -4305,18 +4575,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               width: 65,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white,
+                color: theme.background,
+                border: Border.all(color: theme.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 8,
+                    color: theme.primary.withOpacity(0.35),
+                    blurRadius: 10,
                     spreadRadius: 2,
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.stop_rounded,
-                color: Colors.black,
+                color: theme.destructive,
                 size: 30,
               ),
             ),
@@ -4327,7 +4598,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Widget _buildBottomRunControls() {
-    // 👉 Quando não está em corrida, você pode mostrar o botão de INICIAR
+    final theme = SeasonThemeScope.of(context);
+
+    // 👉 Quando não está em corrida
     if (!_isRunning) {
       return SafeArea(
         minimum: const EdgeInsets.only(bottom: 24),
@@ -4338,19 +4611,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               height: 90,
               width: 90,
               decoration: BoxDecoration(
-                color: Colors.black,
+                gradient: LinearGradient(
+                  colors: [
+                    theme.primary,
+                    theme.secondary,
+                  ],
+                ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 10,
+                    color: theme.primary.withOpacity(0.4),
+                    blurRadius: 12,
                     spreadRadius: 2,
                   ),
                 ],
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.play_arrow_rounded,
-                color: Color(0xFFFF6D00),
+                color: theme.primaryForeground,
                 size: 48,
               ),
             ),
@@ -4359,15 +4637,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       );
     }
 
-
-
-    // 👉 Quando está em corrida (rodando ou pausada)
+    // 👉 Quando está em corrida
     return SafeArea(
       minimum: const EdgeInsets.only(bottom: 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 🔘 Botão redondo de pausar/retomar
           GestureDetector(
             onTap: _isPaused ? _resumeRun : _pauseRun,
             child: Container(
@@ -4375,18 +4650,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               width: 70,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.black,
+                color: theme.card,
+                border: Border.all(color: theme.border),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 8,
+                    color: theme.primary.withOpacity(0.25),
+                    blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
                 ],
               ),
               child: Icon(
-                _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                color: Colors.white,
+                _isPaused
+                    ? Icons.play_arrow_rounded
+                    : Icons.pause_rounded,
+                color: theme.primary,
                 size: 36,
               ),
             ),
@@ -4396,13 +4674,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             _isPaused ? "Retomar" : "Pausar",
             style: GoogleFonts.poppins(
               fontSize: 12,
-              color: Colors.white70,
+              color: theme.mutedForeground,
               fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 16),
 
-          // 🏁 Slide para encerrar corrida
           _buildSlideToStopButton(),
         ],
       ),
@@ -4418,29 +4695,46 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // 🔲 Cards de métricas — branco com texto preto e fonte Adidas
   Widget _buildMetricCard(IconData icon, String value, String label) {
+    final theme = SeasonThemeScope.of(context);
+
     return Column(
       children: [
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            gradient: LinearGradient(
+              colors: [
+                theme.primary.withOpacity(0.15),
+                theme.secondary.withOpacity(0.12),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             shape: BoxShape.circle,
+            border: Border.all(
+              color: theme.ring.withOpacity(0.4),
+              width: 1.2,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black12,
-                blurRadius: 6,
+                color: theme.primary.withOpacity(0.25),
+                blurRadius: 8,
                 spreadRadius: 1,
-                offset: const Offset(0, 2),
+                offset: const Offset(0, 3),
               ),
             ],
           ),
-          child: Icon(icon, color: Colors.black, size: 26),
+          child: Icon(
+            icon,
+            color: theme.primary,
+            size: 26,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
           value,
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: theme.foreground,
             fontSize: 18,
             fontWeight: FontWeight.w600,
           ),
@@ -4448,7 +4742,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         Text(
           label,
           style: GoogleFonts.poppins(
-            color: Colors.black54,
+            color: theme.mutedForeground,
             fontSize: 13,
             fontWeight: FontWeight.w500,
           ),
@@ -5695,6 +5989,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
     }
 
+    final theme = SeasonThemeScope.of(context);
+
     await showGeneralDialog(
       context: context,
       barrierColor: Colors.black54,
@@ -5704,6 +6000,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
+
+            final theme = SeasonThemeScope.of(context);
+
             final screenHeight = MediaQuery.of(context).size.height;
             final screenWidth = MediaQuery.of(context).size.width;
 
@@ -5761,7 +6060,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               boostExtra = (bm['extraDifficulty'] as num).toInt();
             }
 
-
             String safetyLabel(String s) {
               if (s == 'danger') return 'Perigoso';
               if (s == 'safe') return 'Seguro';
@@ -5770,17 +6068,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
             return Center(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(18),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                   child: Container(
                     width: screenWidth * 0.9,
-                    constraints: BoxConstraints(maxHeight: screenHeight * 0.6),
+                    constraints: BoxConstraints(maxHeight: screenHeight * 0.65),
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.5),
-                      border: Border.all(color: Colors.white),
-                      boxShadow: const [BoxShadow(color: Colors.white)],
+                      color: theme.card.withOpacity(0.9),
+                      border: Border.all(color: theme.border),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.primary.withOpacity(0.25),
+                          blurRadius: 25,
+                        ),
+                      ],
                     ),
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
@@ -5788,7 +6092,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // 🔹 Cabeçalho
+
+                          /// HEADER
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -5796,21 +6101,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                               Text(
                                 "Perfil do Jogador",
                                 style: GoogleFonts.poppins(
-                                  color: Colors.black87,
+                                  color: theme.foreground,
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               IconButton(
                                 onPressed: () => Navigator.pop(context),
-                                icon: const Icon(Icons.close_rounded, color: Colors.black87),
+                                icon: Icon(
+                                  Icons.close_rounded,
+                                  color: theme.mutedForeground,
+                                ),
                               ),
                             ],
                           ),
 
                           const SizedBox(height: 8),
 
-                          // 🔹 Avatar + nome + XP/Nível
+                          /// AVATAR
                           Row(
                             children: [
                               Stack(
@@ -5824,9 +6132,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                       backgroundImage: stats['photoURL'] != null
                                           ? NetworkImage(stats['photoURL'])
                                           : null,
-                                      backgroundColor: Colors.white,
+                                      backgroundColor: theme.muted,
                                       child: stats['photoURL'] == null
-                                          ? const Icon(Icons.person, color: Colors.black54, size: 35)
+                                          ? Icon(Icons.person,
+                                          color: theme.foreground,
+                                          size: 35)
                                           : null,
                                     ),
                                   ),
@@ -5864,7 +6174,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                             overflow: TextOverflow.ellipsis,
                                             maxLines: 1,
                                             style: GoogleFonts.poppins(
-                                              color: Colors.black,
+                                              color: theme.foreground,
                                               fontSize: 20,
                                               fontWeight: FontWeight.w700,
                                             ),
@@ -5875,13 +6185,15 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                     const SizedBox(height: 6),
                                     Row(
                                       children: [
-                                        const Icon(Icons.star, color: Colors.amber, size: 20),
+                                        Icon(Icons.star,
+                                            color: theme.primary,
+                                            size: 20),
                                         const SizedBox(width: 6),
                                         Text(
                                           "${(stats['xp'] as num).toStringAsFixed(0)} XP • Nível ${stats['level']}",
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.poppins(
-                                            color: Colors.black87,
+                                            color: theme.mutedForeground,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w500,
                                           ),
@@ -5896,14 +6208,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                           const SizedBox(height: 20),
 
-                          // ✅ Seguidores/seguindo + BOTÃO SEGUIR (sempre disponível)
+                          /// FOLLOW
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
                                 "$followersCount seguidores • $followingCount seguindo",
                                 style: GoogleFonts.poppins(
-                                  color: Colors.black87,
+                                  color: theme.mutedForeground,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -5913,20 +6225,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                   icon: Icon(
                                     isFollowing ? Icons.check : Icons.person_add_alt_1,
                                     size: 18,
-                                    color: Colors.white,
+                                    color: theme.primaryForeground,
                                   ),
                                   label: Text(
                                     isFollowing ? "Seguindo" : "Seguir",
                                     style: GoogleFonts.poppins(
-                                      color: Colors.white,
+                                      color: theme.primaryForeground,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                   style: ElevatedButton.styleFrom(
                                     elevation: 0,
-                                    backgroundColor: isFollowing ? const Color(0xFFFF6D00) : Colors.black,
+                                    backgroundColor: isFollowing
+                                        ? theme.secondary
+                                        : theme.primary,
                                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12)),
                                   ),
                                   onPressed: () => toggleFollow(setStateDialog),
                                 ),
@@ -5935,7 +6250,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                           const SizedBox(height: 24),
 
-                          // 🏅 Conquistas recentes
+                          /// ACHIEVEMENTS
                           if ((stats['achievements'] as List?)?.isNotEmpty == true)
                             Wrap(
                               alignment: WrapAlignment.center,
@@ -5946,7 +6261,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                     (icon) => AnimatedScale(
                                   scale: 1.08,
                                   duration: const Duration(milliseconds: 400),
-                                  child: Text(icon.toString(), style: const TextStyle(fontSize: 28)),
+                                  child: Text(icon.toString(),
+                                      style: const TextStyle(fontSize: 28)),
                                 ),
                               )
                                   .toList(),
@@ -5955,7 +6271,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                             Text(
                               "Nenhuma insígnia conquistada ainda",
                               style: GoogleFonts.poppins(
-                                color: Colors.black87,
+                                color: theme.mutedForeground,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -5963,21 +6279,21 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
                           const SizedBox(height: 16),
 
-                          // ✅ Se veio de território, mantém card do território + métricas da conquista
+                          /// TERRITÓRIO (SEM REMOVER NADA)
                           if (fromTerritory) ...[
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
+                                color: theme.background.withOpacity(0.6),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: Colors.white.withOpacity(0.7)),
+                                border: Border.all(color: theme.border),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     children: [
-                                      const Icon(Icons.public, color: Colors.black87),
+                                      Icon(Icons.public, color: theme.primary),
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
@@ -5985,7 +6301,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: GoogleFonts.poppins(
-                                            color: Colors.black87,
+                                            color: theme.foreground,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w800,
                                           ),
@@ -5994,35 +6310,24 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                     ],
                                   ),
                                   const SizedBox(height: 10),
+
                                   Wrap(
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: [
-                                      _pill("Dificuldade do trajeto: $difficulty", Icons.trending_up),
-                                      _pill("Segurança: ${safetyLabel(safety)}", Icons.shield),
-                                      _pill("Pontos de atenção: ${dangerPoints.length}", Icons.warning_amber_rounded),
+                                      _pill("Dificuldade do trajeto: $difficulty", Icons.trending_up, theme),
+                                      _pill("Segurança: ${safetyLabel(safety)}", Icons.shield, theme),
+                                      _pill("Pontos de atenção: ${dangerPoints.length}", Icons.warning_amber_rounded, theme),
                                     ],
                                   ),
+
                                   const SizedBox(height: 10),
 
-// 🛡️/🔥 status do território (powerups)
                                   StreamBuilder<int>(
                                     stream: Stream.periodic(const Duration(seconds: 30), (x) => x),
                                     builder: (context, _) {
-                                      final now = DateTime.now();
-
-                                      Duration? remOf(String key) {
-                                        final m = powerups[key];
-                                        if (m is! Map) return null;
-                                        final until = _tsToDate(m['until']);
-                                        if (m['active'] != true || until == null) return null;
-                                        final d = until.difference(now);
-                                        if (d.isNegative) return null;
-                                        return d;
-                                      }
-
-                                      final pr = remOf('protection');
-                                      final br = remOf('difficultyBoost');
+                                      final pr = _remaining(powerups, 'protection');
+                                      final br = _remaining(powerups, 'difficultyBoost');
 
                                       final protOn = pr != null;
                                       final boostOn = br != null;
@@ -6031,7 +6336,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                         return Text(
                                           "Sem proteção ativa",
                                           style: GoogleFonts.poppins(
-                                            color: Colors.black54,
+                                            color: theme.mutedForeground,
                                             fontSize: 12,
                                             fontWeight: FontWeight.w500,
                                           ),
@@ -6043,48 +6348,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
                                         runSpacing: 8,
                                         children: [
                                           if (protOn)
-                                            _pill("Protegido: ${_fmtRemaining(pr!)}", Icons.lock_clock),
+                                            _pill("Protegido: ${_fmtRemaining(pr!)}", Icons.lock_clock, theme),
                                           if (boostOn)
-                                            _pill("🔥 Dificuldade de domínio +$boostExtra: ${_fmtRemaining(br!)}", Icons.local_fire_department),
+                                            _pill("🔥 Dificuldade de domínio +$boostExtra: ${_fmtRemaining(br!)}",
+                                                Icons.local_fire_department,
+                                                theme),
                                         ],
                                       );
                                     },
                                   ),
-
-
-                                  if (dangerPoints.isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: OutlinedButton.icon(
-                                        icon: const Icon(Icons.map_outlined),
-                                        label: const Text("Ver pontos de atenção no mapa"),
-                                        onPressed: () {
-                                          Navigator.pop(context);
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => TerritoryDangerMapPage(
-                                                territoryName: terrName,
-                                                points: dangerPoints,
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
                                 ],
                               ),
                             ),
                           ],
 
-                          // ✅ (Opcional) data — remova se não quiser mais mostrar nada de corrida aqui
                           const SizedBox(height: 10),
+
                           Text(
                             "${_fmt2(when.day)}/${_fmt2(when.month)}/${when.year}",
                             style: GoogleFonts.poppins(
-                              color: Colors.black87,
+                              color: theme.mutedForeground,
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
@@ -6112,25 +6395,33 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
-  Widget _pill(String text, IconData icon) {
+  Widget _pill(String text, IconData icon, SeasonTheme theme) {
+    final theme = SeasonThemeScope.of(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.6),
+        color: theme.muted.withOpacity(0.8),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.9)),
+        border: Border.all(
+          color: theme.border,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 24, color: Colors.black87),
+          Icon(
+            icon,
+            size: 24,
+            color: theme.primary,
+          ),
           const SizedBox(width: 6),
           Text(
             text,
             style: GoogleFonts.poppins(
-              fontSize: 14, // 🔑 PADRÃO
+              fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Colors.black87,
+              color: theme.foreground,
             ),
           ),
         ],

@@ -317,7 +317,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       String authorId,
       String? currentReactionOfMe,
       ) async {
-    final userId = _currentUserId;
+    final user = FirebaseAuth.instance.currentUser!;
+    final userId = user.uid;
+
     final reactionRef = FirebaseFirestore.instance
         .collection('posts')
         .doc(postId)
@@ -330,7 +332,11 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
       await reactionRef.set({
         'type': 'like',
         'timestamp': FieldValue.serverTimestamp(),
+        'displayName': user.displayName ?? 'Usuário',
+        'photoURL': user.photoURL ?? '',
+        'userId': userId,
       });
+
       if (userId != authorId) {
         await FirebaseFirestore.instance
             .collection('users')
@@ -338,20 +344,25 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             .collection('notifications')
             .add({
           'type': 'like',
-          'senderName': FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém',
+          'senderName': user.displayName ?? 'Alguém',
           'senderId': userId,
-          'senderPhotoUrl': FirebaseAuth.instance.currentUser?.photoURL,
-          'message': '${FirebaseAuth.instance.currentUser?.displayName ?? 'Alguém'} curtiu sua publicação.',
+          'senderPhotoUrl': user.photoURL,
+          'message':
+          '${user.displayName ?? 'Alguém'} curtiu sua publicação.',
           'timestamp': FieldValue.serverTimestamp(),
           'isRead': false,
         });
       }
     } else {
-      await reactionRef.update({
+      await reactionRef.set({
         'type': 'like',
         'timestamp': FieldValue.serverTimestamp(),
-      });
+        'displayName': user.displayName ?? 'Usuário',
+        'photoURL': user.photoURL ?? '',
+        'userId': userId,
+      }, SetOptions(merge: true));
     }
+
     HapticFeedback.selectionClick();
   }
 
@@ -1057,7 +1068,9 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard> with TickerProvide
   }
 
   Future<void> _setReaction(String? type) async {
-    final userId = FirebaseAuth.instance.currentUser!.uid;
+    final user = FirebaseAuth.instance.currentUser!;
+    final userId = user.uid;
+
     final ref = FirebaseFirestore.instance
         .collection('posts')
         .doc(widget.postId)
@@ -1070,6 +1083,8 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard> with TickerProvide
       await ref.set({
         'type': type,
         'timestamp': FieldValue.serverTimestamp(),
+        'displayName': user.displayName,
+        'photoURL': user.photoURL,
       }, SetOptions(merge: true));
     }
   }

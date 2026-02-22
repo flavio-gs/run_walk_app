@@ -17,6 +17,7 @@ import 'package:run_walk_app/edit_profile_page.dart';
 import 'package:run_walk_app/followers_page.dart';
 import 'package:run_walk_app/help_page.dart';
 import 'package:run_walk_app/model/run_model.dart';
+import 'package:run_walk_app/performance_analysis_page.dart';
 import 'package:run_walk_app/points_details_page.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
@@ -25,8 +26,12 @@ import 'package:run_walk_app/service/service/firestore_service.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/territories_gallery_page.dart';
 import 'package:run_walk_app/territory_details_page.dart';
+import 'package:run_walk_app/training_plan_page.dart';
 import 'package:run_walk_app/widgets/achievement_overlay.dart';
 import 'package:run_walk_app/widgets/follow_button.dart';
+
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 // ✅ SEASON THEME
 import 'package:run_walk_app/theme/season_theme_scope.dart';
@@ -761,6 +766,7 @@ class _StatsTab extends StatefulWidget {
 }
 
 class _StatsTabState extends State<_StatsTab> {
+
   late String? _bio;
   late bool _isPrivate;
 
@@ -782,6 +788,134 @@ class _StatsTabState extends State<_StatsTab> {
     final h = seconds ~/ 3600;
     final m = (seconds % 3600) ~/ 60;
     return h > 0 ? '${h}h ${m}min' : '${m}min';
+  }
+
+  Future<void> _analyzePerformance() async {
+    final s = SeasonThemeScope.of(context);
+
+    try {
+      // 1️⃣ Buscar últimas corridas (ex: últimas 10)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: widget.userId)
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Você ainda não tem corridas suficientes.")),
+        );
+        return;
+      }
+
+      // 2️⃣ Montar string raceData
+      String raceData = "";
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+
+        final distanceKm =
+            ((data['distance'] as num?)?.toDouble() ?? 0) / 1000.0;
+
+        final durationSeconds =
+            (data['duration'] as num?)?.toInt() ?? 0;
+
+        final minutes = durationSeconds ~/ 60;
+        final seconds = durationSeconds % 60;
+
+        final pace =
+            (data['pace'] as num?)?.toDouble() ?? 0.0;
+
+        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+
+        raceData +=
+        "- Data: ${createdAt?.day}/${createdAt?.month}/${createdAt?.year}, "
+            "Distância: ${distanceKm.toStringAsFixed(2)} km, "
+            "Duração: ${minutes}m ${seconds}s, "
+            "Pace Médio: ${pace.toStringAsFixed(2)} min/km\n";
+      }
+
+      // 3️⃣ Chamada HTTP
+      final response = await http.post(
+        Uri.parse(
+          "https://studio--studio-4298368751-f334d.us-central1.hosted.app/api/analyze-performance",
+        ),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"raceData": raceData}),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception("Erro na API: ${response.body}");
+      }
+
+      final json = jsonDecode(response.body);
+
+      _showAnalysisDialog(
+        strengths: List<String>.from(json['strengths'] ?? []),
+        improvements: List<String>.from(json['improvements'] ?? []),
+        summary: json['summary'] ?? '',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erro ao analisar desempenho: $e")),
+      );
+    }
+  }
+
+  void _showAnalysisDialog({
+    required List<String> strengths,
+    required List<String> improvements,
+    required String summary,
+  }) {
+    final s = SeasonThemeScope.of(context);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: s.popover,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(
+          "Análise do seu Perfil",
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: s.foreground,
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("💪 Pontos Fortes",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              ...strengths.map((e) => Text("• $e")),
+              const SizedBox(height: 14),
+              Text("📈 Pontos a Melhorar",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              ...improvements.map((e) => Text("• $e")),
+              const SizedBox(height: 14),
+              Text("🧠 Resumo",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              Text(summary),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Fechar"),
+          )
+        ],
+      ),
+    );
   }
 
   Future<void> _editBio() async {
@@ -1000,6 +1134,65 @@ class _StatsTabState extends State<_StatsTab> {
             ),
           ),
 
+          const SizedBox(height: 12),
+
+          if (widget.isOwner)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.analytics),
+                label: const Text("Análise do meu perfil de jogador"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: s.accent,
+                  foregroundColor: s.accentForeground,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PerformanceAnalysisPage(
+                        userId: widget.userId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.fitness_center),
+              label: const Text("Plano de Treino"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: s.accent,
+                foregroundColor: s.accentForeground,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TrainingPlanPage(
+                      userId: widget.userId,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
           const SizedBox(height: 10),
 
           InkWell(
@@ -1119,12 +1312,14 @@ class _StatsTabState extends State<_StatsTab> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          //const SizedBox(height: 12),
 
           _DominatedTerritoriesSection(
             userId: widget.userId,
             isOwner: widget.isOwner,
           ),
+
+
 
           const SizedBox(height: 10),
 
@@ -1140,6 +1335,7 @@ class _StatsTabState extends State<_StatsTab> {
                 ),
               ),
             ),
+
             child: _Card(
               child: Row(
                 children: [
