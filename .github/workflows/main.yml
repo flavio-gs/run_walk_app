@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - release/v1-beta-aberto-v2-pontos
 
 jobs:
   build:
