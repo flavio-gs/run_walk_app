@@ -2,6 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class CreateGroupPage extends StatefulWidget {
   const CreateGroupPage({super.key});
@@ -11,23 +12,20 @@ class CreateGroupPage extends StatefulWidget {
 }
 
 class _CreateGroupPageState extends State<CreateGroupPage> {
-  // ✅ Controllers
+  // Controllers
   final TextEditingController _name = TextEditingController();
   final TextEditingController _desc = TextEditingController();
 
-  // ✅ State
+  // State
   bool _isPublic = true;
   bool _saving = false;
-
-  // 🎨 Theme (igual ao resto do app)
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
 
   static const int kCreateClanCost = 25;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void dispose() {
@@ -66,31 +64,26 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
 
     try {
       final userRef = _db.collection('users').doc(user.uid);
-      final groupRef = _db.collection('groups').doc(); // autoId
+      final groupRef = _db.collection('groups').doc();
 
       await _db.runTransaction((tx) async {
-        // 1) Lê o usuário dentro da transação (fonte de verdade)
         final uSnap = await tx.get(userRef);
         final u = (uSnap.data() ?? <String, dynamic>{});
 
-        final int totalPoints =
-        (u['totalPoints'] is int) ? u['totalPoints'] as int : 0;
+        final int totalPoints = (u['totalPoints'] is int) ? u['totalPoints'] : 0;
 
         if (totalPoints < kCreateClanCost) {
           throw Exception('PONTOS_INSUFICIENTES');
         }
 
-        // 2) desconta 25
         tx.update(userRef, {
           'totalPoints': FieldValue.increment(-kCreateClanCost),
         });
 
-        // 3) Pega dados pra espelhar no member
         final displayName = (u['displayName'] ?? u['name'] ?? 'Runner').toString();
         final photoUrl = (u['photoUrl'] ?? u['photoURL'] ?? '').toString();
         final username = _normalizeUsername((u['username'] ?? '').toString());
 
-        // 4) Cria o grupo
         tx.set(groupRef, {
           'name': name,
           'description': desc,
@@ -99,10 +92,9 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           'createdAt': FieldValue.serverTimestamp(),
           'membersCount': 1,
           'searchName': name.toLowerCase(),
-          'createCost': kCreateClanCost, // opcional (auditoria)
+          'createCost': kCreateClanCost,
         });
 
-        // 5) Adiciona owner como member
         tx.set(groupRef.collection('members').doc(user.uid), {
           'role': 'owner',
           'joinedAt': FieldValue.serverTimestamp(),
@@ -110,7 +102,6 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           'displayName': displayName,
           'username': username,
           'photoUrl': photoUrl,
-          // ranking interno (snapshot/mvp)
           'xp': 0,
           'km': 0,
         });
@@ -119,7 +110,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
       if (!mounted) return;
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Clã criado com sucesso 🧡 (-25 pontos)')),
+        SnackBar(content: Text('Clã criado com sucesso 🧡 (-$kCreateClanCost pontos)')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -128,28 +119,26 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           ? 'Você precisa de $kCreateClanCost pontos para criar um clã.'
           : 'Erro ao criar clã: $e';
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  Widget _buildPointsCostCard() {
+  Widget _buildPointsCostCard(SeasonTheme s) {
     final user = _auth.currentUser;
 
     if (user == null) {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: kCard,
+          color: s.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: s.border),
         ),
-        child: const Text(
+        child: Text(
           'Faça login para ver seus pontos.',
-          style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700),
+          style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
         ),
       );
     }
@@ -160,9 +149,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
       stream: userRef.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? <String, dynamic>{};
-
-        final int totalPoints =
-        (data['totalPoints'] is int) ? data['totalPoints'] as int : 0;
+        final int totalPoints = (data['totalPoints'] is int) ? data['totalPoints'] : 0;
 
         final int after = totalPoints - kCreateClanCost;
         final bool canCreate = totalPoints >= kCreateClanCost;
@@ -170,55 +157,47 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: canCreate ? kCard : const Color(0xFF2A1212),
+            color: canCreate ? s.card : s.destructive.withOpacity(0.25),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: canCreate ? Colors.white12 : Colors.redAccent.withOpacity(0.35),
+              color: canCreate ? s.border : s.destructive.withOpacity(0.6),
             ),
           ),
           child: Row(
             children: [
-              Icon(
-                Icons.bolt_rounded,
-                color: canCreate ? kOrange : Colors.redAccent,
-                size: 20,
-              ),
+              Icon(Icons.bolt_rounded, color: canCreate ? s.primary : s.destructive),
               const SizedBox(width: 10),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Criar um clã custa $kCreateClanCost pontos',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13,
-                      ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                    'Criar um clã custa $kCreateClanCost pontos',
+                    style: TextStyle(
+                      color: s.foreground,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Seus pontos: $totalPoints  →  Após criar: ${after < 0 ? 0 : after}',
+                    style: TextStyle(
+                      color: s.mutedForeground,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  if (!canCreate) ...[
                     const SizedBox(height: 6),
                     Text(
-                      'Seus pontos: $totalPoints  →  Após criar: ${after < 0 ? 0 : after}',
+                      'Pontos insuficientes para criar um clã.',
                       style: TextStyle(
-                        color: canCreate ? Colors.white70 : Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                        height: 1.2,
+                        color: s.foreground,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
                       ),
                     ),
-                    if (!canCreate) ...[
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Pontos insuficientes para criar um clã.',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
                   ],
-                ),
+                ]),
               ),
             ],
           ),
@@ -227,25 +206,18 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
     );
   }
 
-  Widget _buildCreateButton() {
+  Widget _buildCreateButton(SeasonTheme s) {
     final user = _auth.currentUser;
-
     if (user == null) {
       return ElevatedButton(
         onPressed: null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: kOrange,
-          foregroundColor: Colors.black,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          backgroundColor: s.primary,
+          foregroundColor: s.primaryForeground,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          disabledBackgroundColor: kOrange.withOpacity(0.35),
-          disabledForegroundColor: Colors.black54,
         ),
-        child: Text(
-          'Criar Clã • $kCreateClanCost pts',
-          style: const TextStyle(fontWeight: FontWeight.w900),
-        ),
+        child: Text('Criar Clã • $kCreateClanCost pts',
+            style: const TextStyle(fontWeight: FontWeight.w900)),
       );
     }
 
@@ -255,32 +227,26 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
       stream: userRef.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? <String, dynamic>{};
-        final int totalPoints =
-        (data['totalPoints'] is int) ? data['totalPoints'] as int : 0;
-
+        final int totalPoints = (data['totalPoints'] is int) ? data['totalPoints'] : 0;
         final bool canCreate = totalPoints >= kCreateClanCost;
 
         return ElevatedButton(
           onPressed: (_saving || !canCreate) ? null : _createGroup,
           style: ElevatedButton.styleFrom(
-            backgroundColor: kOrange,
-            foregroundColor: Colors.black,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(vertical: 14),
+            backgroundColor: s.primary,
+            foregroundColor: s.primaryForeground,
+            disabledBackgroundColor: s.primary.withOpacity(0.35),
+            disabledForegroundColor: s.primaryForeground.withOpacity(0.6),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            disabledBackgroundColor: kOrange.withOpacity(0.35),
-            disabledForegroundColor: Colors.black54,
           ),
           child: _saving
-              ? const SizedBox(
+              ? SizedBox(
             height: 18,
             width: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+            child: CircularProgressIndicator(strokeWidth: 2, color: s.primaryForeground),
           )
-              : Text(
-            'Criar Clã • $kCreateClanCost pts',
-            style: const TextStyle(fontWeight: FontWeight.w900),
-          ),
+              : Text('Criar Clã • $kCreateClanCost pts',
+              style: const TextStyle(fontWeight: FontWeight.w900)),
         );
       },
     );
@@ -288,20 +254,22 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-        title: const Text(
+        iconTheme: IconThemeData(color: s.foreground),
+        title: Text(
           'Criar Clã',
           style: TextStyle(
-            color: Colors.white,
+            color: s.foreground,
             fontWeight: FontWeight.w900,
             fontSize: 20,
-            letterSpacing: -0.2,
           ),
         ),
       ),
@@ -310,145 +278,84 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            // 🧱 Card - Nome/Descrição
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: kCard,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                    decoration: const InputDecoration(
-                      hintText: 'Nome do Clã (ex: Clã dos Corredores)',
-                      hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                  ),
-                  const Divider(color: Colors.white10, height: 18),
-                  TextField(
-                    controller: _desc,
-                    maxLines: 3,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    decoration: const InputDecoration(
-                      hintText: 'Descrição (opcional)',
-                      hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
+            _buildTextCard(s),
             const SizedBox(height: 12),
-
-            // 🔒 Card - Privacidade
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: kCard,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.25),
-                    blurRadius: 14,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Privacidade do Clã',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _PrivacyOption(
-                          selected: _isPublic,
-                          icon: Icons.public_rounded,
-                          title: 'Público',
-                          subtitle: 'Qualquer um pode entrar',
-                          onTap: () => setState(() => _isPublic = true),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _PrivacyOption(
-                          selected: !_isPublic,
-                          icon: Icons.lock_rounded,
-                          title: 'Privado',
-                          subtitle: 'Precisa aprovação do admin',
-                          onTap: () => setState(() => _isPublic = false),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
+            _buildPrivacyCard(s),
             const SizedBox(height: 14),
-
-            // ✅ Card de pontos (saldo e após)
-            _buildPointsCostCard(),
-
+            _buildPointsCostCard(s),
             const SizedBox(height: 18),
-
-            // ✅ Botão Criar (com trava de pontos)
-            _buildCreateButton(),
-
-            const SizedBox(height: 10),
-
-            // 📝 Nota
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: kOrange.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: kOrange.withOpacity(0.25)),
-              ),
-              child: const Text(
-                '⚔️ Dica: em grupos privados, os jogadores enviam um pedido e o admin decide quem entra.',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w700,
-                  height: 1.25,
-                ),
-              ),
-            ),
+            _buildCreateButton(s),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildTextCard(SeasonTheme s) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: s.card,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: s.border),
+    ),
+    child: Column(children: [
+      TextField(
+        controller: _name,
+        style: TextStyle(color: s.foreground, fontWeight: FontWeight.w800),
+        decoration: InputDecoration(
+          hintText: 'Nome do Clã',
+          hintStyle: TextStyle(color: s.mutedForeground),
+          border: InputBorder.none,
+        ),
+      ),
+      Divider(color: s.border),
+      TextField(
+        controller: _desc,
+        maxLines: 3,
+        style: TextStyle(color: s.foreground),
+        decoration: InputDecoration(
+          hintText: 'Descrição (opcional)',
+          hintStyle: TextStyle(color: s.mutedForeground),
+          border: InputBorder.none,
+        ),
+      ),
+    ]),
+  );
+
+  Widget _buildPrivacyCard(SeasonTheme s) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: s.card,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: s.border),
+    ),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Privacidade do Clã',
+          style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(
+          child: _PrivacyOption(
+            selected: _isPublic,
+            icon: Icons.public_rounded,
+            title: 'Público',
+            subtitle: 'Qualquer um pode entrar',
+            onTap: () => setState(() => _isPublic = true),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _PrivacyOption(
+            selected: !_isPublic,
+            icon: Icons.lock_rounded,
+            title: 'Privado',
+            subtitle: 'Precisa aprovação do admin',
+            onTap: () => setState(() => _isPublic = false),
+          ),
+        ),
+      ]),
+    ]),
+  );
 }
 
 class _PrivacyOption extends StatelessWidget {
@@ -457,8 +364,6 @@ class _PrivacyOption extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-
-  static const Color kOrange = Color(0xFFFF7A00);
 
   const _PrivacyOption({
     required this.selected,
@@ -470,10 +375,7 @@ class _PrivacyOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = selected ? kOrange : const Color(0xFF0B0B0F);
-    final fgTitle = selected ? Colors.black : Colors.white;
-    final fgSub = selected ? Colors.black87 : Colors.white60;
-    final border = selected ? kOrange.withOpacity(0.95) : Colors.white12;
+    final s = SeasonThemeScope.of(context);
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -482,39 +384,28 @@ class _PrivacyOption extends StatelessWidget {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: bg,
+          color: selected ? s.primary : s.background,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: border, width: 1.2),
+          border: Border.all(color: selected ? s.primary : s.border),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: selected ? Colors.black : kOrange),
+            Icon(icon, color: selected ? s.primaryForeground : s.primary),
             const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title,
                     style: TextStyle(
-                      color: fgTitle,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
+                        color: selected ? s.primaryForeground : s.foreground,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(subtitle,
                     style: TextStyle(
-                      color: fgSub,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 11.5,
-                      height: 1.2,
-                    ),
-                  ),
-                ],
-              ),
+                        color: selected ? s.primaryForeground : s.mutedForeground,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11.5)),
+              ]),
             ),
           ],
         ),

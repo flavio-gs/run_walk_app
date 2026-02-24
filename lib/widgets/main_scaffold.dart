@@ -1,12 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ haptic
+import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
+
 import 'package:run_walk_app/feed_page.dart';
 import 'package:run_walk_app/run_tracker.dart';
 import 'package:run_walk_app/profile_page.dart';
 import 'package:run_walk_app/feedback_page.dart';
 import 'package:run_walk_app/community_page.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 
 // ✅ Controlador global para esconder/mostrar o Scaffold
@@ -18,7 +19,6 @@ class ScaffoldVisibilityController {
 
 class MainScaffold extends StatefulWidget {
   final int initialIndex;
-
   const MainScaffold({super.key, this.initialIndex = 2});
 
   @override
@@ -37,12 +37,7 @@ class _MainScaffoldState extends State<MainScaffold>
   late AnimationController _pulseController;
   late PageController _pageController;
 
-  // 🎨 Paleta (mesma das páginas)
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
-  // BottomNav layout (para “pixel perfect”)
+  // Layout bottom nav
   static const double _navHeight = 62;
   static const double _navOuterPaddingH = 14;
   static const double _navOuterPaddingB = 12;
@@ -91,7 +86,6 @@ class _MainScaffoldState extends State<MainScaffold>
     });
   }
 
-
   @override
   void dispose() {
     _pulseController.dispose();
@@ -99,27 +93,23 @@ class _MainScaffoldState extends State<MainScaffold>
     super.dispose();
   }
 
-  /// 🎯 Centro exato do item na bottom bar flutuante (considera padding + safe area)
   Offset _navItemCenter(int index) {
     final mq = MediaQuery.of(context);
-    final screenW = mq.size.width;
-    final screenH = mq.size.height;
-
-    final navW = screenW - (_navOuterPaddingH * 2);
+    final navW = mq.size.width - (_navOuterPaddingH * 2);
     final itemW = navW / 5;
 
     final cx = _navOuterPaddingH + itemW * (index + 0.5);
-
-    // Centro vertical do container da bottom bar flutuante
-    final cy = screenH - mq.padding.bottom - _navOuterPaddingB - (_navHeight / 2);
+    final cy = mq.size.height -
+        mq.padding.bottom -
+        _navOuterPaddingB -
+        (_navHeight / 2);
 
     return Offset(cx, cy);
   }
 
-  void _onItemTapped(int index) async {
+  void _onItemTapped(int index) {
     if (index == _selectedIndex || _transitioning) return;
 
-    // ✅ haptics diferentes
     if (index == 2) {
       HapticFeedback.heavyImpact();
       Future.delayed(const Duration(milliseconds: 220), () {
@@ -132,12 +122,8 @@ class _MainScaffoldState extends State<MainScaffold>
     setState(() {
       _transitioning = true;
       _nextIndex = index;
-      _transitionCenter = _navItemCenter(index); // ✅ pixel perfect
+      _transitionCenter = _navItemCenter(index);
     });
-  }
-
-  void _onPageChanged(int index) {
-    setState(() => _selectedIndex = index);
   }
 
   @override
@@ -145,11 +131,21 @@ class _MainScaffoldState extends State<MainScaffold>
     return isWearOS ? _buildWearOSView() : _buildMobileView();
   }
 
-  // 📱 -------- MOBILE VIEW --------
+  // 📱 MOBILE
   Widget _buildMobileView() {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    final onPrimary = theme.colorScheme.onPrimary;
+    final bg = theme.scaffoldBackgroundColor;
+    final card = theme.cardColor;
+    final fg = theme.colorScheme.onSurface;
+
+    final unselected = fg.withOpacity(0.55);
+    final border = fg.withOpacity(0.12);
+
     return Scaffold(
-      backgroundColor: kBg,
-      extendBody: true, // ✅ evita overflow com bottom bar flutuante
+      backgroundColor: bg,
+      extendBody: true,
       body: Stack(
         children: [
           Positioned.fill(child: _pages[_selectedIndex]),
@@ -165,7 +161,7 @@ class _MainScaffoldState extends State<MainScaffold>
                     _nextIndex = null;
                   });
                 },
-                builder: (context, value, child) {
+                builder: (context, value, _) {
                   return ClipPath(
                     clipper: _CircularRevealClipper(
                       fraction: value,
@@ -178,8 +174,6 @@ class _MainScaffoldState extends State<MainScaffold>
             ),
         ],
       ),
-
-      // 🟠 Bottom Navigation (dark + laranja, flutuante)
       bottomNavigationBar: ValueListenableBuilder<bool>(
         valueListenable: ScaffoldVisibilityController.isVisible,
         builder: (context, visible, _) {
@@ -198,13 +192,13 @@ class _MainScaffoldState extends State<MainScaffold>
                 height: _navHeight,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: kCard.withOpacity(0.96),
+                    color: card.withOpacity(0.96),
                     borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(color: border),
                     boxShadow: [
                       BoxShadow(
                         blurRadius: 18,
-                        offset: Offset(0, 10),
+                        offset: const Offset(0, 10),
                         color: Colors.black.withOpacity(0.45),
                       ),
                     ],
@@ -212,21 +206,21 @@ class _MainScaffoldState extends State<MainScaffold>
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(22),
                     child: BottomNavigationBar(
-                      type: BottomNavigationBarType.fixed,
                       backgroundColor: Colors.transparent,
                       elevation: 0,
-                      selectedItemColor: kOrange,
-                      unselectedItemColor: Colors.white54,
+                      type: BottomNavigationBarType.fixed,
                       currentIndex: _selectedIndex,
                       onTap: _onItemTapped,
                       showSelectedLabels: false,
                       showUnselectedLabels: false,
+                      selectedItemColor: primary,
+                      unselectedItemColor: unselected,
                       items: [
-                        _navItem(Icons.dashboard_outlined, 0),
-                        _navItem(Icons.people_outline, 1),
-                        _activityItem(Icons.bolt_rounded, 2),
-                        _navItem(Icons.person_outline, 3),
-                        _navItem(Icons.chat_bubble_outline, 4),
+                        _navItem(Icons.dashboard_outlined, 0, primary, unselected),
+                        _navItem(Icons.people_outline, 1, primary, unselected),
+                        _activityItem(Icons.bolt_rounded, 2, primary, onPrimary, unselected),
+                        _navItem(Icons.person_outline, 3, primary, unselected),
+                        _navItem(Icons.chat_bubble_outline, 4, primary, unselected),
                       ],
                     ),
                   ),
@@ -234,30 +228,27 @@ class _MainScaffoldState extends State<MainScaffold>
               ),
             ),
           );
-
         },
       ),
     );
   }
 
-
-  /// ✅ ícone normal + pontinho laranja quando selecionado
-  BottomNavigationBarItem _navItem(IconData icon, int index) {
+  BottomNavigationBarItem _navItem(
+      IconData icon,
+      int index,
+      Color primary,
+      Color unselected,
+      ) {
     final isSelected = _selectedIndex == index;
 
     return BottomNavigationBarItem(
       icon: AnimatedScale(
         duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
         scale: isSelected ? 1.10 : 1.0,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 26,
-              color: isSelected ? kOrange : Colors.white54,
-            ),
+            Icon(icon, size: 26, color: isSelected ? primary : unselected),
             const SizedBox(height: 5),
             AnimatedOpacity(
               opacity: isSelected ? 1.0 : 0.0,
@@ -266,11 +257,11 @@ class _MainScaffoldState extends State<MainScaffold>
                 width: 6,
                 height: 6,
                 decoration: BoxDecoration(
-                  color: kOrange,
+                  color: primary,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: kOrange.withOpacity(0.35),
+                      color: primary.withOpacity(0.35),
                       blurRadius: 10,
                       offset: const Offset(0, 2),
                     )
@@ -281,25 +272,30 @@ class _MainScaffoldState extends State<MainScaffold>
           ],
         ),
       ),
-      label: "",
+      label: '',
     );
   }
 
-  /// ✅ botão central com pulse + pontinho + glow
-  BottomNavigationBarItem _activityItem(IconData icon, int index) {
+  BottomNavigationBarItem _activityItem(
+      IconData icon,
+      int index,
+      Color primary,
+      Color onPrimary,
+      Color unselected,
+      ) {
     final isSelected = _selectedIndex == index;
 
     return BottomNavigationBarItem(
       icon: AnimatedBuilder(
         animation: _pulseController,
-        builder: (context, child) {
+        builder: (context, _) {
           final scale = isSelected ? _pulseController.value : 1.0;
-          final glowOpacity = isSelected
+          final glow = isSelected
               ? (sin(_pulseController.value * pi).abs()) * 0.55
               : 0.0;
 
           return Transform.translate(
-            offset: const Offset(0, -12), // 🔼 sobe o botão (use -4, -6 ou -8)
+            offset: const Offset(0, -12),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -309,17 +305,17 @@ class _MainScaffoldState extends State<MainScaffold>
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: isSelected ? kOrange : Colors.white10,
+                      color: isSelected ? primary : unselected.withOpacity(0.15),
                       border: Border.all(
                         color: isSelected
-                            ? kOrange.withOpacity(0.75)
-                            : Colors.white10,
+                            ? primary.withOpacity(0.75)
+                            : unselected.withOpacity(0.15),
                         width: 1.2,
                       ),
                       boxShadow: isSelected
                           ? [
                         BoxShadow(
-                          color: kOrange.withOpacity(glowOpacity * 0.35),
+                          color: primary.withOpacity(glow * 0.35),
                           blurRadius: 22,
                           spreadRadius: 1.5,
                         ),
@@ -329,7 +325,7 @@ class _MainScaffoldState extends State<MainScaffold>
                     child: Icon(
                       icon,
                       size: isSelected ? 34 : 28,
-                      color: isSelected ? Colors.black : Colors.white70,
+                      color: isSelected ? onPrimary : unselected,
                     ),
                   ),
                 ),
@@ -341,11 +337,11 @@ class _MainScaffoldState extends State<MainScaffold>
                     width: 6,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: kOrange,
+                      color: primary,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: kOrange.withOpacity(0.35),
+                          color: primary.withOpacity(0.35),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         )
@@ -356,34 +352,31 @@ class _MainScaffoldState extends State<MainScaffold>
               ],
             ),
           );
-
         },
       ),
-      label: "",
+      label: '',
     );
   }
 
-  // ⌚ WearOS mantém simples (dark também)
+  // ⌚ WearOS
   Widget _buildWearOSView() {
+    final bg = Theme.of(context).scaffoldBackgroundColor;
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: bg,
       body: SafeArea(
         child: PageView.builder(
           controller: _pageController,
-          onPageChanged: _onPageChanged,
           scrollDirection: Axis.vertical,
           itemCount: _pages.length,
-          itemBuilder: (context, index) => AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            child: _pages[index],
-          ),
+          itemBuilder: (_, i) => _pages[i],
         ),
       ),
     );
   }
 }
 
-// 💥 Transição de raio circular personalizada
+// 💥 Reveal circular
 class _CircularRevealClipper extends CustomClipper<Path> {
   final double fraction;
   final Offset center;
@@ -397,6 +390,6 @@ class _CircularRevealClipper extends CustomClipper<Path> {
   }
 
   @override
-  bool shouldReclip(_CircularRevealClipper oldClipper) =>
-      oldClipper.fraction != fraction || oldClipper.center != center;
+  bool shouldReclip(_CircularRevealClipper old) =>
+      old.fraction != fraction || old.center != center;
 }

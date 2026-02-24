@@ -1,10 +1,13 @@
 // create_group_task_page.dart
 import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class CreateGroupTaskPage extends StatefulWidget {
   final String groupId;
@@ -15,10 +18,6 @@ class CreateGroupTaskPage extends StatefulWidget {
 }
 
 class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -30,7 +29,6 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
 
   bool _routeIsLoop = false;
   int _laps = 1;
-
 
   // ✅ Modalidade
   static const List<String> _modes = [
@@ -50,6 +48,8 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
   // rota final (salva)
   List<LatLng> _routePoints = [];
   double _routeKm = 0.0;
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void initState() {
@@ -75,7 +75,6 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
     _goal.text = total.toStringAsFixed(2).replaceAll('.', ',');
   }
 
-
   // ===========================
   // 📍 Localização inicial
   // ===========================
@@ -87,13 +86,14 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
       if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
       }
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
         _initialCenter = const LatLng(-22.9068, -43.1729); // fallback RJ
-        if (mounted) setState(() => _loadingLocation = false);
         return;
       }
 
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium);
       _initialCenter = LatLng(pos.latitude, pos.longitude);
     } catch (_) {
       _initialCenter = const LatLng(-22.9068, -43.1729);
@@ -134,6 +134,7 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
   // ===========================
   Future<void> _openRouteEditor() async {
     if (_initialCenter == null) return;
+    final s = _S(context);
 
     final result = await Navigator.push<_RouteEditorResult>(
       context,
@@ -141,9 +142,7 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
         builder: (_) => RouteEditorPage(
           initialCenter: _initialCenter!,
           initialPoints: _routePoints,
-          accent: kOrange,
-          bg: kBg,
-          card: kCard,
+          theme: s,
         ),
       ),
     );
@@ -159,7 +158,6 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
     });
 
     _syncGoalFromRoute();
-
   }
 
   // ===========================
@@ -182,14 +180,14 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
       _syncGoalFromRoute();
     }
 
-
     double? goalKm;
     final rawGoal = _goal.text.trim().replaceAll(',', '.');
     if (rawGoal.isNotEmpty) {
       goalKm = double.tryParse(rawGoal);
       if (goalKm == null || goalKm <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Meta inválida. Use um número (ex: 5 ou 5.5).')),
+          const SnackBar(
+              content: Text('Meta inválida. Use um número (ex: 5 ou 5.5).')),
         );
         return;
       }
@@ -209,7 +207,11 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
     setState(() => _saving = true);
 
     try {
-      await _db.collection('groups').doc(widget.groupId).collection('tasks').add({
+      await _db
+          .collection('groups')
+          .doc(widget.groupId)
+          .collection('tasks')
+          .add({
         'title': title,
         'description': _desc.text.trim(),
         'createdBy': uid,
@@ -222,7 +224,9 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
         'mode': _selectedMode,
         'goalKm': goalKmToSave,
 
-        'route': _routePoints.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+        'route': _routePoints
+            .map((p) => {'lat': p.latitude, 'lng': p.longitude})
+            .toList(),
         'routeKm': double.parse(_routeKm.toStringAsFixed(3)),
         'routeStart': _routePoints.isNotEmpty
             ? {'lat': _routePoints.first.latitude, 'lng': _routePoints.first.longitude}
@@ -244,48 +248,53 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
     }
   }
 
-  Widget _sectionTitle(String text, {IconData? icon}) {
+  Widget _sectionTitle(SeasonTheme s, String text, {IconData? icon}) {
     return Row(
       children: [
         if (icon != null) ...[
-          Icon(icon, color: kOrange, size: 18),
+          Icon(icon, color: s.primary, size: 18),
           const SizedBox(width: 8),
         ],
         Text(
           text,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+          style: TextStyle(
+              color: s.foreground, fontWeight: FontWeight.w900, fontSize: 14),
         ),
       ],
     );
   }
 
-  Widget _pill(String text) {
+  Widget _pill(SeasonTheme s, String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: kOrange.withOpacity(0.14),
+        color: s.primary.withOpacity(0.14),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: kOrange.withOpacity(0.25)),
+        border: Border.all(color: s.primary.withOpacity(0.25)),
       ),
       child: Text(
         text,
-        style: const TextStyle(color: kOrange, fontWeight: FontWeight.w900, fontSize: 12),
+        style: TextStyle(
+            color: s.primary, fontWeight: FontWeight.w900, fontSize: 12),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Criar Task',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 20),
+          style: TextStyle(
+              color: s.foreground, fontWeight: FontWeight.w900, fontSize: 20),
         ),
       ),
       body: ListView(
@@ -295,9 +304,9 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: kCard,
+              color: s.card,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: s.border),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.35),
@@ -310,22 +319,26 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
               children: [
                 TextField(
                   controller: _title,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                  decoration: const InputDecoration(
+                  style: TextStyle(
+                      color: s.foreground, fontWeight: FontWeight.w800),
+                  decoration: InputDecoration(
                     hintText: 'Título (ex: Correr 5km)',
-                    hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+                    hintStyle: TextStyle(
+                        color: s.mutedForeground, fontWeight: FontWeight.w700),
                     border: InputBorder.none,
                     isDense: true,
                   ),
                 ),
-                const Divider(color: Colors.white10, height: 18),
+                Divider(color: s.border, height: 18),
                 TextField(
                   controller: _desc,
                   maxLines: 4,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                  decoration: const InputDecoration(
+                  style: TextStyle(
+                      color: s.foreground, fontWeight: FontWeight.w700),
+                  decoration: InputDecoration(
                     hintText: 'Descrição (opcional)',
-                    hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+                    hintStyle: TextStyle(
+                        color: s.mutedForeground, fontWeight: FontWeight.w700),
                     border: InputBorder.none,
                     isDense: true,
                   ),
@@ -340,9 +353,9 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: kCard,
+              color: s.card,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: s.border),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.25),
@@ -354,43 +367,49 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _sectionTitle('Configurações', icon: Icons.tune_rounded),
+                _sectionTitle(s, 'Configurações', icon: Icons.tune_rounded),
                 const SizedBox(height: 12),
 
                 // Modalidade
                 Row(
                   children: [
-                    const Icon(Icons.sports_mma_rounded, color: Colors.white54, size: 18),
+                    Icon(Icons.sports_mma_rounded,
+                        color: s.mutedForeground, size: 18),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       'Modalidade:',
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                          color: s.mutedForeground, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
                         value: _selectedMode,
-                        dropdownColor: kCard,
-                        iconEnabledColor: Colors.white70,
+                        dropdownColor: s.card,
+                        iconEnabledColor: s.mutedForeground,
                         decoration: InputDecoration(
                           filled: true,
-                          fillColor: const Color(0xFF0B0B0F),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          fillColor: s.background,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide.none,
                           ),
                         ),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                            color: s.foreground, fontWeight: FontWeight.w800),
                         items: _modes
                             .map(
                               (m) => DropdownMenuItem(
                             value: m,
-                            child: Text(m, style: const TextStyle(color: Colors.white)),
+                            child: Text(m,
+                                style: TextStyle(color: s.foreground)),
                           ),
                         )
                             .toList(),
-                        onChanged: (v) => setState(() => _selectedMode = v ?? _modes.first),
+                        onChanged: (v) =>
+                            setState(() => _selectedMode = v ?? _modes.first),
                       ),
                     ),
                   ],
@@ -401,33 +420,38 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                 // Meta
                 Row(
                   children: [
-                    const Icon(Icons.flag_rounded, color: Colors.white54, size: 18),
+                    Icon(Icons.flag_rounded, color: s.mutedForeground, size: 18),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       'Meta (km):',
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                          color: s.mutedForeground, fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child:
-                      TextField(
+                      child: TextField(
                         controller: _goal,
                         readOnly: _routePoints.length >= 2, // ✅ trava quando tem rota
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                            color: s.foreground, fontWeight: FontWeight.w800),
                         decoration: InputDecoration(
-                          hintText: _routePoints.length >= 2 ? 'Calculado automaticamente' : 'ex: 5',
-                          hintStyle: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+                          hintText: _routePoints.length >= 2
+                              ? 'Calculado automaticamente'
+                              : 'ex: 5',
+                          hintStyle: TextStyle(
+                              color: s.mutedForeground,
+                              fontWeight: FontWeight.w700),
                           filled: true,
-                          fillColor: const Color(0xFF0B0B0F),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          fillColor: s.background,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide.none,
                           ),
                         ),
                       ),
-
                     ),
                   ],
                 ),
@@ -438,16 +462,18 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _sectionTitle('Percurso', icon: Icons.map_rounded),
-                    _pill('${_routeKm.toStringAsFixed(2)} km'),
+                    _sectionTitle(s, 'Percurso', icon: Icons.map_rounded),
+                    _pill(s, '${_routeKm.toStringAsFixed(2)} km'),
                   ],
                 ),
                 const SizedBox(height: 10),
 
                 if (_loadingLocation)
-                  const Padding(
-                    padding: EdgeInsets.all(18),
-                    child: Center(child: CircularProgressIndicator(color: kOrange)),
+                  Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Center(
+                      child: CircularProgressIndicator(color: s.primary),
+                    ),
                   )
                 else
                   InkWell(
@@ -456,9 +482,9 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                     child: Container(
                       height: 140,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0B0B0F),
+                        color: s.background,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: s.border),
                       ),
                       child: Stack(
                         children: [
@@ -468,7 +494,8 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                               child: AbsorbPointer(
                                 child: GoogleMap(
                                   initialCameraPosition: CameraPosition(
-                                    target: _initialCenter ?? const LatLng(-22.9068, -43.1729),
+                                    target: _initialCenter ??
+                                        const LatLng(-22.9068, -43.1729),
                                     zoom: 14,
                                   ),
                                   myLocationEnabled: true,
@@ -478,10 +505,11 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                                   polylines: {
                                     if (_routePoints.isNotEmpty)
                                       Polyline(
-                                        polylineId: const PolylineId('preview'),
+                                        polylineId:
+                                        const PolylineId('preview'),
                                         points: _routePoints,
                                         width: 6,
-                                        color: kOrange,
+                                        color: s.primary,
                                         geodesic: true,
                                       )
                                   },
@@ -508,18 +536,21 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                             child: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.55),
+                                color: s.popover.withOpacity(0.55),
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.white12),
+                                border: Border.all(color: s.border),
                               ),
                               child: Row(
-                                children: const [
-                                  Icon(Icons.fullscreen_rounded, color: Colors.white70, size: 18),
-                                  SizedBox(width: 8),
+                                children: [
+                                  Icon(Icons.fullscreen_rounded,
+                                      color: s.mutedForeground, size: 18),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'Toque para abrir o editor em tela cheia',
-                                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                                      style: TextStyle(
+                                          color: s.mutedForeground,
+                                          fontWeight: FontWeight.w800),
                                     ),
                                   ),
                                 ],
@@ -534,26 +565,26 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
             ),
           ),
 
-          const SizedBox(height: 14),
-
           if (_routeIsLoop) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Row(
               children: [
-                const Icon(Icons.repeat_rounded, color: Colors.white54, size: 18),
+                Icon(Icons.repeat_rounded, color: s.mutedForeground, size: 18),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'Voltas:',
-                  style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                      color: s.mutedForeground, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0B0B0F),
+                      color: s.background,
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white10),
+                      border: Border.all(color: s.border),
                     ),
                     child: Row(
                       children: [
@@ -565,14 +596,15 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                             _syncGoalFromRoute();
                           }
                               : null,
-                          icon: const Icon(Icons.remove_rounded, color: Colors.white70),
+                          icon: Icon(Icons.remove_rounded,
+                              color: s.mutedForeground),
                         ),
                         Expanded(
                           child: Center(
                             child: Text(
                               '$_laps',
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: s.foreground,
                                 fontWeight: FontWeight.w900,
                                 fontSize: 16,
                               ),
@@ -585,7 +617,8 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
                             setState(() => _laps++);
                             _syncGoalFromRoute();
                           },
-                          icon: const Icon(Icons.add_rounded, color: Colors.white70),
+                          icon:
+                          Icon(Icons.add_rounded, color: s.mutedForeground),
                         ),
                       ],
                     ),
@@ -595,22 +628,26 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
             ),
           ],
 
+          const SizedBox(height: 14),
 
           // ✅ Criar
           ElevatedButton(
             onPressed: _saving ? null : _createTask,
             style: ElevatedButton.styleFrom(
               elevation: 0,
-              backgroundColor: kOrange,
-              foregroundColor: Colors.black,
+              backgroundColor: s.primary,
+              foregroundColor: s.primaryForeground,
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              disabledBackgroundColor: s.primary.withOpacity(0.35),
+              disabledForegroundColor: s.primaryForeground.withOpacity(0.65),
             ),
             child: _saving
-                ? const SizedBox(
+                ? SizedBox(
               height: 18,
               width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: s.primaryForeground),
             )
                 : const Text('Criar', style: TextStyle(fontWeight: FontWeight.w900)),
           ),
@@ -623,23 +660,19 @@ class _CreateGroupTaskPageState extends State<CreateGroupTaskPage> {
 // =============================================================
 // ✅ RouteEditorPage (FULLSCREEN)
 // - Mapa fica livre pra mover/zoom normalmente
-// - Modo "Marcar pontos" liga/desliga
-// - Botão OK retorna rota + km
+// - Toque adiciona pontos
+// - Fecha circuito tocando no marker de início ou chegando perto do início
 // =============================================================
 class RouteEditorPage extends StatefulWidget {
   final LatLng initialCenter;
   final List<LatLng> initialPoints;
-  final Color accent;
-  final Color bg;
-  final Color card;
+  final SeasonTheme theme;
 
   const RouteEditorPage({
     super.key,
     required this.initialCenter,
     required this.initialPoints,
-    required this.accent,
-    required this.bg,
-    required this.card,
+    required this.theme,
   });
 
   @override
@@ -652,7 +685,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
 
   bool _isLoop = false;
 
-// distância máxima (em metros) pra considerar "fechou no início"
+  // distância máxima (em metros) pra considerar "fechou no início"
   static const double _closeThresholdMeters = 25.0;
 
   final List<LatLng> _points = [];
@@ -675,7 +708,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
   }
 
   bool _canCloseLoop(LatLng tapped) {
-    if (_points.length < 3) return false; // precisa pelo menos 3 pontos pra virar circuito
+    if (_points.length < 3) return false;
     if (_isLoop) return false;
 
     final start = _points.first;
@@ -687,7 +720,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     if (_points.length < 3) return;
     if (_isLoop) return;
 
-    // fecha: último ponto = primeiro
     _points.add(_points.first);
     _isLoop = true;
     _rebuild();
@@ -696,7 +728,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       const SnackBar(content: Text('Circuito fechado ✅')),
     );
   }
-
 
   double _degToRad(double deg) => deg * (pi / 180.0);
 
@@ -732,7 +763,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
           polylineId: const PolylineId('route'),
           points: _points,
           width: 7,
-          color: widget.accent,
+          color: widget.theme.primary,
           geodesic: true,
         ),
       );
@@ -743,14 +774,14 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
         Marker(
           markerId: const MarkerId('start'),
           position: _points.first,
-          consumeTapEvents: true, // 👈 importante: captura o tap no marker
+          consumeTapEvents: true,
           onTap: () {
-            // fecha apenas se tiver como (>=3 pontos e ainda não fechou)
             if (_points.length >= 3 && !_isLoop) {
               _closeLoop();
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Adicione mais pontos antes de fechar o circuito.')),
+                const SnackBar(
+                    content: Text('Adicione mais pontos antes de fechar o circuito.')),
               );
             }
           },
@@ -759,25 +790,24 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
       );
     }
     if (_points.length >= 2) {
-      _markers.add(Marker(
-        markerId: const MarkerId('end'),
-        position: _points.last,
-        infoWindow: const InfoWindow(title: 'Fim'),
-      ));
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('end'),
+          position: _points.last,
+          infoWindow: const InfoWindow(title: 'Fim'),
+        ),
+      );
     }
 
     setState(() {});
   }
 
   void _addPoint(LatLng p) {
-    // Se tocar perto do início, fecha o circuito
     if (_canCloseLoop(p)) {
       _closeLoop();
       return;
     }
 
-    // se já estava fechado e a pessoa tenta adicionar mais ponto,
-    // abre o loop antes (remove o último = primeiro)
     if (_isLoop && _points.isNotEmpty) {
       _points.removeLast();
       _isLoop = false;
@@ -787,13 +817,11 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     _rebuild();
   }
 
-
   void _undo() {
     if (_points.isEmpty) return;
 
-    // se estiver fechado, ao desfazer remove o fechamento primeiro
     if (_isLoop && _points.length >= 2) {
-      _points.removeLast(); // remove ponto igual ao início
+      _points.removeLast();
       _isLoop = false;
       _rebuild();
       return;
@@ -809,7 +837,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     _rebuild();
   }
 
-
   void _ok() {
     Navigator.pop(
       context,
@@ -817,16 +844,16 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
+    final t = widget.theme;
+
     return Scaffold(
-      backgroundColor: widget.bg,
+      backgroundColor: t.background,
       body: SizedBox.expand(
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ✅ MAPA FULLSCREEN (sem Positioned.fill)
             GoogleMap(
               initialCameraPosition: CameraPosition(
                 target: widget.initialCenter,
@@ -850,7 +877,7 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
               left: 0,
               right: 0,
               child: SafeArea(
-                bottom: false, // importante para não empurrar pra baixo
+                bottom: false,
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   child: Row(
@@ -858,29 +885,26 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                       _GlassIconBtn(
                         icon: Icons.arrow_back_rounded,
                         onTap: () => Navigator.pop(context),
-                        accent: widget.accent,
+                        theme: t,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.55),
+                            color: t.popover.withOpacity(0.55),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white12),
+                            border: Border.all(color: t.border),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.route_rounded,
-                                  color: widget.accent, size: 18),
+                              Icon(Icons.route_rounded, color: t.primary, size: 18),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _markMode
-                                      ? 'Modo marcar pontos'
-                                      : 'Modo mover mapa',
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  _markMode ? 'Modo marcar pontos' : 'Modo mover mapa',
+                                  style: TextStyle(
+                                    color: t.foreground,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
@@ -890,8 +914,8 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                                 children: [
                                   Text(
                                     '${_km.toStringAsFixed(2)} km',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
+                                    style: TextStyle(
+                                      color: t.mutedForeground,
                                       fontWeight: FontWeight.w900,
                                     ),
                                   ),
@@ -900,19 +924,19 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                       decoration: BoxDecoration(
-                                        color: widget.accent.withOpacity(0.18),
+                                        color: t.primary.withOpacity(0.18),
                                         borderRadius: BorderRadius.circular(999),
-                                        border: Border.all(color: widget.accent.withOpacity(0.45)),
+                                        border: Border.all(color: t.primary.withOpacity(0.45)),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.loop_rounded, color: widget.accent, size: 16),
+                                          Icon(Icons.loop_rounded, color: t.primary, size: 16),
                                           const SizedBox(width: 6),
                                           Text(
                                             'LOOP',
                                             style: TextStyle(
-                                              color: widget.accent,
+                                              color: t.primary,
                                               fontWeight: FontWeight.w900,
                                               fontSize: 12,
                                               letterSpacing: 0.3,
@@ -924,7 +948,6 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                                   ],
                                 ],
                               ),
-
                             ],
                           ),
                         ),
@@ -935,26 +958,31 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
               ),
             ),
 
-
             // Right controls
             Positioned(
               right: 12,
               top: MediaQuery.of(context).padding.top + 74,
               child: Column(
                 children: [
+                  _GlassIconBtn(
+                    icon: _markMode ? Icons.pan_tool_alt_rounded : Icons.edit_location_alt_rounded,
+                    label: _markMode ? 'Mover' : 'Marcar',
+                    onTap: () => setState(() => _markMode = !_markMode),
+                    theme: t,
+                  ),
                   const SizedBox(height: 10),
                   _GlassIconBtn(
                     icon: Icons.undo_rounded,
                     label: 'Desfazer',
                     onTap: _undo,
-                    accent: widget.accent,
+                    theme: t,
                   ),
                   const SizedBox(height: 10),
                   _GlassIconBtn(
                     icon: Icons.delete_outline_rounded,
                     label: 'Limpar',
                     onTap: _clear,
-                    accent: widget.accent,
+                    theme: t,
                   ),
                 ],
               ),
@@ -971,15 +999,18 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.55),
+                        color: t.popover.withOpacity(0.55),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white12),
+                        border: Border.all(color: t.border),
                       ),
                       child: Text(
                         _markMode
                             ? 'Toque no mapa para adicionar pontos do percurso.'
                             : 'Arraste/zoom livremente. Ative “Marcar” pra adicionar pontos.',
-                        style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          color: t.mutedForeground,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
@@ -988,8 +1019,8 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
                     onPressed: _ok,
                     style: ElevatedButton.styleFrom(
                       elevation: 0,
-                      backgroundColor: widget.accent,
-                      foregroundColor: Colors.black,
+                      backgroundColor: t.primary,
+                      foregroundColor: t.primaryForeground,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     ),
@@ -1005,24 +1036,23 @@ class _RouteEditorPageState extends State<RouteEditorPage> {
   }
 }
 
-
 class _GlassIconBtn extends StatelessWidget {
   final IconData icon;
   final String? label;
   final VoidCallback onTap;
-  final Color accent;
+  final SeasonTheme theme;
 
   const _GlassIconBtn({
     required this.icon,
     this.label,
     required this.onTap,
-    required this.accent,
+    required this.theme,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.black.withOpacity(0.55),
+      color: theme.popover.withOpacity(0.55),
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
@@ -1031,17 +1061,20 @@ class _GlassIconBtn extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: theme.border),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: accent, size: 18),
+              Icon(icon, color: theme.primary, size: 18),
               if (label != null) ...[
                 const SizedBox(width: 8),
                 Text(
                   label!,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
+                  style: TextStyle(
+                      color: theme.foreground,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12),
                 ),
               ],
             ],
@@ -1064,4 +1097,3 @@ class _RouteEditorResult {
     required this.isLoop,
   });
 }
-

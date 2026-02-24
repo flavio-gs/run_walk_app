@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class PointsDetailsPage extends StatefulWidget {
   final String userId;
@@ -36,81 +37,130 @@ class _PointsDetailsPageState extends State<PointsDetailsPage> {
     return DateFormat('dd/MM/yyyy HH:mm').format(d);
   }
 
+  IconData _pickIcon(String origem) {
+    final o = origem.toLowerCase();
+    if (o.contains('corrida')) return Icons.directions_run;
+    if (o.contains('desafio')) return Icons.flag;
+    if (o.contains('conquista')) return Icons.emoji_events;
+    if (o.contains('bônus') || o.contains('bonus')) return Icons.local_fire_department;
+    return Icons.stars;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final title = widget.isOwner
-        ? 'Seus pontos'
-        : 'Pontos de ${widget.displayName}';
+    final s = SeasonThemeScope.of(context);
+
+    final title = widget.isOwner ? 'Seus pontos' : 'Pontos de ${widget.displayName}';
 
     return Scaffold(
+      backgroundColor: s.background,
       appBar: AppBar(
-        title: Text(title),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0.5,
+        title: Text(
+          title,
+          style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900),
+        ),
+        backgroundColor: s.background,
+        foregroundColor: s.foreground,
+        elevation: 0,
       ),
-      backgroundColor: const Color(0xFFF7F7F7),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
             return Center(
-              child: Text('Erro ao carregar pontos: ${snap.error}'),
-            );
-          }
-          final items = snap.data ?? [];
-          if (items.isEmpty) {
-            return const Center(
-              child: Text('Nenhum registro de pontos encontrado.'),
+              child: CircularProgressIndicator(color: s.primary),
             );
           }
 
-          // Agrupar por tipo opcionalmente — aqui só listamos
+          if (snap.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Erro ao carregar pontos: ${snap.error}',
+                  style: TextStyle(color: s.destructive),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+
+          final items = snap.data ?? [];
+          if (items.isEmpty) {
+            return Center(
+              child: Text(
+                'Nenhum registro de pontos encontrado.',
+                style: TextStyle(color: s.mutedForeground),
+              ),
+            );
+          }
+
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, i) {
               final e = items[i];
+
               final origem = (e['source'] ?? e['type'] ?? 'Atividade').toString();
               final desc = (e['description'] ?? '').toString();
               final value = (e['points'] ?? 0).toString();
               final date = _fmtDate(e['createdAt']);
 
-              IconData icon = Icons.stars;
-              if (origem.toLowerCase().contains('corrida')) icon = Icons.directions_run;
-              if (origem.toLowerCase().contains('desafio')) icon = Icons.flag;
-              if (origem.toLowerCase().contains('conquista')) icon = Icons.emoji_events;
+              final icon = _pickIcon(origem);
 
               return Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: s.card,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black12),
+                  border: Border.all(color: s.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.10),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
                 child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   leading: CircleAvatar(
-                    backgroundColor: Colors.orange.shade50,
-                    child: Icon(icon, color: const Color(0xFFFF6D00)),
+                    backgroundColor: s.primary.withOpacity(0.12),
+                    child: Icon(icon, color: s.primary),
                   ),
-                  title: Text(origem,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  title: Text(
+                    origem,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: s.cardForeground,
+                    ),
+                  ),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (desc.isNotEmpty)
-                        Text(desc, style: const TextStyle(color: Colors.black54)),
-                      Text(date, style: const TextStyle(color: Colors.black45, fontSize: 12)),
+                      if (desc.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          desc,
+                          style: TextStyle(color: s.mutedForeground),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      Text(
+                        date,
+                        style: TextStyle(
+                          color: s.mutedForeground.withOpacity(0.9),
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                   trailing: Text(
                     '+$value',
-                    style: const TextStyle(
-                      color: Color(0xFFFF6D00),
-                      fontWeight: FontWeight.bold,
+                    style: TextStyle(
+                      color: s.primary,
+                      fontWeight: FontWeight.w900,
                       fontSize: 16,
                     ),
                   ),

@@ -1,30 +1,40 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/material.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:lottie/lottie.dart';
+
+import 'package:run_walk_app/activity_page.dart';
+import 'package:run_walk_app/challenge_details_page.dart';
+import 'package:run_walk_app/detalhe_corrida_page.dart';
+import 'package:run_walk_app/edit_profile_page.dart';
 import 'package:run_walk_app/followers_page.dart';
+import 'package:run_walk_app/help_page.dart';
+import 'package:run_walk_app/model/run_model.dart';
+import 'package:run_walk_app/performance_analysis_page.dart';
 import 'package:run_walk_app/points_details_page.dart';
-import 'package:run_walk_app/service/achievement_service.dart';
-import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/pro_plans_page.dart';
+import 'package:run_walk_app/service/achievement_service.dart';
+import 'package:run_walk_app/service/level_frame_manager.dart';
+import 'package:run_walk_app/service/service/firestore_service.dart';
+import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/territories_gallery_page.dart';
 import 'package:run_walk_app/territory_details_page.dart';
+import 'package:run_walk_app/training_plan_page.dart';
 import 'package:run_walk_app/widgets/achievement_overlay.dart';
-import 'detalhe_corrida_page.dart';
-import 'help_page.dart';
-import 'model/run_model.dart';
-import 'package:run_walk_app/activity_page.dart';
-import 'package:lottie/lottie.dart';
-import 'package:run_walk_app/service/level_frame_manager.dart';
-import 'package:run_walk_app/challenge_details_page.dart';
-import 'package:run_walk_app/edit_profile_page.dart';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:run_walk_app/widgets/follow_button.dart';
-import 'package:run_walk_app/service/service/firestore_service.dart';
+
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+// ✅ SEASON THEME
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
@@ -68,9 +78,6 @@ class _ProfilePageState extends State<ProfilePage> {
   late final String _profileUserId;
   late final bool _isCurrentUserProfile;
 
-  final Color orange = const Color(0xFFFF6D00);
-  final Color lightGray = const Color(0xFFF7F7F7);
-
   @override
   void initState() {
     super.initState();
@@ -105,7 +112,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _loadLevelAndXP() {
     _xpListener?.cancel();
 
-    FirebaseFirestore.instance
+    _xpListener = FirebaseFirestore.instance
         .collection('users')
         .doc(_profileUserId)
         .snapshots()
@@ -178,12 +185,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
       setState(() {
         userData = data;
-        photoURL     = _nonnullOrBlankToNull(data['photoURL']);
-        coverPhotoURL= _nonnullOrBlankToNull(data['coverPhoto']);
+        photoURL = _nonnullOrBlankToNull(data['photoURL']);
+        coverPhotoURL = _nonnullOrBlankToNull(data['coverPhoto']);
         memberSince = (data['createdAt'] is Timestamp)
             ? (data['createdAt'] as Timestamp).toDate()
             : null;
-        bio       = _nonnullOrBlankToNull(data['bio']);
+        bio = _nonnullOrBlankToNull(data['bio']);
         isPrivate = (data['isPrivate'] ?? false) as bool;
         followersCount = followersSnap.docs.length;
         followingCount = followingSnap.docs.length;
@@ -227,7 +234,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadPoints() async {
     try {
-      totalPoints = await GamificationService().getTotalPoints(userId: _profileUserId);
+      totalPoints =
+      await GamificationService().getTotalPoints(userId: _profileUserId);
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint("Erro ao carregar pontos: $e");
@@ -242,16 +250,24 @@ class _ProfilePageState extends State<ProfilePage> {
     final file = File(picked.path);
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
     setState(() => _isUploadingCoverPhoto = true);
     try {
       final ref = FirebaseStorage.instance.ref('users/$uid/cover.jpg');
       await ref.putFile(file);
       final url = await ref.getDownloadURL();
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({'coverPhoto': url});
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'coverPhoto': url});
       setState(() => coverPhotoURL = url);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Capa atualizada!')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Capa atualizada!')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro: $e')));
     } finally {
       if (mounted) setState(() => _isUploadingCoverPhoto = false);
     }
@@ -259,46 +275,92 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _changeProfilePhoto() async {
     if (!_isCurrentUserProfile) return;
+
     final picker = ImagePicker();
+    final s = SeasonThemeScope.of(context);
+
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      backgroundColor: s.popover,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(leading: const Icon(Icons.photo_library), title: const Text('Galeria'), onTap: () => Navigator.pop(ctx, ImageSource.gallery)),
-            ListTile(leading: const Icon(Icons.photo_camera), title: const Text('Câmera'), onTap: () => Navigator.pop(ctx, ImageSource.camera)),
+            ListTile(
+              leading: Icon(Icons.photo_library, color: s.foreground),
+              title: Text('Galeria',
+                  style: TextStyle(color: s.foreground, fontWeight: FontWeight.w700)),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_camera, color: s.foreground),
+              title: Text('Câmera',
+                  style: TextStyle(color: s.foreground, fontWeight: FontWeight.w700)),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
           ],
         ),
       ),
     );
+
     if (source == null) return;
     final picked = await picker.pickImage(source: source, imageQuality: 90);
     if (picked == null) return;
     final file = File(picked.path);
+
     try {
       setState(() => _isUploadingProfilePhoto = true);
-      final mainBytes = await FlutterImageCompress.compressWithFile(file.path, quality: 80, minWidth: 600, minHeight: 600);
-      final thumbBytes = await FlutterImageCompress.compressWithFile(file.path, quality: 60, minWidth: 200, minHeight: 200);
+
+      final mainBytes = await FlutterImageCompress.compressWithFile(
+        file.path,
+        quality: 80,
+        minWidth: 600,
+        minHeight: 600,
+      );
+      final thumbBytes = await FlutterImageCompress.compressWithFile(
+        file.path,
+        quality: 60,
+        minWidth: 200,
+        minHeight: 200,
+      );
       if (mainBytes == null || thumbBytes == null) throw 'Erro na compressão';
+
       final storage = FirebaseStorage.instance;
       final mainRef = storage.ref().child('users/$_profileUserId/photo.jpg');
-      final thumbRef = storage.ref().child('users/$_profileUserId/photo_thumb.jpg');
-      await mainRef.putData(mainBytes, SettableMetadata(contentType: 'image/jpeg'));
+      final thumbRef =
+      storage.ref().child('users/$_profileUserId/photo_thumb.jpg');
+
+      await mainRef.putData(mainBytes,
+          SettableMetadata(contentType: 'image/jpeg'));
       final downloadURL = await mainRef.getDownloadURL();
-      await thumbRef.putData(thumbBytes, SettableMetadata(contentType: 'image/jpeg'));
+
+      await thumbRef.putData(thumbBytes,
+          SettableMetadata(contentType: 'image/jpeg'));
       final thumbUrl = await thumbRef.getDownloadURL();
+
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser != null && currentUser.uid == _profileUserId) {
         await currentUser.updatePhotoURL(downloadURL);
         await currentUser.reload();
       }
-      await FirebaseFirestore.instance.collection('users').doc(_profileUserId).set({'photoURL': downloadURL, 'photoThumbURL': thumbUrl, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_profileUserId)
+          .set({
+        'photoURL': downloadURL,
+        'photoThumbURL': thumbUrl,
+        'updatedAt': FieldValue.serverTimestamp()
+      }, SetOptions(merge: true));
+
       if (mounted) setState(() => photoURL = downloadURL);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Erro: $e')));
     } finally {
       if (mounted) setState(() => _isUploadingProfilePhoto = false);
     }
@@ -308,20 +370,24 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    bool canSeeContent = !isPrivate || _isCurrentUserProfile || isFollowing;
+    final s = SeasonThemeScope.of(context);
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final canSeeContent = !isPrivate || _isCurrentUserProfile || isFollowing;
 
     return DefaultTabController(
       length: canSeeContent ? 4 : 0,
       child: Scaffold(
-        backgroundColor: lightGray,
+        backgroundColor: s.background,
         body: loading
-            ? const Center(child: CircularProgressIndicator())
+            ? Center(child: CircularProgressIndicator(color: s.accent))
             : RefreshIndicator(
+          color: s.accent,
+          backgroundColor: s.card,
           onRefresh: _loadAll,
           child: NestedScrollView(
             headerSliverBuilder: (context, inner) => [
-              _buildHeader(),
-              if (canSeeContent) _buildTabBar(),
+              _buildHeader(context, s),
+              if (canSeeContent) _buildTabBar(context, s),
             ],
             body: canSeeContent
                 ? TabBarView(
@@ -335,45 +401,56 @@ class _ProfilePageState extends State<ProfilePage> {
                   isPrivate: isPrivate,
                   followersCount: followersCount,
                   followingCount: followingCount,
-                  memberSinceText: memberSince != null ? "Membro desde ${_formatDate(memberSince)}" : "",
+                  memberSinceText: memberSince != null
+                      ? "Membro desde ${_formatDate(memberSince)}"
+                      : "",
                   totalDistance30d: totalDistance,
                   totalDuration30d: totalDuration,
                   totalCalories30d: totalCalories,
                   totalPoints: totalPoints,
-                  onBioUpdated: (newBio) => setState(() => bio = newBio),
-                  onPrivacyToggled: (v) => setState(() => isPrivate = v),
+                  onBioUpdated: (newBio) =>
+                      setState(() => bio = newBio),
+                  onPrivacyToggled: (v) =>
+                      setState(() => isPrivate = v),
                   onRefreshSocial: _loadUserAndSocial,
                 ),
                 const _AchievementsTab(),
-                _HistoryTab(userId: _profileUserId),
+                _HistoryTab(userId: _profileUserId, isOwner: _isCurrentUserProfile),
                 _ChallengesTab(userId: _profileUserId),
               ],
             )
-                : _buildPrivateAccountMessage(),
+                : _buildPrivateAccountMessage(context, s),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildPrivateAccountMessage() {
+  Widget _buildPrivateAccountMessage(BuildContext context, SeasonTheme s) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(40.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lock_outline, size: 80, color: Colors.grey[400]),
+            Icon(Icons.lock_outline, size: 80, color: s.mutedForeground),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               "Esta conta é privada",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: s.foreground,
+              ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               "Siga este usuário para ver suas atividades, conquistas e histórico.",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(
+                color: s.mutedForeground,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -381,29 +458,51 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  SliverAppBar _buildHeader() {
+  SliverAppBar _buildHeader(BuildContext context, SeasonTheme s) {
     return SliverAppBar(
       pinned: true,
       expandedHeight: 280,
-      backgroundColor: Colors.white,
+      backgroundColor: s.background,
       elevation: 0,
+      iconTheme: IconThemeData(color: s.accent),
       flexibleSpace: FlexibleSpaceBar(
         background: Stack(
           fit: StackFit.expand,
           children: [
             Image.network(
-              coverPhotoURL ?? 'https://play-lh.googleusercontent.com/yf1-mu5GFf-eUu7uyV1GpNwbsPmXNY_J2PFZBjl7tNx6qVL5I_fnOkfSusFmzSZrbRiZu1CwYS2y7La7WQmhpg=w240-h480-rw',
+              coverPhotoURL ??
+                  'https://play-lh.googleusercontent.com/yf1-mu5GFf-eUu7uyV1GpNwbsPmXNY_J2PFZBjl7tNx6qVL5I_fnOkfSusFmzSZrbRiZu1CwYS2y7La7WQmhpg=w240-h480-rw',
               fit: BoxFit.cover,
             ),
-            Container(decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.black.withOpacity(0.55), Colors.transparent], begin: Alignment.bottomCenter, end: Alignment.center))),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    s.background.withOpacity(0.80),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.center,
+                ),
+              ),
+            ),
             if (_isCurrentUserProfile)
               Positioned(
                 top: MediaQuery.of(context).padding.top + 10,
                 right: 16,
                 child: CircleAvatar(
-                  backgroundColor: Colors.black45,
+                  backgroundColor: s.card.withOpacity(0.55),
                   child: IconButton(
-                    icon: _isUploadingCoverPhoto ? const SizedBox(height: 10, width: 10, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.edit, color: Colors.white),
+                    icon: _isUploadingCoverPhoto
+                        ? SizedBox(
+                      height: 14,
+                      width: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: s.cardForeground,
+                      ),
+                    )
+                        : Icon(Icons.edit, color: s.cardForeground),
                     onPressed: _isUploadingCoverPhoto ? null : _changeCoverPhoto,
                   ),
                 ),
@@ -411,7 +510,8 @@ class _ProfilePageState extends State<ProfilePage> {
             Align(
               alignment: Alignment.bottomLeft,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -425,24 +525,59 @@ class _ProfilePageState extends State<ProfilePage> {
                             Positioned(
                               top: 10,
                               child: GestureDetector(
-                                onTap: _isCurrentUserProfile ? _changeProfilePhoto : null,
+                                onTap: _isCurrentUserProfile
+                                    ? _changeProfilePhoto
+                                    : null,
                                 child: CircleAvatar(
                                   radius: 42,
-                                  backgroundColor: Colors.white,
-                                  backgroundImage: (photoURL != null && photoURL!.isNotEmpty) ? NetworkImage(photoURL!) : null,
-                                  child: (photoURL == null || photoURL!.isEmpty) ? const Icon(Icons.person, size: 40) : null,
+                                  backgroundColor: s.card,
+                                  backgroundImage: (photoURL != null &&
+                                      photoURL!.isNotEmpty)
+                                      ? NetworkImage(photoURL!)
+                                      : null,
+                                  child: (photoURL == null || photoURL!.isEmpty)
+                                      ? Icon(Icons.person,
+                                      size: 40,
+                                      color: s.mutedForeground)
+                                      : null,
                                 ),
                               ),
                             ),
-                            IgnorePointer(ignoring: true, child: SizedBox(height: 110, width: 200, child: Lottie.asset(LevelFrameManager.getFrameForLevel(level), repeat: true, fit: BoxFit.contain, alignment: Alignment.center))),
+                            IgnorePointer(
+                              ignoring: true,
+                              child: SizedBox(
+                                height: 110,
+                                width: 200,
+                                child: Lottie.asset(
+                                  LevelFrameManager.getFrameForLevel(level),
+                                  repeat: true,
+                                  fit: BoxFit.contain,
+                                  alignment: Alignment.center,
+                                ),
+                              ),
+                            ),
                             if (_isCurrentUserProfile)
                               Positioned(
                                 bottom: 5,
                                 right: 55,
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                                  child: _isUploadingProfilePhoto ? const SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                                  decoration: BoxDecoration(
+                                    color: s.card.withOpacity(0.6),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: s.border),
+                                  ),
+                                  child: _isUploadingProfilePhoto
+                                      ? SizedBox(
+                                    height: 14,
+                                    width: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: s.cardForeground,
+                                    ),
+                                  )
+                                      : Icon(Icons.camera_alt,
+                                      size: 14, color: s.cardForeground),
                                 ),
                               ),
                           ],
@@ -450,18 +585,68 @@ class _ProfilePageState extends State<ProfilePage> {
                         const SizedBox(width: 5),
                         Expanded(
                           child: Column(
-                            mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text((userData?['displayName'] as String?) ?? 'Usuário', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20)),
-                              Text(LevelFrameManager.getRankName(level), style: const TextStyle(color: Colors.orangeAccent, fontSize: 13, fontWeight: FontWeight.bold)),
-                              Text((userData?['username'] != null && (userData?['username'] as String).trim().isNotEmpty) ? "@${userData?['username']}" : "Adicionar @", style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                              Text(
+                                (userData?['displayName'] as String?) ??
+                                    'Usuário',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              Text(
+                                LevelFrameManager.getRankName(level),
+                                style: TextStyle(
+                                  color: s.accent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              Text(
+                                (userData?['username'] != null &&
+                                    (userData?['username'] as String)
+                                        .trim()
+                                        .isNotEmpty)
+                                    ? "@${userData?['username']}"
+                                    : "Adicionar @",
+                                style: const TextStyle(
+                                    color: Colors.white70, fontSize: 14),
+                              ),
                               const SizedBox(height: 6),
                               Row(
                                 children: [
-                                  Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)), child: Text("Nível $level", style: const TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 13))),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: s.card.withOpacity(0.55),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: s.border),
+                                    ),
+                                    child: Text(
+                                      "Nível $level",
+                                      style: TextStyle(
+                                        color: s.accent,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
                                   const SizedBox(width: 10),
-                                  Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(value: xp.clamp(0.0, 1.0), backgroundColor: Colors.white24, color: Colors.orangeAccent, minHeight: 6))),
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: LinearProgressIndicator(
+                                        value: xp.clamp(0.0, 1.0),
+                                        backgroundColor:
+                                        s.muted.withOpacity(0.35),
+                                        color: s.accent,
+                                        minHeight: 6,
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],
@@ -487,22 +672,24 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  SliverPersistentHeader _buildTabBar() {
+  SliverPersistentHeader _buildTabBar(BuildContext context, SeasonTheme s) {
     return SliverPersistentHeader(
       pinned: true,
       delegate: _TabBarDelegate(
-        const TabBar(
-          labelColor: Colors.black,
-          unselectedLabelColor: Colors.black54,
-          indicatorColor: Color(0xFFFF6D00),
+        TabBar(
+          labelColor: s.foreground,
+          unselectedLabelColor: s.mutedForeground,
+          indicatorColor: s.accent,
           indicatorWeight: 3,
-          tabs: [
+          tabs: const [
             Tab(text: 'Início'),
             Tab(text: 'Conquistas'),
             Tab(text: 'Histórico'),
             Tab(text: 'Desafios'),
           ],
         ),
+        background: s.background,
+        border: s.border,
       ),
     );
   }
@@ -510,15 +697,33 @@ class _ProfilePageState extends State<ProfilePage> {
 
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar tabBar;
-  _TabBarDelegate(this.tabBar);
+  final Color background;
+  final Color border;
+
+  _TabBarDelegate(this.tabBar, {required this.background, required this.border});
+
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) => Container(color: Colors.white, child: tabBar);
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      decoration: BoxDecoration(
+        color: background,
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      child: tabBar,
+    );
+  }
+
   @override
   double get maxExtent => tabBar.preferredSize.height;
+
   @override
   double get minExtent => tabBar.preferredSize.height;
+
   @override
-  bool shouldRebuild(_TabBarDelegate oldDelegate) => oldDelegate.tabBar != tabBar;
+  bool shouldRebuild(_TabBarDelegate oldDelegate) =>
+      oldDelegate.tabBar != tabBar ||
+          oldDelegate.background != background ||
+          oldDelegate.border != border;
 }
 
 class _StatsTab extends StatefulWidget {
@@ -561,6 +766,7 @@ class _StatsTab extends StatefulWidget {
 }
 
 class _StatsTabState extends State<_StatsTab> {
+
   late String? _bio;
   late bool _isPrivate;
 
@@ -584,102 +790,282 @@ class _StatsTabState extends State<_StatsTab> {
     return h > 0 ? '${h}h ${m}min' : '${m}min';
   }
 
-  Future<void> _editBio() async {
-    if (!widget.isOwner) return;
-    final controller = TextEditingController(text: _bio ?? '');
-    final res = await showDialog<String?>(
+  Future<void> _analyzePerformance() async {
+    final s = SeasonThemeScope.of(context);
+
+    try {
+      // 1️⃣ Buscar últimas corridas (ex: últimas 10)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: widget.userId)
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Você ainda não tem corridas suficientes.")),
+        );
+        return;
+      }
+
+      // 2️⃣ Montar string raceData
+      String raceData = "";
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+
+        final distanceKm =
+            ((data['distance'] as num?)?.toDouble() ?? 0) / 1000.0;
+
+        final durationSeconds =
+            (data['duration'] as num?)?.toInt() ?? 0;
+
+        final minutes = durationSeconds ~/ 60;
+        final seconds = durationSeconds % 60;
+
+        final pace =
+            (data['pace'] as num?)?.toDouble() ?? 0.0;
+
+        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+
+        raceData +=
+        "- Data: ${createdAt?.day}/${createdAt?.month}/${createdAt?.year}, "
+            "Distância: ${distanceKm.toStringAsFixed(2)} km, "
+            "Duração: ${minutes}m ${seconds}s, "
+            "Pace Médio: ${pace.toStringAsFixed(2)} min/km\n";
+      }
+
+      // 3️⃣ Chamada HTTP
+      final response = await http.post(
+        Uri.parse(
+          "https://studio--studio-4298368751-f334d.us-central1.hosted.app/api/analyze-performance",
+        ),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"raceData": raceData}),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception("Erro na API: ${response.body}");
+      }
+
+      final json = jsonDecode(response.body);
+
+      _showAnalysisDialog(
+        strengths: List<String>.from(json['strengths'] ?? []),
+        improvements: List<String>.from(json['improvements'] ?? []),
+        summary: json['summary'] ?? '',
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erro ao analisar desempenho: $e")),
+      );
+    }
+  }
+
+  void _showAnalysisDialog({
+    required List<String> strengths,
+    required List<String> improvements,
+    required String summary,
+  }) {
+    final s = SeasonThemeScope.of(context);
+
+    showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Editar biografia'),
-        content: TextField(controller: controller, autofocus: true, maxLength: 160, decoration: const InputDecoration(hintText: 'Escreva algo sobre você…', border: OutlineInputBorder())),
+      builder: (_) => AlertDialog(
+        backgroundColor: s.popover,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(
+          "Análise do seu Perfil",
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            color: s.foreground,
+          ),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("💪 Pontos Fortes",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              ...strengths.map((e) => Text("• $e")),
+              const SizedBox(height: 14),
+              Text("📈 Pontos a Melhorar",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              ...improvements.map((e) => Text("• $e")),
+              const SizedBox(height: 14),
+              Text("🧠 Resumo",
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900, color: s.accent)),
+              const SizedBox(height: 6),
+              Text(summary),
+            ],
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('Salvar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Fechar"),
+          )
         ],
       ),
     );
+  }
+
+  Future<void> _editBio() async {
+    if (!widget.isOwner) return;
+
+    final s = SeasonThemeScope.of(context);
+    final controller = TextEditingController(text: _bio ?? '');
+
+    final res = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: s.popover,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text('Editar biografia',
+            style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 160,
+          style: TextStyle(color: s.foreground),
+          decoration: InputDecoration(
+            hintText: 'Escreva algo sobre você…',
+            hintStyle: TextStyle(color: s.mutedForeground),
+            filled: true,
+            fillColor: s.input,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: s.border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: s.ring, width: 1.6),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancelar',
+                style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w800)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: s.accent,
+              foregroundColor: s.accentForeground,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 0,
+            ),
+            child: const Text('Salvar', style: TextStyle(fontWeight: FontWeight.w900)),
+          ),
+        ],
+      ),
+    );
+
     if (res != null) {
-      await FirebaseFirestore.instance.collection('users').doc(widget.userId).update({'bio': res});
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .update({'bio': res});
       setState(() => _bio = res);
       widget.onBioUpdated(res);
     }
   }
 
   Future<void> _togglePrivacy(bool v) async {
-    await FirebaseFirestore.instance.collection('users').doc(widget.userId).update({'isPrivate': v});
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userId)
+        .update({'isPrivate': v});
     setState(() => _isPrivate = v);
     widget.onPrivacyToggled(v);
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     final isPro = (widget.userData?['isPro'] ?? false) as bool;
     final name = widget.userData?['displayName'] ?? 'Usuário';
 
     // ✅ ajuste esse valor para a altura REAL do seu bottom nav do MainScaffold
-    // (se seu CurvedNavbar for grande, use algo tipo 90~110)
     const double kBottomNavOverlay = 96;
-
     final double bottomSafe =
         MediaQuery.of(context).padding.bottom + kBottomNavOverlay;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(20, 16, 20, 16 + bottomSafe),
+      padding: EdgeInsets.fromLTRB(16, 14, 16, 16 + bottomSafe),
       child: Column(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.all(16),
+          _Card(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   widget.memberSinceText,
-                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                  style: TextStyle(
+                    color: s.mutedForeground,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
+
                 GestureDetector(
                   onTap: widget.isOwner ? _editBio : null,
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF7F7F7),
-                      borderRadius: BorderRadius.circular(10),
+                      color: s.input,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: s.border),
                     ),
                     child: Text(
                       (_bio != null && _bio!.isNotEmpty)
                           ? _bio!
-                          : (widget.isOwner ? "Adicione uma biografia" : "Sem biografia"),
+                          : (widget.isOwner
+                          ? "Adicione uma biografia"
+                          : "Sem biografia"),
                       style: TextStyle(
                         color: (_bio != null && _bio!.isNotEmpty)
-                            ? Colors.black87
-                            : Colors.black45,
+                            ? s.foreground
+                            : s.mutedForeground,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+
+                const SizedBox(height: 14),
 
                 if (widget.isOwner)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.only(bottom: 18),
                     child: SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        icon: const Icon(Icons.edit, size: 18),
-                        label: const Text(
+                        icon: Icon(Icons.edit, size: 18, color: s.accent),
+                        label: Text(
                           'Editar perfil',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: s.accent,
+                          ),
                         ),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: Color(0xFFFF6D00)),
-                          foregroundColor: const Color(0xFFFF6D00),
+                          side: BorderSide(color: s.accent),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
                         onPressed: () => Navigator.push(
@@ -707,7 +1093,7 @@ class _StatsTabState extends State<_StatsTab> {
                           ),
                         );
                       },
-                      child: _chipStat("Seguidores", widget.followersCount),
+                      child: _chipStat(context, "Seguidores", widget.followersCount),
                     ),
                     GestureDetector(
                       onTap: () {
@@ -721,7 +1107,7 @@ class _StatsTabState extends State<_StatsTab> {
                           ),
                         );
                       },
-                      child: _chipStat("Seguindo", widget.followingCount),
+                      child: _chipStat(context, "Seguindo", widget.followingCount),
                     ),
                   ],
                 ),
@@ -729,55 +1115,122 @@ class _StatsTabState extends State<_StatsTab> {
                 if (widget.isOwner)
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text(
+                    title: Text(
                       'Conta privada',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: s.foreground,
+                      ),
                     ),
-                    subtitle: const Text(
+                    subtitle: Text(
                       'Apenas seguidores aprovados veem suas atividades.',
-                      style: TextStyle(color: Colors.black54),
+                      style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w600),
                     ),
                     value: _isPrivate,
+                    activeColor: s.accent,
                     onChanged: _togglePrivacy,
                   ),
               ],
             ),
           ),
 
+          const SizedBox(height: 12),
+
+          if (widget.isOwner)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.analytics),
+                label: const Text("Análise do meu perfil de jogador"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: s.accent,
+                  foregroundColor: s.accentForeground,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PerformanceAnalysisPage(
+                        userId: widget.userId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.fitness_center),
+              label: const Text("Plano de Treino"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: s.accent,
+                foregroundColor: s.accentForeground,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TrainingPlanPage(
+                      userId: widget.userId,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
           const SizedBox(height: 10),
 
           InkWell(
+            borderRadius: BorderRadius.circular(18),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const HelpPage()),
             ),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.all(12),
+            child: _Card(
               child: Row(
                 children: [
-                  const Icon(Icons.help_outline, color: Color(0xFFFF6D00), size: 34),
+                  Icon(Icons.help_outline, color: s.accent, size: 34),
                   const SizedBox(width: 14),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           "Ajuda: XP, Pontos e Elo",
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: s.foreground,
+                          ),
                         ),
-                        SizedBox(height: 2),
+                        const SizedBox(height: 2),
                         Text(
                           "Entenda como subir de nível e dominar o mapa",
-                          style: TextStyle(color: Colors.black54, fontSize: 12),
+                          style: TextStyle(
+                            color: s.mutedForeground,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.black45),
+                  Icon(Icons.chevron_right, color: s.mutedForeground),
                 ],
               ),
             ),
@@ -785,9 +1238,7 @@ class _StatsTabState extends State<_StatsTab> {
 
           const SizedBox(height: 10),
 
-          Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.all(18),
+          _Card(
             child: Row(
               children: [
                 const Icon(Icons.workspace_premium, color: Colors.amber, size: 38),
@@ -798,11 +1249,19 @@ class _StatsTabState extends State<_StatsTab> {
                     children: [
                       Text(
                         isPro ? "Pro Runner" : "Runner Free",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
+                          color: s.foreground,
+                        ),
                       ),
                       Text(
                         isPro ? "Benefícios exclusivos" : "Desbloqueie conquistas douradas",
-                        style: const TextStyle(color: Colors.black54, fontSize: 13),
+                        style: TextStyle(
+                          color: s.mutedForeground,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -812,9 +1271,12 @@ class _StatsTabState extends State<_StatsTab> {
                     context,
                     MaterialPageRoute(builder: (_) => const ProPlansPage()),
                   ),
-                  child: const Text(
+                  child: Text(
                     "VER MAIS →",
-                    style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: s.accent,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],
@@ -850,17 +1312,19 @@ class _StatsTabState extends State<_StatsTab> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          //const SizedBox(height: 12),
 
-// 🌍 Territórios dominados
           _DominatedTerritoriesSection(
             userId: widget.userId,
             isOwner: widget.isOwner,
           ),
 
+
+
           const SizedBox(height: 10),
 
           InkWell(
+            borderRadius: BorderRadius.circular(18),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -871,41 +1335,45 @@ class _StatsTabState extends State<_StatsTab> {
                 ),
               ),
             ),
-            child: Container(
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-              padding: const EdgeInsets.all(10),
+
+            child: _Card(
               child: Row(
                 children: [
-                  const Icon(Icons.star, color: Color(0xFFFF6D00), size: 40),
+                  Icon(Icons.star, color: s.accent, size: 40),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Text(
                       widget.isOwner
                           ? "Você tem ${widget.totalPoints} pontos"
                           : "$name tem ${widget.totalPoints} pontos",
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: s.foreground,
+                      ),
                     ),
                   ),
-                  const Icon(Icons.chevron_right, color: Colors.black45),
+                  Icon(Icons.chevron_right, color: s.mutedForeground),
                 ],
               ),
             ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
 
           if (widget.isOwner)
             Padding(
               padding: const EdgeInsets.only(bottom: 30),
-              child: ElevatedButton.icon(
+              child: OutlinedButton.icon(
                 icon: const Icon(Icons.logout),
                 label: const Text('Sair'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.red,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: s.destructive,
+                  side: BorderSide(color: s.destructive.withOpacity(0.85)),
                   minimumSize: const Size(double.infinity, 50),
-                  side: const BorderSide(color: Colors.red),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 onPressed: () => FirebaseAuth.instance
                     .signOut()
@@ -917,19 +1385,110 @@ class _StatsTabState extends State<_StatsTab> {
     );
   }
 
+  Widget _chipStat(BuildContext context, String label, int value) {
+    final s = SeasonThemeScope.of(context);
+    return Column(
+      children: [
+        Text(
+          '$value',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            color: s.foreground,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: s.mutedForeground,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-  Widget _chipStat(String label, int value) => Column(children: [Text('$value', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text(label, style: const TextStyle(color: Colors.black54, fontSize: 13))]);
+class _Card extends StatelessWidget {
+  final Widget child;
+  const _Card({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: s.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: s.border),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 18,
+            spreadRadius: 0,
+            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.25),
+          )
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: child,
+    );
+  }
 }
 
 class _StatBox extends StatelessWidget {
-  final IconData icon; final String label; final String value;
-  const _StatBox({required this.icon, required this.label, required this.value});
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _StatBox({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
   @override
-  Widget build(BuildContext context) => Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)), padding: const EdgeInsets.symmetric(vertical: 16), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: const Color(0xFFFF6D00)), const SizedBox(height: 8), Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)), const SizedBox(height: 4), Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12))]));
+  Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: s.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: s.border),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: s.accent),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+              color: s.foreground,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: s.mutedForeground,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          )
+        ],
+      ),
+    );
+  }
 }
 
 class _AchievementsTab extends StatefulWidget {
   const _AchievementsTab();
+
   @override
   State<_AchievementsTab> createState() => _AchievementsTabState();
 }
@@ -937,25 +1496,68 @@ class _AchievementsTab extends StatefulWidget {
 class _AchievementsTabState extends State<_AchievementsTab> {
   List<Map<String, dynamic>> _achievements = [];
   bool _loading = true;
+
   @override
-  void initState() { super.initState(); _loadAchievements(); }
+  void initState() {
+    super.initState();
+    _loadAchievements();
+  }
+
   Future<void> _loadAchievements() async {
     final list = await AchievementService().getUserAchievements();
-    if (mounted) setState(() { _achievements = list; _loading = false; });
+    if (mounted) setState(() => {_achievements = list, _loading = false});
   }
+
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    final s = SeasonThemeScope.of(context);
+
+    if (_loading) return Center(child: CircularProgressIndicator(color: s.accent));
+
     return GridView.builder(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       itemCount: _achievements.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
       itemBuilder: (context, i) {
         final a = _achievements[i];
         final unlocked = a['unlocked'] == true;
+
         return Container(
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: unlocked ? Colors.amber : Colors.black12)),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Text(a['icon'] ?? '🏅', style: TextStyle(fontSize: 30, color: unlocked ? Colors.black : Colors.black38)), const SizedBox(height: 6), Text(a['title'] ?? '', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: unlocked ? Colors.black87 : Colors.black45))]),
+          decoration: BoxDecoration(
+            color: s.card,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: unlocked ? Colors.amber.withOpacity(0.9) : s.border,
+              width: 1.2,
+            ),
+          ),
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                a['icon'] ?? '🏅',
+                style: TextStyle(
+                  fontSize: 30,
+                  color: unlocked ? s.foreground : s.mutedForeground,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                a['title'] ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                  color: unlocked ? s.foreground : s.mutedForeground,
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -964,18 +1566,54 @@ class _AchievementsTabState extends State<_AchievementsTab> {
 
 class _HistoryTab extends StatelessWidget {
   final String userId;
-  const _HistoryTab({required this.userId});
+  final bool isOwner;
+
+  const _HistoryTab({required this.userId, required this.isOwner});
+
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('corridas').where('userId', isEqualTo: userId).orderBy('createdAt', descending: true).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('corridas')
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) return const Center(child: Text("Nenhuma corrida ainda"));
+        if (!snapshot.hasData) {
+          return Center(child: CircularProgressIndicator(color: s.accent));
+        }
+
+        final allDocs = snapshot.data!.docs;
+
+        // ✅ Regra: corrida com isArchived:true só aparece para o dono
+        final docs = isOwner
+            ? allDocs
+            : allDocs.where((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return (data['isArchived'] == true) ? false : true;
+        }).toList();
+
+        if (docs.isEmpty) {
+          return Center(
+            child: Text(
+              "Nenhuma corrida ainda",
+              style: TextStyle(
+                color: s.mutedForeground,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          );
+        }
+
         return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 14, crossAxisSpacing: 14),
+          padding: const EdgeInsets.all(14),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 14,
+            crossAxisSpacing: 14,
+          ),
           itemCount: docs.length,
           itemBuilder: (context, index) {
             final doc = docs[index];
@@ -985,42 +1623,80 @@ class _HistoryTab extends StatelessWidget {
 
             final corrida = RunModel.fromMap({
               ...data,
-              'id': doc.id, // ✅ injeta o id aqui
+              'id': doc.id,
             });
 
-            return _RunCard(corrida: corrida);
+            final bool isArchived = (data['isArchived'] == true);
+
+            return _RunCard(
+              corrida: corrida,
+              isArchived: isArchived,
+              showArchivedBadge: isOwner, // ✅ só o dono vê o badge
+            );
           },
-
-
         );
       },
     );
   }
 }
 
+
 class _ChallengesTab extends StatelessWidget {
   final String userId;
   const _ChallengesTab({required this.userId});
+
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('challenges').where('participants', arrayContains: userId).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('challenges')
+          .where('participants', arrayContains: userId)
+          .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData) {
+          return Center(child: CircularProgressIndicator(color: s.accent));
+        }
+
         final docs = snapshot.data!.docs;
-        if (docs.isEmpty) return const Center(child: Text("Nenhum desafio participando"));
+        if (docs.isEmpty) {
+          return Center(
+            child: Text(
+              "Nenhum desafio participando",
+              style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
+            ),
+          );
+        }
+
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           itemCount: docs.length,
           itemBuilder: (context, i) {
             final data = docs[i].data() as Map<String, dynamic>;
-            return Card(
+            return Container(
               margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: s.card,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: s.border),
+              ),
               child: ListTile(
-                title: Text(data['title'] ?? 'Desafio'),
-                subtitle: Text(data['description'] ?? ''),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChallengeDetailsPage(challengeId: docs[i].id))),
+                title: Text(
+                  data['title'] ?? 'Desafio',
+                  style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  data['description'] ?? '',
+                  style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w600),
+                ),
+                trailing: Icon(Icons.chevron_right, color: s.mutedForeground),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChallengeDetailsPage(challengeId: docs[i].id),
+                  ),
+                ),
               ),
             );
           },
@@ -1032,50 +1708,144 @@ class _ChallengesTab extends StatelessWidget {
 
 class _RunCard extends StatelessWidget {
   final RunModel corrida;
-  const _RunCard({required this.corrida});
+  final bool isArchived;
+  final bool showArchivedBadge;
+
+  const _RunCard({
+    required this.corrida,
+    this.isArchived = false,
+    this.showArchivedBadge = false,
+  });
+
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     return GestureDetector(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corrida))),
-      child: Container(
-        decoration: BoxDecoration(color: Colors.white, border: Border.all(color: Colors.black12), borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            Expanded(child: CustomPaint(painter: _RoutePainter(corrida.route), child: const SizedBox.expand())),
-            const SizedBox(height: 8),
-            Text("${(corrida.distance / 1000).toStringAsFixed(2)} km", style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text("${(corrida.duration / 60).toStringAsFixed(1)} min", style: const TextStyle(fontSize: 12, color: Colors.black54)),
-          ],
-        ),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DetalheCorridaPage(corrida: corrida)),
+      ),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: s.card,
+              border: Border.all(color: s.border),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              children: [
+                Expanded(
+                  child: CustomPaint(
+                    painter: _RoutePainter(corrida.route, color: s.accent),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "${(corrida.distance / 1000).toStringAsFixed(2)} km",
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: s.foreground,
+                  ),
+                ),
+                Text(
+                  "${(corrida.duration / 60).toStringAsFixed(1)} min",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: s.mutedForeground,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ✅ Badge de arquivado (somente dono vê)
+          if (showArchivedBadge && isArchived)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: s.card.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: s.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.archive_rounded, size: 16, color: s.mutedForeground),
+                    const SizedBox(width: 6),
+                    Text(
+                      "Arquivada",
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: s.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
+
 class _RoutePainter extends CustomPainter {
   final List<Map<String, double>> route;
-  _RoutePainter(this.route);
+  final Color color;
+
+  _RoutePainter(this.route, {required this.color});
+
   @override
   void paint(Canvas canvas, Size size) {
     if (route.isEmpty) return;
-    final paint = Paint()..color = const Color(0xFFFF6D00)..strokeWidth = 2..style = PaintingStyle.stroke;
-    double minLat = route.first['lat']!, maxLat = route.first['lat']!, minLng = route.first['lng']!, maxLng = route.first['lng']!;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+
+    double minLat = route.first['lat']!,
+        maxLat = route.first['lat']!,
+        minLng = route.first['lng']!,
+        maxLng = route.first['lng']!;
+
     for (var p in route) {
-      minLat = min(minLat, p['lat']!); maxLat = max(maxLat, p['lat']!);
-      minLng = min(minLng, p['lng']!); maxLng = max(maxLng, p['lng']!);
+      minLat = min(minLat, p['lat']!);
+      maxLat = max(maxLat, p['lat']!);
+      minLng = min(minLng, p['lng']!);
+      maxLng = max(maxLng, p['lng']!);
     }
+
     final latR = maxLat - minLat == 0 ? 0.0001 : maxLat - minLat;
     final lngR = maxLng - minLng == 0 ? 0.0001 : maxLng - minLng;
+
     final path = Path();
     for (int i = 0; i < route.length; i++) {
       final dx = (route[i]['lng']! - minLng) / lngR * size.width;
-      final dy = size.height - (route[i]['lat']! - minLat) / latR * size.height;
-      if (i == 0) path.moveTo(dx, dy); else path.lineTo(dx, dy);
+      final dy =
+          size.height - (route[i]['lat']! - minLat) / latR * size.height;
+      if (i == 0) {
+        path.moveTo(dx, dy);
+      } else {
+        path.lineTo(dx, dy);
+      }
     }
+
     canvas.drawPath(path, paint);
   }
-  @override bool shouldRepaint(covariant CustomPainter old) => false;
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
 class _DominatedTerritoriesSection extends StatelessWidget {
@@ -1089,6 +1859,8 @@ class _DominatedTerritoriesSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     final query = FirebaseFirestore.instance
         .collection('territorios')
         .where('userId', isEqualTo: userId);
@@ -1097,26 +1869,27 @@ class _DominatedTerritoriesSection extends StatelessWidget {
       stream: query.snapshots(),
       builder: (context, snap) {
         if (!snap.hasData) {
-          return Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.all(14),
-            child: const Row(
+          return _Card(
+            child: Row(
               children: [
-                Icon(Icons.public, color: Color(0xFFFF6D00), size: 28),
-                SizedBox(width: 12),
+                Icon(Icons.public, color: s.accent, size: 28),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     "Carregando territórios...",
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: s.foreground,
+                    ),
                   ),
                 ),
                 SizedBox(
                   height: 16,
                   width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: s.accent,
+                  ),
                 ),
               ],
             ),
@@ -1125,23 +1898,22 @@ class _DominatedTerritoriesSection extends StatelessWidget {
 
         final docs = snap.data!.docs;
 
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        return _Card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.public, color: Color(0xFFFF6D00), size: 28),
+                  Icon(Icons.public, color: s.accent, size: 28),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       "Territórios dominados",
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        color: s.foreground,
+                      ),
                     ),
                   ),
                   TextButton(
@@ -1156,10 +1928,10 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                         ),
                       );
                     },
-                    child: const Text(
+                    child: Text(
                       "VER TODOS →",
                       style: TextStyle(
-                        color: Color(0xFFFF6D00),
+                        color: s.accent,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -1167,13 +1939,12 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-
               if (docs.isEmpty)
                 Text(
                   isOwner
                       ? "Você ainda não domina nenhum território. Faça uma corrida e conquiste áreas no mapa 👑"
                       : "Este usuário ainda não domina nenhum território.",
-                  style: const TextStyle(color: Colors.black54),
+                  style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w600),
                 )
               else
                 SizedBox(
@@ -1202,15 +1973,15 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                       final badge = safety.isNotEmpty
                           ? (safety == 'safe'
                           ? 'Tranquilo'
-                          : (safety == 'danger'
-                          ? 'Perigoso'
-                          : safety))
-                          : (difficulty != null ? 'Dificuldade $difficulty/5' : 'Domínio ativo');
+                          : (safety == 'danger' ? 'Perigoso' : safety))
+                          : (difficulty != null
+                          ? 'Dificuldade $difficulty/5'
+                          : 'Domínio ativo');
 
                       return Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                           onTap: () {
                             Navigator.push(
                               context,
@@ -1223,12 +1994,12 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                             );
                           },
                           child: Container(
-                            width: 180,
+                            width: 190,
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF7F7F7),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.black12),
+                              color: s.input,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: s.border),
                             ),
                             child: Row(
                               children: [
@@ -1236,10 +2007,11 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                                   height: 44,
                                   width: 44,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFFF6D00).withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(12),
+                                    color: s.accent.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: s.border),
                                   ),
-                                  child: const Icon(Icons.flag, color: Color(0xFFFF6D00)),
+                                  child: Icon(Icons.flag, color: s.accent),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
@@ -1251,15 +2023,18 @@ class _DominatedTerritoriesSection extends StatelessWidget {
                                         title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: s.foreground,
+                                        ),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         badge,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.black54,
+                                        style: TextStyle(
+                                          color: s.mutedForeground,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -1282,6 +2057,3 @@ class _DominatedTerritoriesSection extends StatelessWidget {
     );
   }
 }
-
-
-

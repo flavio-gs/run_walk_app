@@ -5,16 +5,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-// ✅ these two need pubspec deps:
+// ✅ deps pubspec:
 //   share_plus: ^10.0.0
 //   qr_flutter: ^4.1.0
 import 'package:share_plus/share_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-
 import 'group_task_details_page.dart';
 import 'create_group_task_page.dart';
+
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class GroupPage extends StatefulWidget {
   final String groupId;
@@ -24,11 +24,8 @@ class GroupPage extends StatefulWidget {
   State<GroupPage> createState() => _GroupPageState();
 }
 
-class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMixin {
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
+class _GroupPageState extends State<GroupPage>
+    with SingleTickerProviderStateMixin {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -38,6 +35,7 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
   int _tabIndex = 0;
 
   bool _isAdminRole(String role) => role == 'owner' || role == 'admin';
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void initState() {
@@ -74,15 +72,22 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
   Stream<DocumentSnapshot<Map<String, dynamic>>> _myMemberStream() {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return const Stream.empty();
-    return _db.collection('groups').doc(widget.groupId).collection('members').doc(uid).snapshots();
+    return _db
+        .collection('groups')
+        .doc(widget.groupId)
+        .collection('members')
+        .doc(uid)
+        .snapshots();
   }
 
   // =============================================================
   // ✅ MANAGEMENT (owner/admin)
   // =============================================================
 
-  Future<void> _openManageSheet({required bool isOwner, required bool isAdmin}) async {
+  Future<void> _openManageSheet(
+      {required bool isOwner, required bool isAdmin}) async {
     if (!isAdmin) return;
+    final s = _S(context);
 
     showModalBottomSheet(
       context: context,
@@ -92,9 +97,9 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
         return Container(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
           decoration: BoxDecoration(
-            color: kCard,
+            color: s.card,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: s.border),
           ),
           child: SafeArea(
             top: false,
@@ -105,16 +110,20 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                   width: 46,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: s.mutedForeground.withOpacity(0.35),
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '🛡️ Gerenciar Clã',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                    style: TextStyle(
+                      color: s.foreground,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -174,7 +183,8 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
     bool destructive = false,
     required VoidCallback onTap,
   }) {
-    final color = destructive ? Colors.redAccent : kOrange;
+    final s = _S(context);
+    final color = destructive ? Colors.redAccent : s.primary;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -186,9 +196,9 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: kBg,
+          color: s.background,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: s.border),
         ),
         child: Row(
           children: [
@@ -207,18 +217,24 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                  Text(title,
+                      style: TextStyle(
+                          color: s.foreground, fontWeight: FontWeight.w900)),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700, fontSize: 12),
+                      style: TextStyle(
+                        color: s.mutedForeground,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                   ]
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+            Icon(Icons.chevron_right_rounded, color: s.mutedForeground),
           ],
         ),
       ),
@@ -226,24 +242,31 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _renameClan() async {
+    final s = _S(context);
     final ctrl = TextEditingController();
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: kCard,
-        title: const Text('Renomear clã', style: TextStyle(color: Colors.white)),
+        backgroundColor: s.card,
+        title: Text('Renomear clã', style: TextStyle(color: s.foreground)),
         content: TextField(
           controller: ctrl,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
+          style: TextStyle(color: s.foreground),
+          decoration: InputDecoration(
             hintText: 'Novo nome...',
-            hintStyle: TextStyle(color: Colors.white54),
+            hintStyle: TextStyle(color: s.mutedForeground),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Salvar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Cancelar',
+                  style: TextStyle(color: s.mutedForeground))),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Salvar',
+                  style: TextStyle(color: s.primary, fontWeight: FontWeight.w900))),
         ],
       ),
     );
@@ -260,12 +283,14 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
     });
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nome atualizado ✅')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Nome atualizado ✅')));
   }
 
   // ✅ convite link simples (troca depois por Firebase Dynamic Links)
   String _randToken([int len = 18]) {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final r = Random.secure();
     return List.generate(len, (_) => chars[r.nextInt(chars.length)]).join();
   }
@@ -295,6 +320,7 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _showInviteQr() async {
+    final s = _S(context);
     final link = await _createInviteLink();
     if (!mounted) return;
 
@@ -309,9 +335,9 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
             width: 320, // ✅ largura fixa -> evita Intrinsic
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: kCard,
+              color: s.card,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: s.border),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -320,14 +346,17 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                   width: 46,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: s.mutedForeground.withOpacity(0.35),
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
                 const SizedBox(height: 14),
-                const Text(
+                Text(
                   'QR Code do convite',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                  style: TextStyle(
+                      color: s.foreground,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16),
                 ),
                 const SizedBox(height: 14),
 
@@ -341,18 +370,17 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                   child: SizedBox(
                     width: 240,
                     height: 240,
-                    child: QrImageView(
-                      data: link,
-                      // se quiser: version: QrVersions.auto,
-                      // se quiser: errorCorrectionLevel: QrErrorCorrectLevel.M,
-                    ),
+                    child: QrImageView(data: link),
                   ),
                 ),
 
                 const SizedBox(height: 12),
                 SelectableText(
                   link,
-                  style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                      color: s.mutedForeground,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
@@ -365,20 +393,25 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                     },
                     style: ElevatedButton.styleFrom(
                       elevation: 0,
-                      backgroundColor: kOrange,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      backgroundColor: s.primary,
+                      foregroundColor: s.primaryForeground,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     icon: const Icon(Icons.share_rounded),
-                    label: const Text('Compartilhar', style: TextStyle(fontWeight: FontWeight.w900)),
+                    label: const Text('Compartilhar',
+                        style: TextStyle(fontWeight: FontWeight.w900)),
                   ),
                 ),
 
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Fechar', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800)),
+                  child: Text('Fechar',
+                      style: TextStyle(
+                          color: s.mutedForeground,
+                          fontWeight: FontWeight.w800)),
                 ),
               ],
             ),
@@ -388,20 +421,28 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
     );
   }
 
-
   Future<void> _deleteClanSoft() async {
+    final s = _S(context);
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: kCard,
-        title: const Text('Excluir clã?', style: TextStyle(color: Colors.white)),
-        content: const Text(
+        backgroundColor: s.card,
+        title: Text('Excluir clã?', style: TextStyle(color: s.foreground)),
+        content: Text(
           'Isso vai esconder o clã no app (soft-delete). Recomendo essa opção.\n\nConfirmar?',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: s.mutedForeground),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Excluir')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Cancelar',
+                  style: TextStyle(color: s.mutedForeground))),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Excluir',
+                  style: TextStyle(
+                      color: Colors.redAccent, fontWeight: FontWeight.w900))),
         ],
       ),
     );
@@ -419,6 +460,8 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
 
   // ✅ excluir task: por padrão faz SOFT DELETE (evita problema com subcoleções)
   Future<void> _pickAndDeleteTask() async {
+    final s = _S(context);
+
     final snap = await _db
         .collection('groups')
         .doc(widget.groupId)
@@ -429,7 +472,8 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
 
     if (snap.docs.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sem tasks pra excluir.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Sem tasks pra excluir.')));
       return;
     }
 
@@ -438,29 +482,33 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
         decoration: BoxDecoration(
-          color: kCard,
+          color: s.card,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(color: s.border),
         ),
         child: SafeArea(
           top: false,
           child: ListView(
             shrinkWrap: true,
             children: [
-              const Padding(
-                padding: EdgeInsets.all(14),
+              Padding(
+                padding: const EdgeInsets.all(14),
                 child: Text(
                   'Escolha a task pra excluir',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                      color: s.foreground, fontWeight: FontWeight.w900),
                 ),
               ),
               ...snap.docs.map((d) {
                 final t = d.data();
                 final title = (t['title'] ?? 'Task').toString();
                 return ListTile(
-                  title: Text(title, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text(d.id, style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                  trailing: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  title: Text(title, style: TextStyle(color: s.foreground)),
+                  subtitle: Text(d.id,
+                      style: TextStyle(
+                          color: s.mutedForeground, fontSize: 12)),
+                  trailing: const Icon(Icons.delete_outline,
+                      color: Colors.redAccent),
                   onTap: () => Navigator.pop(context, d.id),
                 );
               }),
@@ -474,32 +522,40 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
     if (chosen == null) return;
 
     // ✅ SOFT DELETE
-    await _db.collection('groups').doc(widget.groupId).collection('tasks').doc(chosen).set({
+    await _db
+        .collection('groups')
+        .doc(widget.groupId)
+        .collection('tasks')
+        .doc(chosen)
+        .set({
       'deleted': true,
       'deletedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Task excluída ✅')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Task excluída ✅')));
   }
 
   Future<void> _openInvitePeople() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => InvitePeoplePage(groupId: widget.groupId)),
+      MaterialPageRoute(
+          builder: (_) => InvitePeoplePage(groupId: widget.groupId)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
+
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-
         title: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: _groupStream(),
           builder: (_, snap) {
@@ -507,8 +563,8 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
             final name = (data?['name'] ?? 'Grupo').toString();
             return Text(
               name,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: s.foreground,
                 fontWeight: FontWeight.w900,
                 fontSize: 20,
                 letterSpacing: -0.2,
@@ -530,8 +586,10 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
 
               return IconButton(
                 tooltip: 'Gerenciar clã',
-                onPressed: () => _openManageSheet(isOwner: isOwner, isAdmin: isAdmin),
-                icon: const Icon(Icons.settings_rounded, color: Colors.white70),
+                onPressed: () =>
+                    _openManageSheet(isOwner: isOwner, isAdmin: isAdmin),
+                icon:
+                Icon(Icons.settings_rounded, color: s.mutedForeground),
               );
             },
           ),
@@ -545,18 +603,19 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
               height: 44,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: kCard,
+                color: s.card,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white12),
+                border: Border.all(color: s.border),
               ),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: _myMemberStream(),
                 builder: (_, memberSnap) {
-                  final role = (memberSnap.data?.data()?['role'] ?? 'member').toString();
+                  final role =
+                  (memberSnap.data?.data()?['role'] ?? 'member').toString();
                   final isAdmin = _isAdminRole(role);
 
-                  // ✅ typed stream (evita Stream<dynamic>)
-                  final Stream<QuerySnapshot<Map<String, dynamic>>> pendingStream = isAdmin
+                  final Stream<QuerySnapshot<Map<String, dynamic>>>
+                  pendingStream = isAdmin
                       ? _db
                       .collection('groups')
                       .doc(widget.groupId)
@@ -579,12 +638,11 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                           DateTime? createdAt;
                           if (ts is Timestamp) createdAt = ts.toDate();
 
-                          if (createdAt == null) return true; // sem createdAt -> conta
-                          if (_requestsLastSeenAt == null) return true; // nunca viu -> conta tudo
-                          return createdAt.isAfter(_requestsLastSeenAt!); // só novos
+                          if (createdAt == null) return true;
+                          if (_requestsLastSeenAt == null) return true;
+                          return createdAt.isAfter(_requestsLastSeenAt!);
                         }).length;
 
-                        // ✅ se estiver na aba pedidos, não mostra badge
                         if (_tabIndex == 3) badgeCount = 0;
                       }
 
@@ -593,18 +651,22 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
                         indicatorSize: TabBarIndicatorSize.tab,
                         dividerColor: Colors.transparent,
                         indicator: BoxDecoration(
-                          color: kOrange,
+                          color: s.primary,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        labelColor: Colors.black,
-                        unselectedLabelColor: Colors.white70,
+                        labelColor: s.primaryForeground,
+                        unselectedLabelColor: s.mutedForeground,
                         labelStyle: const TextStyle(fontWeight: FontWeight.w900),
                         tabs: [
                           const Tab(text: 'Participantes'),
                           const Tab(text: 'Desafios'),
                           const Tab(text: 'Chat'),
                           if (isAdmin)
-                            _TabWithBadge(text: 'Pedidos', count: badgeCount)
+                            _TabWithBadge(
+                              text: 'Pedidos',
+                              count: badgeCount,
+                              theme: s,
+                            )
                           else
                             const Tab(text: 'Pedidos'),
                         ],
@@ -617,7 +679,6 @@ class _GroupPageState extends State<GroupPage> with SingleTickerProviderStateMix
           ),
         ),
       ),
-
       body: TabBarView(
         controller: _tabs,
         physics: const BouncingScrollPhysics(),
@@ -639,11 +700,9 @@ class _GroupMembersTab extends StatelessWidget {
   final String groupId;
   const _GroupMembersTab({required this.groupId});
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   bool _isAdminRole(String role) => role == 'owner' || role == 'admin';
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   Future<void> _removeMember({
     required BuildContext context,
@@ -652,18 +711,20 @@ class _GroupMembersTab extends StatelessWidget {
     required String targetUid,
     required String targetName,
   }) async {
+    final s = _S(context);
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: kCard,
-        title: const Text('Remover participante?', style: TextStyle(color: Colors.white)),
+        backgroundColor: s.card,
+        title: Text('Remover participante?', style: TextStyle(color: s.foreground)),
         content: Text(
           'Remover $targetName do clã?',
-          style: const TextStyle(color: Colors.white70),
+          style: TextStyle(color: s.mutedForeground),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Remover')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar', style: TextStyle(color: s.mutedForeground))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text('Remover', style: TextStyle(color: s.primary, fontWeight: FontWeight.w900))),
         ],
       ),
     );
@@ -678,18 +739,20 @@ class _GroupMembersTab extends StatelessWidget {
     });
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Participante removido ✅')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Participante removido ✅')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
     final db = FirebaseFirestore.instance;
     final auth = FirebaseAuth.instance;
     final myUid = auth.currentUser?.uid;
 
     return Container(
-      color: kBg,
+      color: s.background,
       child: Column(
         children: [
           if (myUid != null)
@@ -710,15 +773,15 @@ class _GroupMembersTab extends StatelessWidget {
                         .snapshots(),
                     builder: (_, snap) {
                       if (!snap.hasData) {
-                        return const Center(child: CircularProgressIndicator(color: kOrange));
+                        return Center(child: CircularProgressIndicator(color: s.primary));
                       }
 
                       final docs = snap.data!.docs;
                       if (docs.isEmpty) {
-                        return const Center(
+                        return Center(
                           child: Text(
                             'Sem membros ainda 😶',
-                            style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                            style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                           ),
                         );
                       }
@@ -740,9 +803,9 @@ class _GroupMembersTab extends StatelessWidget {
                             margin: const EdgeInsets.only(bottom: 10),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: kCard,
+                              color: s.card,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white10),
+                              border: Border.all(color: s.border),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.25),
@@ -758,7 +821,7 @@ class _GroupMembersTab extends StatelessWidget {
                                   height: 36,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: kOrange.withOpacity(0.8), width: 1.2),
+                                    border: Border.all(color: s.primary.withOpacity(0.8), width: 1.2),
                                   ),
                                   child: ClipOval(
                                     child: photo.isNotEmpty
@@ -766,9 +829,9 @@ class _GroupMembersTab extends StatelessWidget {
                                       photo,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) =>
-                                      const Icon(Icons.person, color: Colors.white70),
+                                          Icon(Icons.person, color: s.mutedForeground),
                                     )
-                                        : const Icon(Icons.person, color: Colors.white70),
+                                        : Icon(Icons.person, color: s.mutedForeground),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -780,13 +843,13 @@ class _GroupMembersTab extends StatelessWidget {
                                         '${i + 1}º  $name${isMe ? ' (você)' : ''}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                        style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900),
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
                                         role.toUpperCase(),
-                                        style: const TextStyle(
-                                          color: Colors.white38,
+                                        style: TextStyle(
+                                          color: s.mutedForeground,
                                           fontWeight: FontWeight.w800,
                                           fontSize: 11,
                                           letterSpacing: 0.3,
@@ -797,15 +860,14 @@ class _GroupMembersTab extends StatelessWidget {
                                 ),
                                 Text(
                                   '$xp XP',
-                                  style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900),
+                                  style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w900),
                                 ),
 
-                                // ✅ menu admin (remover)
                                 if (isAdmin && !isMe) ...[
                                   const SizedBox(width: 8),
                                   PopupMenuButton<String>(
-                                    color: kCard,
-                                    icon: const Icon(Icons.more_vert_rounded, color: Colors.white60),
+                                    color: s.card,
+                                    icon: Icon(Icons.more_vert_rounded, color: s.mutedForeground),
                                     onSelected: (v) async {
                                       if (v == 'remove') {
                                         await _removeMember(
@@ -818,9 +880,9 @@ class _GroupMembersTab extends StatelessWidget {
                                       }
                                     },
                                     itemBuilder: (_) => [
-                                      const PopupMenuItem(
+                                      PopupMenuItem(
                                         value: 'remove',
-                                        child: Text('Remover do clã', style: TextStyle(color: Colors.white)),
+                                        child: Text('Remover do clã', style: TextStyle(color: s.foreground)),
                                       ),
                                     ],
                                   ),
@@ -836,9 +898,9 @@ class _GroupMembersTab extends StatelessWidget {
               },
             )
           else
-            const Expanded(
+            Expanded(
               child: Center(
-                child: Text('Você precisa estar logado.', style: TextStyle(color: Colors.white60)),
+                child: Text('Você precisa estar logado.', style: TextStyle(color: s.mutedForeground)),
               ),
             ),
         ],
@@ -855,19 +917,17 @@ class _GroupTasksTab extends StatelessWidget {
   final String groupId;
   const _GroupTasksTab({required this.groupId});
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   bool _isAdminRole(String role) => role == 'owner' || role == 'admin';
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
     final db = FirebaseFirestore.instance;
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     return Container(
-      color: kBg,
+      color: s.background,
       child: Column(
         children: [
           if (uid != null)
@@ -881,10 +941,10 @@ class _GroupTasksTab extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           '🎯 Tasks do Grupo',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                          style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900, fontSize: 16),
                         ),
                       ),
                       if (isAdmin)
@@ -897,8 +957,8 @@ class _GroupTasksTab extends StatelessWidget {
                           },
                           style: ElevatedButton.styleFrom(
                             elevation: 0,
-                            backgroundColor: kOrange,
-                            foregroundColor: Colors.black,
+                            backgroundColor: s.primary,
+                            foregroundColor: s.primaryForeground,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                           ),
@@ -920,17 +980,18 @@ class _GroupTasksTab extends StatelessWidget {
                   .snapshots(),
               builder: (_, snap) {
                 if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator(color: kOrange));
+                  return Center(child: CircularProgressIndicator(color: s.primary));
                 }
 
-                // ✅ filtra deletadas
-                final tasks = snap.data!.docs.where((d) => (d.data()['deleted'] == true) ? false : true).toList();
+                final tasks = snap.data!.docs
+                    .where((d) => (d.data()['deleted'] == true) ? false : true)
+                    .toList();
 
                 if (tasks.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
                       'Nenhuma task criada ainda 🚀',
-                      style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                      style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                     ),
                   );
                 }
@@ -949,9 +1010,9 @@ class _GroupTasksTab extends StatelessWidget {
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: kCard,
+                        color: s.card,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: s.border),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.30),
@@ -965,15 +1026,15 @@ class _GroupTasksTab extends StatelessWidget {
                         children: [
                           Text(
                             title,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: s.foreground,
                               fontWeight: FontWeight.w900,
                               fontSize: 16,
                             ),
                           ),
                           if (desc.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Text(desc, style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700)),
+                            Text(desc, style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700)),
                           ],
                           const SizedBox(height: 10),
                           Wrap(
@@ -1017,18 +1078,16 @@ class _GroupTasksTab extends StatelessWidget {
                                         final p = (cm['photoUrl'] ?? '').toString();
                                         return CircleAvatar(
                                           radius: 14,
-                                          backgroundColor: kOrange.withOpacity(0.2),
+                                          backgroundColor: s.primary.withOpacity(0.18),
                                           backgroundImage: p.isNotEmpty ? NetworkImage(p) : null,
-                                          child: p.isEmpty
-                                              ? const Icon(Icons.person, size: 16, color: Colors.white70)
-                                              : null,
+                                          child: p.isEmpty ? Icon(Icons.person, size: 16, color: s.mutedForeground) : null,
                                         );
                                       }).toList(),
                                     ),
                                   ),
                                   Text(
                                     '${comps.length}',
-                                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w900),
+                                    style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w900),
                                   ),
                                 ],
                               );
@@ -1049,8 +1108,8 @@ class _GroupTasksTab extends StatelessWidget {
                               icon: const Icon(Icons.map_rounded),
                               label: const Text('Ver desafio'),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: BorderSide(color: kOrange.withOpacity(0.4)),
+                                foregroundColor: s.foreground,
+                                side: BorderSide(color: s.primary.withOpacity(0.45)),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
@@ -1075,26 +1134,28 @@ class _MiniChip extends StatelessWidget {
   final String label;
   const _MiniChip({required this.icon, required this.label});
 
-  static const Color kOrange = Color(0xFFFF7A00);
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: kOrange.withOpacity(0.14),
+        color: s.primary.withOpacity(0.14),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: kOrange.withOpacity(0.25)),
+        border: Border.all(color: s.primary.withOpacity(0.25)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: kOrange),
+          Icon(icon, size: 16, color: s.primary),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              color: kOrange,
+            style: TextStyle(
+              color: s.primary,
               fontWeight: FontWeight.w900,
               fontSize: 12,
             ),
@@ -1117,14 +1178,12 @@ class _GroupChatTab extends StatefulWidget {
 }
 
 class _GroupChatTabState extends State<_GroupChatTab> {
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   final TextEditingController _text = TextEditingController();
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void dispose() {
@@ -1142,7 +1201,11 @@ class _GroupChatTabState extends State<_GroupChatTab> {
     final uDoc = await _db.collection('users').doc(uid).get();
     final u = uDoc.data() ?? <String, dynamic>{};
 
-    await _db.collection('groups').doc(widget.groupId).collection('messages').add({
+    await _db
+        .collection('groups')
+        .doc(widget.groupId)
+        .collection('messages')
+        .add({
       'uid': uid,
       'text': msg,
       'createdAt': FieldValue.serverTimestamp(),
@@ -1155,8 +1218,10 @@ class _GroupChatTabState extends State<_GroupChatTab> {
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
+
     return Container(
-      color: kBg,
+      color: s.background,
       child: Column(
         children: [
           Expanded(
@@ -1170,16 +1235,17 @@ class _GroupChatTabState extends State<_GroupChatTab> {
                   .snapshots(),
               builder: (_, snap) {
                 if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator(color: kOrange));
+                  return Center(child: CircularProgressIndicator(color: s.primary));
                 }
 
                 final msgs = snap.data!.docs;
 
                 if (msgs.isEmpty) {
-                  return const Center(
+                  return Center(
                     child: Text(
                       'Sem mensagens ainda. Puxa o assunto! 💬',
-                      style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                      style:
+                      TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                     ),
                   );
                 }
@@ -1198,19 +1264,21 @@ class _GroupChatTabState extends State<_GroupChatTab> {
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: kCard,
+                        color: s.card,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(color: s.border),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CircleAvatar(
                             radius: 16,
-                            backgroundColor: kOrange.withOpacity(0.2),
-                            backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+                            backgroundColor: s.primary.withOpacity(0.18),
+                            backgroundImage:
+                            photo.isNotEmpty ? NetworkImage(photo) : null,
                             child: photo.isEmpty
-                                ? const Icon(Icons.person, color: Colors.white70, size: 16)
+                                ? Icon(Icons.person,
+                                color: s.mutedForeground, size: 16)
                                 : null,
                           ),
                           const SizedBox(width: 10),
@@ -1219,10 +1287,14 @@ class _GroupChatTabState extends State<_GroupChatTab> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(name,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                                    style: TextStyle(
+                                        color: s.foreground,
+                                        fontWeight: FontWeight.w900)),
                                 const SizedBox(height: 4),
                                 Text(text,
-                                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                                    style: TextStyle(
+                                        color: s.mutedForeground,
+                                        fontWeight: FontWeight.w700)),
                               ],
                             ),
                           ),
@@ -1239,18 +1311,19 @@ class _GroupChatTabState extends State<_GroupChatTab> {
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               decoration: BoxDecoration(
-                color: kCard,
-                border: const Border(top: BorderSide(color: Colors.white10)),
+                color: s.card,
+                border: Border(top: BorderSide(color: s.border)),
               ),
               child: Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _text,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                      decoration: const InputDecoration(
+                      style: TextStyle(
+                          color: s.foreground, fontWeight: FontWeight.w700),
+                      decoration: InputDecoration(
                         hintText: 'Mensagem...',
-                        hintStyle: TextStyle(color: Colors.white54),
+                        hintStyle: TextStyle(color: s.mutedForeground),
                         border: InputBorder.none,
                       ),
                     ),
@@ -1258,14 +1331,14 @@ class _GroupChatTabState extends State<_GroupChatTab> {
                   const SizedBox(width: 8),
                   Container(
                     decoration: BoxDecoration(
-                      color: kOrange.withOpacity(0.12),
+                      color: s.primary.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: kOrange.withOpacity(0.25)),
+                      border: Border.all(color: s.primary.withOpacity(0.25)),
                     ),
                     child: IconButton(
                       splashRadius: 18,
                       onPressed: _send,
-                      icon: const Icon(Icons.send_rounded, color: kOrange),
+                      icon: Icon(Icons.send_rounded, color: s.primary),
                     ),
                   ),
                 ],
@@ -1285,44 +1358,52 @@ class GroupJoinRequestsPage extends StatelessWidget {
   final String groupId;
   const GroupJoinRequestsPage({super.key, required this.groupId});
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   bool _isAdminRole(String role) => role == 'owner' || role == 'admin';
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
     final db = FirebaseFirestore.instance;
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Pedidos de Entrada',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 20),
+          style: TextStyle(
+              color: s.foreground, fontWeight: FontWeight.w900, fontSize: 20),
         ),
       ),
       body: uid == null
-          ? const Center(
-        child: Text('Você precisa estar logado.', style: TextStyle(color: Colors.white60)),
+          ? Center(
+        child: Text('Você precisa estar logado.',
+            style: TextStyle(color: s.mutedForeground)),
       )
           : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: db.collection('groups').doc(groupId).collection('members').doc(uid).snapshots(),
+        stream: db
+            .collection('groups')
+            .doc(groupId)
+            .collection('members')
+            .doc(uid)
+            .snapshots(),
         builder: (_, memberSnap) {
-          final role = (memberSnap.data?.data()?['role'] ?? 'member').toString();
+          final role =
+          (memberSnap.data?.data()?['role'] ?? 'member').toString();
           final isAdmin = _isAdminRole(role);
 
           if (!isAdmin) {
-            return const Center(
+            return Center(
               child: Text(
                 'Apenas admins podem ver pedidos.',
-                style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    color: s.mutedForeground,
+                    fontWeight: FontWeight.w700),
               ),
             );
           }
@@ -1337,15 +1418,19 @@ class GroupJoinRequestsPage extends StatelessWidget {
                 .snapshots(),
             builder: (_, snap) {
               if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator(color: kOrange));
+                return Center(
+                    child:
+                    CircularProgressIndicator(color: s.primary));
               }
 
               final reqs = snap.data!.docs;
               if (reqs.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
                     'Sem pedidos pendentes ✅',
-                    style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                        color: s.mutedForeground,
+                        fontWeight: FontWeight.w700),
                   ),
                 );
               }
@@ -1362,43 +1447,61 @@ class GroupJoinRequestsPage extends StatelessWidget {
                     future: db.collection('users').doc(requesterUid).get(),
                     builder: (_, uSnap) {
                       final u = uSnap.data?.data() ?? {};
-                      final name = (u['displayName'] ?? u['name'] ?? 'Runner').toString();
-                      final photo = (u['photoUrl'] ?? u['photoURL'] ?? '').toString();
+                      final name = (u['displayName'] ??
+                          u['name'] ??
+                          'Runner')
+                          .toString();
+                      final photo = (u['photoUrl'] ??
+                          u['photoURL'] ??
+                          '')
+                          .toString();
                       final username = (u['username'] ?? '').toString();
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: kCard,
+                          color: s.card,
                           borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: s.border),
                         ),
                         child: Row(
                           children: [
                             CircleAvatar(
                               radius: 18,
-                              backgroundColor: kOrange.withOpacity(0.2),
-                              backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
-                              child: photo.isEmpty ? const Icon(Icons.person, color: Colors.white70) : null,
+                              backgroundColor: s.primary.withOpacity(0.18),
+                              backgroundImage: photo.isNotEmpty
+                                  ? NetworkImage(photo)
+                                  : null,
+                              child: photo.isEmpty
+                                  ? Icon(Icons.person,
+                                  color: s.mutedForeground)
+                                  : null,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                                crossAxisAlignment:
+                                CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                    style: TextStyle(
+                                        color: s.foreground,
+                                        fontWeight: FontWeight.w900),
                                   ),
                                   const SizedBox(height: 3),
                                   Text(
-                                    username.isNotEmpty ? '@$username' : requesterUid,
+                                    username.isNotEmpty
+                                        ? '@$username'
+                                        : requesterUid,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                                    style: TextStyle(
+                                        color: s.mutedForeground,
+                                        fontWeight: FontWeight.w700),
                                   ),
                                 ],
                               ),
@@ -1412,55 +1515,73 @@ class GroupJoinRequestsPage extends StatelessWidget {
                                     .doc(groupId)
                                     .collection('join_requests')
                                     .doc(requesterUid)
-                                    .set({'status': 'rejected'}, SetOptions(merge: true));
+                                    .set({'status': 'rejected'},
+                                    SetOptions(merge: true));
 
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Pedido recusado ❌')),
-                                  );
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                      content:
+                                      Text('Pedido recusado ❌')));
                                 }
                               },
-                              icon: const Icon(Icons.close_rounded, color: Colors.white54),
+                              icon: Icon(Icons.close_rounded,
+                                  color: s.mutedForeground),
                             ),
                             const SizedBox(width: 6),
                             ElevatedButton(
                               onPressed: () async {
                                 await db.runTransaction((tx) async {
-                                  final groupRef = db.collection('groups').doc(groupId);
-                                  final memberRef = groupRef.collection('members').doc(requesterUid);
-                                  final reqRef = groupRef.collection('join_requests').doc(requesterUid);
+                                  final groupRef =
+                                  db.collection('groups').doc(groupId);
+                                  final memberRef = groupRef
+                                      .collection('members')
+                                      .doc(requesterUid);
+                                  final reqRef = groupRef
+                                      .collection('join_requests')
+                                      .doc(requesterUid);
 
                                   final mSnap = await tx.get(memberRef);
                                   if (!mSnap.exists) {
                                     tx.set(memberRef, {
                                       'role': 'member',
                                       'uid': requesterUid,
-                                      'joinedAt': FieldValue.serverTimestamp(),
+                                      'joinedAt':
+                                      FieldValue.serverTimestamp(),
                                       'displayName': name,
                                       'username': username,
                                       'photoUrl': photo,
                                       'xp': 0,
                                       'km': 0,
                                     });
-                                    tx.update(groupRef, {'membersCount': FieldValue.increment(1)});
+                                    tx.update(groupRef, {
+                                      'membersCount':
+                                      FieldValue.increment(1)
+                                    });
                                   }
-                                  tx.set(reqRef, {'status': 'approved'}, SetOptions(merge: true));
+                                  tx.set(reqRef, {'status': 'approved'},
+                                      SetOptions(merge: true));
                                 });
 
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Pedido aprovado ✅')),
-                                  );
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                      content:
+                                      Text('Pedido aprovado ✅')));
                                 }
                               },
                               style: ElevatedButton.styleFrom(
                                 elevation: 0,
-                                backgroundColor: kOrange,
-                                foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                backgroundColor: s.primary,
+                                foregroundColor: s.primaryForeground,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
                               ),
-                              child: const Text('Aprovar', style: TextStyle(fontWeight: FontWeight.w900)),
+                              child: const Text('Aprovar',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w900)),
                             ),
                           ],
                         ),
@@ -1480,7 +1601,9 @@ class GroupJoinRequestsPage extends StatelessWidget {
 class _TabWithBadge extends StatelessWidget {
   final String text;
   final int count;
-  const _TabWithBadge({required this.text, required this.count});
+  final SeasonTheme theme;
+  const _TabWithBadge(
+      {required this.text, required this.count, required this.theme});
 
   @override
   Widget build(BuildContext context) {
@@ -1515,7 +1638,7 @@ class _TabWithBadge extends StatelessWidget {
 }
 
 // =============================================================
-// ✅ CONVIDAR (seguindo/seguidores) com sua estrutura
+// ✅ CONVIDAR (seguindo/seguidores)
 // users/{me}/followers/{uid}
 // users/{me}/following/{uid}
 // Cria convite em groups/{groupId}/invites/{targetUid}
@@ -1528,15 +1651,14 @@ class InvitePeoplePage extends StatefulWidget {
   State<InvitePeoplePage> createState() => _InvitePeoplePageState();
 }
 
-class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerProviderStateMixin {
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
+class _InvitePeoplePageState extends State<InvitePeoplePage>
+    with SingleTickerProviderStateMixin {
   final db = FirebaseFirestore.instance;
   final auth = FirebaseAuth.instance;
 
   late final TabController tabs;
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void initState() {
@@ -1560,15 +1682,20 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
     final me = auth.currentUser?.uid;
     if (me == null) return;
 
-    // pega meus dados básicos
     final meDoc = await db.collection('users').doc(me).get();
     final meData = meDoc.data() ?? {};
-    final fromName = (meData['displayName'] ?? meData['name'] ?? 'Runner').toString();
-    final fromPhoto = (meData['photoUrl'] ?? meData['photoURL'] ?? '').toString();
+    final fromName =
+    (meData['displayName'] ?? meData['name'] ?? 'Runner').toString();
+    final fromPhoto =
+    (meData['photoUrl'] ?? meData['photoURL'] ?? '').toString();
     final fromUsername = (meData['username'] ?? '').toString();
 
-    // salva convite
-    await db.collection('groups').doc(widget.groupId).collection('invites').doc(targetUid).set({
+    await db
+        .collection('groups')
+        .doc(widget.groupId)
+        .collection('invites')
+        .doc(targetUid)
+        .set({
       'uid': targetUid,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
@@ -1579,10 +1706,13 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
     }, SetOptions(merge: true));
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Convite enviado ✅')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Convite enviado ✅')));
   }
 
   Widget _userRow(String uid) {
+    final s = _S(context);
+
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future: db.collection('users').doc(uid).get(),
       builder: (_, snap) {
@@ -1592,31 +1722,45 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
         final photo = (u['photoUrl'] ?? u['photoURL'] ?? '').toString();
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: db.collection('groups').doc(widget.groupId).collection('members').doc(uid).snapshots(),
+          stream: db
+              .collection('groups')
+              .doc(widget.groupId)
+              .collection('members')
+              .doc(uid)
+              .snapshots(),
           builder: (_, memSnap) {
             final alreadyMember = memSnap.data?.exists == true;
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: db.collection('groups').doc(widget.groupId).collection('invites').doc(uid).snapshots(),
+              stream: db
+                  .collection('groups')
+                  .doc(widget.groupId)
+                  .collection('invites')
+                  .doc(uid)
+                  .snapshots(),
               builder: (_, invSnap) {
-                final inviteStatus = (invSnap.data?.data()?['status'] ?? '').toString();
+                final inviteStatus =
+                (invSnap.data?.data()?['status'] ?? '').toString();
                 final invited = inviteStatus == 'pending';
 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: kCard,
+                    color: s.card,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white10),
+                    border: Border.all(color: s.border),
                   ),
                   child: Row(
                     children: [
                       CircleAvatar(
                         radius: 18,
-                        backgroundColor: kOrange.withOpacity(0.2),
-                        backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
-                        child: photo.isEmpty ? const Icon(Icons.person, color: Colors.white70) : null,
+                        backgroundColor: s.primary.withOpacity(0.18),
+                        backgroundImage:
+                        photo.isNotEmpty ? NetworkImage(photo) : null,
+                        child: photo.isEmpty
+                            ? Icon(Icons.person, color: s.mutedForeground)
+                            : null,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -1626,13 +1770,18 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
                             Text(name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                                style: TextStyle(
+                                    color: s.foreground,
+                                    fontWeight: FontWeight.w900)),
                             const SizedBox(height: 2),
                             Text(
                               username.isNotEmpty ? '@$username' : uid,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700, fontSize: 12),
+                              style: TextStyle(
+                                  color: s.mutedForeground,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12),
                             ),
                           ],
                         ),
@@ -1640,37 +1789,49 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
                       const SizedBox(width: 10),
                       if (alreadyMember)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.08),
+                            color: s.background,
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: Colors.white12),
+                            border: Border.all(color: s.border),
                           ),
-                          child: const Text('No clã',
-                              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w900, fontSize: 12)),
+                          child: Text('No clã',
+                              style: TextStyle(
+                                  color: s.mutedForeground,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12)),
                         )
                       else if (invited)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: kOrange.withOpacity(0.14),
+                            color: s.primary.withOpacity(0.14),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: kOrange.withOpacity(0.25)),
+                            border: Border.all(
+                                color: s.primary.withOpacity(0.25)),
                           ),
-                          child: const Text('Convidado',
-                              style: TextStyle(color: kOrange, fontWeight: FontWeight.w900, fontSize: 12)),
+                          child: Text('Convidado',
+                              style: TextStyle(
+                                  color: s.primary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12)),
                         )
                       else
                         ElevatedButton(
                           onPressed: () => _invite(uid),
                           style: ElevatedButton.styleFrom(
                             elevation: 0,
-                            backgroundColor: kOrange,
-                            foregroundColor: Colors.black,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            backgroundColor: s.primary,
+                            foregroundColor: s.primaryForeground,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
                           ),
-                          child: const Text('Convidar', style: TextStyle(fontWeight: FontWeight.w900)),
+                          child: const Text('Convidar',
+                              style: TextStyle(fontWeight: FontWeight.w900)),
                         ),
                     ],
                   ),
@@ -1685,18 +1846,19 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
     final me = auth.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Convidar para o clã',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),
@@ -1706,20 +1868,20 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
               height: 44,
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: kCard,
+                color: s.card,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white12),
+                border: Border.all(color: s.border),
               ),
               child: TabBar(
                 controller: tabs,
                 indicatorSize: TabBarIndicatorSize.tab,
                 dividerColor: Colors.transparent,
                 indicator: BoxDecoration(
-                  color: kOrange,
+                  color: s.primary,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                labelColor: Colors.black,
-                unselectedLabelColor: Colors.white70,
+                labelColor: s.primaryForeground,
+                unselectedLabelColor: s.mutedForeground,
                 labelStyle: const TextStyle(fontWeight: FontWeight.w900),
                 tabs: const [
                   Tab(text: 'Mutuals'),
@@ -1732,32 +1894,42 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
         ),
       ),
       body: me == null
-          ? const Center(child: Text('Você precisa estar logado.', style: TextStyle(color: Colors.white60)))
+          ? Center(
+          child: Text('Você precisa estar logado.',
+              style: TextStyle(color: s.mutedForeground)))
           : TabBarView(
         controller: tabs,
         physics: const BouncingScrollPhysics(),
         children: [
-          // Mutuals = interseção
+          // Mutuals
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _followingStream(me),
             builder: (_, folSnap) {
-              final followingIds = folSnap.data?.docs.map((d) => d.id).toSet() ?? <String>{};
+              final followingIds =
+                  folSnap.data?.docs.map((d) => d.id).toSet() ??
+                      <String>{};
 
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _followersStream(me),
                 builder: (_, ferSnap) {
                   if (!folSnap.hasData || !ferSnap.hasData) {
-                    return const Center(child: CircularProgressIndicator(color: kOrange));
+                    return Center(
+                        child:
+                        CircularProgressIndicator(color: s.primary));
                   }
 
-                  final followerIds = ferSnap.data!.docs.map((d) => d.id).toSet();
-                  final mutuals = followingIds.intersection(followerIds).toList();
+                  final followerIds =
+                  ferSnap.data!.docs.map((d) => d.id).toSet();
+                  final mutuals =
+                  followingIds.intersection(followerIds).toList();
 
                   if (mutuals.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: Text(
                         'Sem mutuals ainda 😶',
-                        style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                            color: s.mutedForeground,
+                            fontWeight: FontWeight.w700),
                       ),
                     );
                   }
@@ -1776,13 +1948,19 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _followingStream(me),
             builder: (_, snap) {
-              if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: kOrange));
+              if (!snap.hasData) {
+                return Center(
+                    child:
+                    CircularProgressIndicator(color: s.primary));
+              }
               final ids = snap.data!.docs.map((d) => d.id).toList();
               if (ids.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
                     'Você não segue ninguém ainda 😅',
-                    style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                        color: s.mutedForeground,
+                        fontWeight: FontWeight.w700),
                   ),
                 );
               }
@@ -1798,13 +1976,19 @@ class _InvitePeoplePageState extends State<InvitePeoplePage> with SingleTickerPr
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _followersStream(me),
             builder: (_, snap) {
-              if (!snap.hasData) return const Center(child: CircularProgressIndicator(color: kOrange));
+              if (!snap.hasData) {
+                return Center(
+                    child:
+                    CircularProgressIndicator(color: s.primary));
+              }
               final ids = snap.data!.docs.map((d) => d.id).toList();
               if (ids.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text(
                     'Você ainda não tem seguidores 😶',
-                    style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                        color: s.mutedForeground,
+                        fontWeight: FontWeight.w700),
                   ),
                 );
               }

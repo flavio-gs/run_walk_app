@@ -1,7 +1,9 @@
-// group_requests_tab.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+// 🔥 mesmo padrão das outras telas (ajuste o caminho se necessário)
+import '../theme/season_theme_scope.dart';
 
 class GroupRequestsTab extends StatelessWidget {
   final String groupId;
@@ -13,14 +15,12 @@ class GroupRequestsTab extends StatelessWidget {
     this.onViewed,
   });
 
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   bool _isAdminRole(String role) => role == 'owner' || role == 'admin';
 
   @override
   Widget build(BuildContext context) {
+    final theme = SeasonThemeScope.of(context);
+
     final db = FirebaseFirestore.instance;
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
@@ -40,7 +40,12 @@ class GroupRequestsTab extends StatelessWidget {
 
     // Primeiro: checa se é admin/owner
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: db.collection('groups').doc(groupId).collection('members').doc(uid).snapshots(),
+      stream: db
+          .collection('groups')
+          .doc(groupId)
+          .collection('members')
+          .doc(uid)
+          .snapshots(),
       builder: (context, memberSnap) {
         final role = memberSnap.data?.data()?['role']?.toString() ?? 'member';
         final isAdmin = _isAdminRole(role);
@@ -56,7 +61,7 @@ class GroupRequestsTab extends StatelessWidget {
 
         // Lista pedidos pendentes
         return Container(
-          color: kBg,
+          color: theme.background,
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: db
                 .collection('groups')
@@ -67,7 +72,9 @@ class GroupRequestsTab extends StatelessWidget {
                 .snapshots(),
             builder: (context, snap) {
               if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator(color: kOrange));
+                return Center(
+                  child: CircularProgressIndicator(color: theme.accent),
+                );
               }
 
               final reqs = snap.data!.docs;
@@ -93,7 +100,8 @@ class GroupRequestsTab extends StatelessWidget {
                     future: db.collection('users').doc(requesterUid).get(),
                     builder: (context, userSnap) {
                       final u = userSnap.data?.data() ?? <String, dynamic>{};
-                      final displayName = (u['displayName'] ?? u['name'] ?? 'Runner').toString();
+                      final displayName =
+                      (u['displayName'] ?? u['name'] ?? 'Runner').toString();
                       final username = (u['username'] ?? '').toString();
                       final photoUrl = (u['photoUrl'] ?? u['photoURL'] ?? '').toString();
 
@@ -101,7 +109,7 @@ class GroupRequestsTab extends StatelessWidget {
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: kCard,
+                          color: theme.card,
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(color: Colors.white10),
                           boxShadow: [
@@ -116,8 +124,9 @@ class GroupRequestsTab extends StatelessWidget {
                           children: [
                             CircleAvatar(
                               radius: 20,
-                              backgroundColor: kOrange.withOpacity(0.18),
-                              backgroundImage: photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+                              backgroundColor: theme.accent.withOpacity(0.18),
+                              backgroundImage:
+                              photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
                               child: photoUrl.isEmpty
                                   ? const Icon(Icons.person, color: Colors.white70)
                                   : null,
@@ -131,13 +140,19 @@ class GroupRequestsTab extends StatelessWidget {
                                     displayName,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
                                   if (username.isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Text(
                                       '@$username',
-                                      style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                                      style: const TextStyle(
+                                        color: Colors.white60,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ],
                                 ],
@@ -157,7 +172,7 @@ class GroupRequestsTab extends StatelessWidget {
                             // ✅ Aceitar
                             _MiniBtn(
                               label: 'Aceitar',
-                              bg: kOrange,
+                              bg: theme.accent,
                               fg: Colors.black,
                               onTap: () => _approve(context, db, groupId, requesterUid),
                             ),
@@ -208,8 +223,11 @@ class GroupRequestsTab extends StatelessWidget {
           tx.update(groupRef, {'membersCount': FieldValue.increment(1)});
         }
 
-        // pode deletar ou marcar status
-        tx.set(reqRef, {'status': 'approved', 'handledAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+        tx.set(
+          reqRef,
+          {'status': 'approved', 'handledAt': FieldValue.serverTimestamp()},
+          SetOptions(merge: true),
+        );
       });
 
       if (context.mounted) {
@@ -233,7 +251,11 @@ class GroupRequestsTab extends StatelessWidget {
       String requesterUid,
       ) async {
     try {
-      final reqRef = db.collection('groups').doc(groupId).collection('join_requests').doc(requesterUid);
+      final reqRef = db
+          .collection('groups')
+          .doc(groupId)
+          .collection('join_requests')
+          .doc(requesterUid);
 
       await reqRef.set({
         'status': 'rejected',

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage({super.key});
@@ -16,12 +17,20 @@ class _FeedbackPageState extends State<FeedbackPage> {
   final TextEditingController _controller = TextEditingController();
   bool _sending = false;
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _sendFeedback() async {
+    final s = SeasonThemeScope.of(context);
+
     if (_rating == 0 || _controller.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Por favor, dê uma nota e escreva seu feedback!"),
-          backgroundColor: Colors.redAccent,
+        SnackBar(
+          content: const Text("Por favor, dê uma nota e escreva seu feedback!"),
+          backgroundColor: s.destructive,
         ),
       );
       return;
@@ -46,76 +55,74 @@ class _FeedbackPageState extends State<FeedbackPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("✨ Obrigado pelo seu feedback!"),
-            backgroundColor: Colors.green,
+          SnackBar(
+            content: const Text("✨ Obrigado pelo seu feedback!"),
+            backgroundColor: s.accent,
           ),
         );
       }
     } catch (e) {
+      final s2 = SeasonThemeScope.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Erro ao enviar: $e"),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: s2.destructive,
         ),
       );
     } finally {
-      setState(() => _sending = false);
+      if (mounted) setState(() => _sending = false);
     }
   }
 
   Widget _buildStar(int index) {
+    final s = SeasonThemeScope.of(context);
+
+    final isOn = index <= _rating;
+
     return IconButton(
       icon: Icon(
-        index <= _rating ? Icons.star_rounded : Icons.star_border_rounded,
-        color: index <= _rating ? Colors.amber : Colors.white24,
+        isOn ? Icons.star_rounded : Icons.star_border_rounded,
+        color: isOn ? s.accent : s.muted,
         size: 40,
       ),
-      onPressed: () {
-        setState(() => _rating = index);
-      },
+      onPressed: () => setState(() => _rating = index),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = SeasonThemeScope.of(context);
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: s.background,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF007AFF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
-          child: Text(
-            "Feedback",
-            style: GoogleFonts.russoOne(
-              textStyle: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-              ),
+        centerTitle: true,
+        iconTheme: IconThemeData(color: s.accent),
+        title: Text(
+          "Feedback",
+          style: GoogleFonts.russoOne(
+            textStyle: TextStyle(
+              color: s.foreground,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.1,
             ),
           ),
         ),
-        centerTitle: true,
       ),
       body: Stack(
         children: [
-          // Fundo com gradiente e blur
+          // Fundo (gradiente usando tokens do tema)
           Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Color(0xFF0A0A0A),
-                  Color(0xFF0F2027),
-                  Color(0xFF203A43),
-                  Color(0xFF2C5364),
+                  s.background,
+                  s.card.withOpacity(0.70),
+                  s.popover.withOpacity(0.65),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -125,21 +132,21 @@ class _FeedbackPageState extends State<FeedbackPage> {
 
           Center(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(25),
+              borderRadius: BorderRadius.circular(24),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                 child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 25),
-                  padding: const EdgeInsets.all(25),
+                  margin: const EdgeInsets.symmetric(horizontal: 22),
+                  padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    border: Border.all(color: Colors.white.withOpacity(0.2)),
-                    borderRadius: BorderRadius.circular(25),
+                    color: s.card.withOpacity(0.55),
+                    border: Border.all(color: s.border.withOpacity(0.9)),
+                    borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blueAccent.withOpacity(0.2),
-                        blurRadius: 25,
-                        spreadRadius: 2,
+                        color: s.ring.withOpacity(0.15),
+                        blurRadius: 26,
+                        spreadRadius: 1,
                       ),
                     ],
                   ),
@@ -148,19 +155,19 @@ class _FeedbackPageState extends State<FeedbackPage> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 6),
                         Text(
                           "O que achou do Império da Corrida? 👑",
                           textAlign: TextAlign.center,
                           style: GoogleFonts.orbitron(
-                            textStyle: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
+                            textStyle: TextStyle(
+                              color: s.cardForeground,
+                              fontSize: 17,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        const SizedBox(height: 25),
+                        const SizedBox(height: 22),
 
                         // ⭐ Estrelas
                         Row(
@@ -168,72 +175,81 @@ class _FeedbackPageState extends State<FeedbackPage> {
                           children: List.generate(5, (i) => _buildStar(i + 1)),
                         ),
 
-                        const SizedBox(height: 25),
+                        const SizedBox(height: 22),
 
                         // 📝 Campo de texto
                         TextField(
                           controller: _controller,
                           maxLines: 5,
                           textAlignVertical: TextAlignVertical.top,
-                          style: const TextStyle(color: Colors.white),
+                          style: TextStyle(color: s.foreground),
+                          cursorColor: s.ring,
                           decoration: InputDecoration(
                             hintText: "Deixe sua opinião, ideia ou bug encontrado!",
-                            hintStyle: const TextStyle(color: Colors.white54),
+                            hintStyle: TextStyle(color: s.mutedForeground),
                             filled: true,
-                            fillColor: Colors.white.withOpacity(0.1),
+                            fillColor: s.input.withOpacity(0.85),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide(
-                                  color: Colors.white.withOpacity(0.2)),
+                              borderSide: BorderSide(color: s.border),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                  color: Color(0xFF4A90E2), width: 1.5),
+                              borderSide: BorderSide(color: s.ring, width: 1.5),
                             ),
                           ),
                         ),
 
-                        const SizedBox(height: 25),
+                        const SizedBox(height: 22),
 
                         // 🔘 Botão enviar
-                        ElevatedButton.icon(
-                          onPressed: _sending ? null : _sendFeedback,
-                          icon: _sending
-                              ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                              AlwaysStoppedAnimation(Colors.white),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _sending ? null : _sendFeedback,
+                            icon: _sending
+                                ? SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation(
+                                  s.primaryForeground,
+                                ),
+                              ),
+                            )
+                                : Icon(Icons.send_rounded, color: s.primaryForeground),
+                            label: Text(
+                              _sending ? "Enviando..." : "Enviar feedback",
+                              style: TextStyle(
+                                color: s.primaryForeground,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                          )
-                              : const Icon(Icons.send_rounded,
-                              color: Colors.white),
-                          label: Text(
-                            _sending ? "Enviando..." : "Enviar feedback",
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                            const Color(0xFF007AFF).withOpacity(0.9),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 28, vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: s.primary,
+                              disabledBackgroundColor: s.muted.withOpacity(0.35),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              elevation: 0,
                             ),
                           ),
                         ),
 
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
 
                         Text(
                           "Seu feedback nos ajuda a evoluir mais rápido que um sprint! 🏃‍♂️💨",
                           textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white54,
+                          style: TextStyle(
+                            color: s.mutedForeground,
                             fontSize: 13,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],

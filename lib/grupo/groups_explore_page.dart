@@ -2,7 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
+import 'package:run_walk_app/theme/season_theme_scope.dart'; // ✅ IMPORTA
 import 'group_page.dart';
 
 class GroupsExplorePage extends StatefulWidget {
@@ -13,15 +13,13 @@ class GroupsExplorePage extends StatefulWidget {
 }
 
 class _GroupsExplorePageState extends State<GroupsExplorePage> {
-  static const Color kOrange = Color(0xFFFF7A00);
-  static const Color kBg = Color(0xFF0B0B0F);
-  static const Color kCard = Color(0xFF12121A);
-
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   final TextEditingController _search = TextEditingController();
   String _q = '';
+
+  SeasonTheme _S(BuildContext c) => SeasonThemeScope.of(c);
 
   @override
   void dispose() {
@@ -80,33 +78,32 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
   }
 
   Stream<QuerySnapshot> _groupsStream() {
-    // MVP: sem index/algolia — busca simples por "searchName"
     final base = _db.collection('groups').orderBy('createdAt', descending: true).limit(50);
-    // Se quiser busca por prefixo, você pode trocar depois por:
-    // .where('searchName', isGreaterThanOrEqualTo: _q).where('searchName', isLessThanOrEqualTo: '$_q\uf8ff')
     return base.snapshots();
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = _S(context);
     final uid = _auth.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: s.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: kBg,
-        surfaceTintColor: kBg,
+        backgroundColor: s.background,
+        surfaceTintColor: s.background,
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Grupos',
           style: TextStyle(
-            color: Colors.white,
+            color: s.foreground,
             fontWeight: FontWeight.w900,
             fontSize: 20,
             letterSpacing: -0.2,
           ),
         ),
+        iconTheme: IconThemeData(color: s.foreground),
       ),
       body: SafeArea(
         top: false,
@@ -117,9 +114,9 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: kCard,
+                  color: s.card,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white12),
+                  border: Border.all(color: s.border.withOpacity(0.65)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.35),
@@ -130,16 +127,16 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.search, color: Colors.white60),
+                    Icon(Icons.search, color: s.mutedForeground),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _search,
                         onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                        decoration: const InputDecoration(
+                        style: TextStyle(color: s.foreground, fontWeight: FontWeight.w700),
+                        decoration: InputDecoration(
                           hintText: 'Buscar clãs...',
-                          hintStyle: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600),
+                          hintStyle: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w600),
                           border: InputBorder.none,
                           isDense: true,
                         ),
@@ -152,7 +149,7 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                           _search.clear();
                           _q = '';
                         }),
-                        icon: const Icon(Icons.close, color: Colors.white54),
+                        icon: Icon(Icons.close, color: s.mutedForeground),
                       ),
                   ],
                 ),
@@ -163,21 +160,19 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                 stream: _groupsStream(),
                 builder: (context, snap) {
                   if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator(color: kOrange));
+                    return Center(child: CircularProgressIndicator(color: s.primary));
                   }
                   if (!snap.hasData || snap.data!.docs.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: Text(
                         'Nenhum clã encontrado 😶',
-                        style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                        style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                       ),
                     );
                   }
 
                   final docs = snap.data!.docs.where((d) {
                     final m = d.data() as Map<String, dynamic>;
-
-                    // 🚫 não mostra se deleted: true
                     if (m['deleted'] == true) return false;
 
                     if (_q.isEmpty) return true;
@@ -187,12 +182,11 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                     return name.contains(_q) || desc.contains(_q);
                   }).toList();
 
-
                   if (docs.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: Text(
                         'Nada com esse termo 😕',
-                        style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                        style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                       ),
                     );
                   }
@@ -214,9 +208,9 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: kCard,
+                          color: s.card,
                           borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: Colors.white10),
+                          border: Border.all(color: s.border.withOpacity(0.45)),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withOpacity(0.30),
@@ -231,13 +225,13 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                               width: 44,
                               height: 44,
                               decoration: BoxDecoration(
-                                color: kOrange.withOpacity(0.14),
+                                color: s.primary.withOpacity(0.14),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: kOrange.withOpacity(0.25)),
+                                border: Border.all(color: s.primary.withOpacity(0.25)),
                               ),
                               child: Icon(
                                 isPublic ? Icons.public_rounded : Icons.lock_rounded,
-                                color: kOrange,
+                                color: s.primary,
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -249,35 +243,35 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                                     name,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+                                    style: TextStyle(color: s.foreground, fontWeight: FontWeight.w900),
                                   ),
                                   const SizedBox(height: 4),
                                   Row(
                                     children: [
                                       Text(
                                         isPublic ? 'Público' : 'Privado',
-                                        style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700),
+                                        style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                                       ),
                                       const SizedBox(width: 10),
-                                      const Icon(Icons.people_alt_rounded, size: 16, color: Colors.white38),
+                                      Icon(Icons.people_alt_rounded, size: 16, color: s.mutedForeground.withOpacity(0.7)),
                                       const SizedBox(width: 4),
                                       Text(
                                         '$membersCount',
-                                        style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w800),
+                                        style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w800),
                                       ),
                                       if (uid != null && uid == ownerId) ...[
                                         const SizedBox(width: 10),
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                           decoration: BoxDecoration(
-                                            color: kOrange.withOpacity(0.14),
+                                            color: s.primary.withOpacity(0.14),
                                             borderRadius: BorderRadius.circular(999),
-                                            border: Border.all(color: kOrange.withOpacity(0.25)),
+                                            border: Border.all(color: s.primary.withOpacity(0.25)),
                                           ),
-                                          child: const Text(
+                                          child: Text(
                                             'ADMIN',
                                             style: TextStyle(
-                                              color: kOrange,
+                                              color: s.primary,
                                               fontWeight: FontWeight.w900,
                                               fontSize: 11,
                                               letterSpacing: 0.4,
@@ -293,7 +287,7 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                                       desc,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
+                                      style: TextStyle(color: s.mutedForeground, fontWeight: FontWeight.w700),
                                     ),
                                   ]
                                 ],
@@ -331,8 +325,8 @@ class _GroupsExplorePageState extends State<GroupsExplorePage> {
                               },
                               style: ElevatedButton.styleFrom(
                                 elevation: 0,
-                                backgroundColor: isPublic ? kOrange : Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: isPublic ? s.primary : s.secondary,
+                                foregroundColor: isPublic ? s.primaryForeground : s.secondaryForeground,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               ),

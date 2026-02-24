@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:run_walk_app/service/points_service.dart';
-
+import 'package:run_walk_app/theme/season_theme_scope.dart';
 
 class TerritoryDetailsPage extends StatefulWidget {
   final String territoryId;
@@ -40,46 +40,9 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
 
   bool _didInitFromDoc = false; // ✅ evita resetar campos toda hora
 
-  static const _orange = Color(0xFFFF6D00);
-
   bool _usePoints = false;
   int _myPoints = 0;
   bool _loadingPoints = false;
-
-  Widget _powerButton({
-    required String label,
-    required int cost,
-    required Future<void> Function() onTap,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-        ),
-        onPressed: () async {
-          if (_myPoints < cost) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Pontos insuficientes 😭 (custa $cost)')),
-            );
-            return;
-          }
-          await onTap();
-        },
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
-            Text('$cost pts', style: const TextStyle(fontWeight: FontWeight.w900)),
-          ],
-        ),
-      ),
-    );
-  }
-
 
   @override
   void initState() {
@@ -87,13 +50,15 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     _loadMyPoints();
   }
 
-
   @override
   void dispose() {
     _nameCtrl.dispose();
     super.dispose();
   }
 
+  // ------------------------
+  // Helpers
+  // ------------------------
   double? _toDouble(dynamic v) {
     if (v is num) return v.toDouble();
     return null;
@@ -128,11 +93,7 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     _didInitFromDoc = true;
 
     final customName = (data['customName'] ?? '').toString().trim();
-
-    // ✅ fallback: name -> territoryName -> vazio
     final baseName = (data['name'] ?? data['territoryName'] ?? '').toString().trim();
-
-    // ✅ se não tiver customName, mostra o nome base no campo
     _nameCtrl.text = customName.isNotEmpty ? customName : baseName;
 
     final d = data['difficulty'];
@@ -180,17 +141,12 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     }
   }
 
-
-
   Future<void> _save() async {
     if (!widget.isOwner) return;
 
     setState(() => _saving = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('territorios')
-          .doc(widget.territoryId)
-          .set({
+      await FirebaseFirestore.instance.collection('territorios').doc(widget.territoryId).set({
         'customName': _nameCtrl.text.trim(),
         'difficulty': _difficulty,
         'safety': _safety,
@@ -226,25 +182,26 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     return const LatLng(-22.9068, -43.1729);
   }
 
-  Set<Polygon> _polygons() {
+  Set<Polygon> _polygons(SeasonTheme s) {
     if (_polygon.length < 3) return {};
     return {
       Polygon(
         polygonId: const PolygonId('territory'),
         points: _polygon,
         strokeWidth: 2,
-        strokeColor: _orange,
-        fillColor: _orange.withOpacity(0.12),
+        strokeColor: s.primary,
+        fillColor: s.primary.withOpacity(0.15),
       )
     };
   }
 
-  Future<String?> _askDangerDescription({String initial = ''}) async {
+  Future<String?> _askDangerDescription(SeasonTheme s, {String initial = ''}) async {
     final ctrl = TextEditingController(text: initial);
+
     return showModalBottomSheet<String?>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: s.popover,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
@@ -262,14 +219,18 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
               height: 4,
               width: 60,
               decoration: BoxDecoration(
-                color: Colors.black12,
+                color: s.muted.withOpacity(0.8),
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Descrever ponto de atenção',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+                color: s.popoverForeground,
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -277,9 +238,24 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
               autofocus: true,
               maxLines: 3,
               maxLength: 120,
-              decoration: const InputDecoration(
+              style: TextStyle(color: s.foreground),
+              decoration: InputDecoration(
                 hintText: 'Ex: Rua escura / cruzamento perigoso / cães soltos...',
-                border: OutlineInputBorder(),
+                hintStyle: TextStyle(color: s.mutedForeground),
+                filled: true,
+                fillColor: s.input.withOpacity(0.9),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: s.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: s.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: s.ring, width: 1.6),
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -288,6 +264,12 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => Navigator.pop(ctx, null),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: s.foreground,
+                      side: BorderSide(color: s.border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                     child: const Text('Cancelar'),
                   ),
                 ),
@@ -295,8 +277,10 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _orange,
-                      foregroundColor: Colors.white,
+                      backgroundColor: s.primary,
+                      foregroundColor: s.primaryForeground,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
                     child: const Text('Salvar'),
@@ -310,7 +294,7 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     );
   }
 
-  Set<Marker> _markers() {
+  Set<Marker> _markers(SeasonTheme s) {
     final set = <Marker>{};
 
     for (int i = 0; i < _dangerPoints.length; i++) {
@@ -325,28 +309,24 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
             snippet: p.desc.isEmpty ? 'Sem descrição' : p.desc,
             onTap: widget.isOwner
                 ? () async {
-              // editar/remover
               final action = await showModalBottomSheet<String>(
                 context: context,
-                backgroundColor: Colors.white,
+                backgroundColor: s.popover,
                 shape: const RoundedRectangleBorder(
-                  borderRadius:
-                  BorderRadius.vertical(top: Radius.circular(18)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
                 ),
                 builder: (ctx) => SafeArea(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ListTile(
-                        leading: const Icon(Icons.edit),
-                        title: const Text('Editar descrição'),
+                        leading: Icon(Icons.edit, color: s.foreground),
+                        title: Text('Editar descrição', style: TextStyle(color: s.foreground)),
                         onTap: () => Navigator.pop(ctx, 'edit'),
                       ),
                       ListTile(
-                        leading:
-                        const Icon(Icons.delete, color: Colors.red),
-                        title: const Text('Remover ponto',
-                            style: TextStyle(color: Colors.red)),
+                        leading: const Icon(Icons.delete, color: Colors.red),
+                        title: const Text('Remover ponto', style: TextStyle(color: Colors.red)),
                         onTap: () => Navigator.pop(ctx, 'delete'),
                       ),
                       const SizedBox(height: 8),
@@ -362,8 +342,7 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
               }
 
               if (action == 'edit') {
-                final desc =
-                await _askDangerDescription(initial: p.desc);
+                final desc = await _askDangerDescription(s, initial: p.desc);
                 if (desc == null) return;
 
                 setState(() {
@@ -381,17 +360,73 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     return set;
   }
 
+  Widget _card(SeasonTheme s, {required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: s.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: s.border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.12),
+            blurRadius: 18,
+            spreadRadius: 1,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: child,
+    );
+  }
+
+  Widget _powerButton({
+    required SeasonTheme s,
+    required String label,
+    required int cost,
+    required Future<void> Function() onTap,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: s.secondary,
+          foregroundColor: s.secondaryForeground,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onPressed: () async {
+          if (_myPoints < cost) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Pontos insuficientes 😭 (custa $cost)')),
+            );
+            return;
+          }
+          await onTap();
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w900)),
+            Text('$cost pts', style: const TextStyle(fontWeight: FontWeight.w900)),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final docRef = FirebaseFirestore.instance
-        .collection('territorios')
-        .doc(widget.territoryId);
+    final s = SeasonThemeScope.of(context);
+
+    final docRef = FirebaseFirestore.instance.collection('territorios').doc(widget.territoryId);
 
     return Scaffold(
+      backgroundColor: s.background,
       appBar: AppBar(
         title: const Text('Detalhes do território'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: s.background,
+        foregroundColor: s.foreground,
         elevation: 0,
         actions: [
           if (widget.isOwner)
@@ -404,15 +439,16 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
               )
                   : const Icon(Icons.save_outlined),
               onPressed: _saving ? null : _save,
-            )
+            ),
         ],
       ),
-      backgroundColor: const Color(0xFFF7F7F7),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: docRef.snapshots(),
         builder: (context, snap) {
           if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(
+              child: CircularProgressIndicator(color: s.primary),
+            );
           }
 
           final data = snap.data!.data() ?? {};
@@ -421,49 +457,62 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black12),
-                ),
-                padding: const EdgeInsets.all(14),
+              _card(
+                s,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Personalize este território',
-                      style:
-                      TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: s.cardForeground,
+                      ),
                     ),
                     const SizedBox(height: 12),
 
                     TextField(
                       controller: _nameCtrl,
                       enabled: widget.isOwner,
-                      decoration: const InputDecoration(
+                      style: TextStyle(color: s.foreground),
+                      decoration: InputDecoration(
                         labelText: 'Nome do território',
                         hintText: 'Ex: Pista do Aterro',
-                        border: OutlineInputBorder(),
+                        labelStyle: TextStyle(color: s.mutedForeground),
+                        hintStyle: TextStyle(color: s.mutedForeground),
+                        filled: true,
+                        fillColor: s.input.withOpacity(0.9),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: s.border),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: s.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: s.ring, width: 1.6),
+                        ),
                       ),
                     ),
 
                     const SizedBox(height: 14),
 
-                    // ✅ SLIDER DIFICULDADE
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
                             'Dificuldade',
-                            style: TextStyle(fontWeight: FontWeight.w800),
+                            style: TextStyle(fontWeight: FontWeight.w800, color: s.cardForeground),
                           ),
                         ),
                         Text(
                           _difficultyLabel(_difficulty),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontWeight: FontWeight.w900,
-                            color: _orange,
+                            color: s.primary,
                           ),
                         ),
                       ],
@@ -474,18 +523,16 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                       max: 5,
                       divisions: 4,
                       label: _difficultyLabel(_difficulty),
-                      onChanged: widget.isOwner
-                          ? (v) => setState(() => _difficulty = v.round())
-                          : null,
-                      activeColor: _orange,
+                      onChanged: widget.isOwner ? (v) => setState(() => _difficulty = v.round()) : null,
+                      activeColor: s.primary,
+                      inactiveColor: s.muted.withOpacity(0.7),
                     ),
 
                     const SizedBox(height: 6),
 
-                    // ✅ SAFETY (agora funciona)
-                    const Text(
+                    Text(
                       'Segurança do local',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(fontWeight: FontWeight.w800, color: s.cardForeground),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -494,9 +541,14 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                           child: ChoiceChip(
                             label: const Text('Tranquilo'),
                             selected: _safety == 'safe',
-                            onSelected: widget.isOwner
-                                ? (_) => setState(() => _safety = 'safe')
-                                : null,
+                            onSelected: widget.isOwner ? (_) => setState(() => _safety = 'safe') : null,
+                            selectedColor: s.primary.withOpacity(0.18),
+                            labelStyle: TextStyle(
+                              color: _safety == 'safe' ? s.cardForeground : s.mutedForeground,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            side: BorderSide(color: _safety == 'safe' ? s.primary : s.border),
+                            backgroundColor: s.card,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -504,9 +556,14 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                           child: ChoiceChip(
                             label: const Text('Perigoso'),
                             selected: _safety == 'danger',
-                            onSelected: widget.isOwner
-                                ? (_) => setState(() => _safety = 'danger')
-                                : null,
+                            onSelected: widget.isOwner ? (_) => setState(() => _safety = 'danger') : null,
+                            selectedColor: s.destructive.withOpacity(0.18),
+                            labelStyle: TextStyle(
+                              color: _safety == 'danger' ? s.cardForeground : s.mutedForeground,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            side: BorderSide(color: _safety == 'danger' ? s.destructive : s.border),
+                            backgroundColor: s.card,
                           ),
                         ),
                       ],
@@ -520,9 +577,17 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
               Container(
                 height: 360,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: s.card,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black12),
+                  border: Border.all(color: s.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 18,
+                      spreadRadius: 1,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Stack(
@@ -532,18 +597,14 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                         target: _fallbackCenter(),
                         zoom: 15,
                       ),
-                      polygons: _polygons(),
-                      markers: _markers(),
+                      polygons: _polygons(s),
+                      markers: _markers(s),
                       onMapCreated: (c) => _map = c,
                       onTap: widget.isOwner && _addingDangerPoint
                           ? (pos) async {
-                        // ✅ pede descrição antes de salvar
-                        final desc = await _askDangerDescription();
+                        final desc = await _askDangerDescription(s);
                         if (desc == null) {
-                          // cancelou
-                          if (mounted) {
-                            setState(() => _addingDangerPoint = false);
-                          }
+                          if (mounted) setState(() => _addingDangerPoint = false);
                           return;
                         }
 
@@ -564,31 +625,23 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                       bottom: 12,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                          _addingDangerPoint ? Colors.red : _orange,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          backgroundColor: _addingDangerPoint ? s.destructive : s.primary,
+                          foregroundColor: _addingDangerPoint ? s.destructiveForeground : s.primaryForeground,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        icon: Icon(_addingDangerPoint
-                            ? Icons.close
-                            : Icons.warning_amber_rounded),
+                        icon: Icon(_addingDangerPoint ? Icons.close : Icons.warning_amber_rounded),
                         label: Text(
                           widget.isOwner
-                              ? (_addingDangerPoint
-                              ? 'Toque no mapa e descreva'
-                              : 'Marcar ponto de atenção')
+                              ? (_addingDangerPoint ? 'Toque no mapa e descreva' : 'Marcar ponto de atenção')
                               : 'Pontos de atenção',
                           style: const TextStyle(fontWeight: FontWeight.w900),
                         ),
                         onPressed: widget.isOwner
-                            ? () => setState(
-                                () => _addingDangerPoint = !_addingDangerPoint)
+                            ? () => setState(() => _addingDangerPoint = !_addingDangerPoint)
                             : null,
                       ),
-                    )
+                    ),
                   ],
                 ),
               ),
@@ -598,24 +651,23 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                 widget.isOwner
                     ? "Dica: marque no mapa e descreva por que é um ponto de atenção (rua escura, trânsito, cães soltos etc)."
                     : "Pontos marcados pelo dono do território.",
-                style: const TextStyle(color: Colors.black54),
+                style: TextStyle(color: s.mutedForeground),
               ),
 
               const SizedBox(height: 12),
 
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.black12),
-                ),
-                padding: const EdgeInsets.all(14),
+              _card(
+                s,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       '⚡ Poderes do território',
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: s.cardForeground,
+                      ),
                     ),
                     const SizedBox(height: 10),
 
@@ -624,45 +676,44 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                         Expanded(
                           child: SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text(
+                            title: Text(
                               'Usar pontos',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                              style: TextStyle(fontWeight: FontWeight.w800, color: s.cardForeground),
                             ),
                             subtitle: Text(
                               _loadingPoints ? 'Carregando...' : 'Você tem $_myPoints pontos',
-                              style: const TextStyle(color: Colors.black54),
+                              style: TextStyle(color: s.mutedForeground),
                             ),
                             value: _usePoints,
                             onChanged: (v) async {
                               setState(() => _usePoints = v);
-                              if (v) await _loadMyPoints(); // atualiza saldo ao ligar
+                              if (v) await _loadMyPoints();
                             },
-                            activeColor: _orange,
+                            activeColor: s.primary,
                           ),
                         ),
                         IconButton(
                           tooltip: 'Atualizar saldo',
                           onPressed: _loadMyPoints,
-                          icon: const Icon(Icons.refresh),
+                          icon: Icon(Icons.refresh, color: s.foreground),
                         )
                       ],
                     ),
 
-
                     const SizedBox(height: 10),
 
                     AnimatedOpacity(
-                      opacity: _usePoints ? 1 : 0.4,
+                      opacity: _usePoints ? 1 : 0.45,
                       duration: const Duration(milliseconds: 200),
                       child: IgnorePointer(
                         ignoring: !_usePoints,
                         child: Column(
                           children: [
                             _powerButton(
+                              s: s,
                               label: '🛡️ Proteção 24h',
                               cost: 120,
                               onTap: () async {
-                                // chama o PointsService (abaixo)
                                 final ok = await PointsService().buyProtection(
                                   territoryId: widget.territoryId,
                                   hours: 24,
@@ -681,6 +732,7 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                             const SizedBox(height: 10),
 
                             _powerButton(
+                              s: s,
                               label: '🛡️ Proteção 48h',
                               cost: 220,
                               onTap: () async {
@@ -702,13 +754,14 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                             const SizedBox(height: 10),
 
                             _powerButton(
+                              s: s,
                               label: '🔥 Aumentar dificuldade (24h)',
                               cost: 160,
                               onTap: () async {
                                 final ok = await PointsService().buyDifficultyBoost(
                                   territoryId: widget.territoryId,
                                   hours: 24,
-                                  extraDifficulty: 1, // +1 nível (ex)
+                                  extraDifficulty: 1,
                                   cost: 160,
                                 );
                                 if (ok) {
@@ -728,9 +781,6 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
                   ],
                 ),
               ),
-
-
-
             ],
           );
         },
@@ -738,5 +788,3 @@ class _TerritoryDetailsPageState extends State<TerritoryDetailsPage> {
     );
   }
 }
-
-
