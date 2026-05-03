@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1268,6 +1269,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         distanceFilter: 8,
       ),
     ).listen((position) {
+
+      if(!mounted) return;
+
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
@@ -1815,6 +1819,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
+
+      if(!mounted) return;
 
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
@@ -2858,6 +2864,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     final audioPath = selected["audio"]!;
 
     final player = AudioPlayer();
+
+    // Configura o áudio para "ducking" (não pausar outros apps, apenas baixar o volume deles)
+    if (Platform.isAndroid || Platform.isIOS) {
+      await player.setAudioContext(
+        AudioContext(
+          android: AudioContextAndroid(
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.assistanceSonification,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: {
+              AVAudioSessionOptions.duckOthers,
+              AVAudioSessionOptions.mixWithOthers,
+            },
+          ),
+        ),
+      );
+    }
     await player.play(AssetSource(audioPath));
 
     await showDialog(
