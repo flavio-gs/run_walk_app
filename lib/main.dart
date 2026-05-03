@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 // 🚨 NOVOS IMPORTS PARA FCM
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 // 🔹 Serviços
 import 'package:run_walk_app/service/background_tracking.dart';
@@ -174,6 +175,7 @@ Future<bool> isWearOS() async {
 // ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await MobileAds.instance.initialize();
   await Firebase.initializeApp();
   final bool isWear = await isWearOS();
 

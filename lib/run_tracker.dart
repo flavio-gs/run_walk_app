@@ -5021,6 +5021,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
 
       // 🏅 XP automático no salvamento
+      int totalXPGanho = 0;
       try {
         int baseXP = (distanceKm * 10).floor() + 5;
         double xpMultiplier = 1.0;
@@ -5031,12 +5032,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         final inActiveChallenge = await _userHasActiveChallenge();
         if (inActiveChallenge) xpMultiplier *= 1.5;
 
-        final totalXP = (baseXP * xpMultiplier).round();
+        totalXPGanho = (baseXP * xpMultiplier).round();
 
         final minutes = (durationSnapshot / 60).floor();
 
         await GamificationService().addPoints(
-          points: totalXP,
+          points: totalXPGanho,
           source: "Corrida",
           description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em $minutes min",
           meta: {
@@ -5050,17 +5051,20 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         await GamificationService().updateChallengesAfterRun(
           distanciaKm: distanceKm,
-          xpGanho: totalXP,
+          xpGanho: totalXPGanho,
           runCreatedAt: endTime,
           context: context,
         );
 
 
-        _showXPAnimation("+$totalXP XP");
+        _showXPAnimation("+$totalXPGanho XP");
         await _updateLeaderboard();
       } catch (e) {
         debugPrint('Erro ao conceder XP no _saveRun: $e');
       }
+
+      // ✅ Atualiza o documento da corrida com o XP real ganho
+      await runRef.update({'xpEarned': totalXPGanho});
 
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(
