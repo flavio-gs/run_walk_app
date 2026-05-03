@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:run_walk_app/service/ad_service.dart';
+import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/share_run.dart';
 import 'model/run_model.dart';
 import 'mais_detalhes_page.dart';
@@ -19,6 +21,14 @@ class DetalheCorridaPage extends StatefulWidget {
 }
 
 class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
+  bool _isAdLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    RewardedAdService().loadRewardedAd();
+  }
+
   Stream<DocumentSnapshot<Map<String, dynamic>>> _runDocStream(String runId) {
     return FirebaseFirestore.instance.collection('corridas').doc(runId).snapshots();
   }
@@ -289,12 +299,12 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: _content(context, corrida, runData),
+        child: _content(context, corrida, runData, isOwner),
       ),
     );
   }
 
-  Widget _content(BuildContext context, RunModel corrida, Map<String, dynamic>? runData) {
+  Widget _content(BuildContext context, RunModel corrida, Map<String, dynamic>? runData, bool isOwner) {
     final theme = SeasonThemeScope.of(context);
 
     return Column(
@@ -327,6 +337,9 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
 
         _statsGrid(corrida, runData),
         const SizedBox(height: 18),
+
+        if (isOwner && runData != null && runData['xpEarned'] != null && runData['rewardDoubled'] != true)
+          _doubleRewardButton(runData),
 
         if (corrida.id != null) ...[
           _samplesCard(corrida.id!),
@@ -407,6 +420,79 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
           );
         },
       ),
+    );
+  }
+
+  Widget _doubleRewardButton(Map<String, dynamic> runData) {
+    final theme = SeasonThemeScope.of(context);
+    final xpEarned = (runData['xpEarned'] as num).toInt();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 18),
+      child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.orangeAccent,
+          foregroundColor: Colors.black,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        icon: _isAdLoading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+              )
+            : const Icon(Icons.video_library),
+        label: Text(
+          _isAdLoading ? 'Carregando anúncio...' : 'Dobrar XP e Pontos (+$xpEarned XP)',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w900, fontSize: 16),
+        ),
+        onPressed: _isAdLoading ? null : () => _showAdAndDoubleReward(xpEarned, widget.corrida.id!),
+      ),
+    );
+  }
+
+  Future<void> _showAdAndDoubleReward(int xp, String runId) async {
+    if (!RewardedAdService().isAdLoaded) {
+      setState(() => _isAdLoading = true);
+      RewardedAdService().loadRewardedAd();
+      await Future.delayed(const Duration(seconds: 2));
+      setState(() => _isAdLoading = false);
+
+      if (!RewardedAdService().isAdLoaded) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Anúncio não disponível no momento. Tente novamente.')),
+          );
+        }
+        return;
+      }
+    }
+
+    RewardedAdService().showRewardedAd(
+      onUserEarnedReward: (ad, reward) async {
+        await GamificationService().addPoints(
+          points: xp,
+          source: "Recompensa de Vídeo",
+          description: "Bônus por assistir anúncio na corrida $runId",
+          context: context,
+        );
+
+        await FirebaseFirestore.instance.collection('corridas').doc(runId).update({
+          'rewardDoubled': true,
+          'xpEarned': FieldValue.increment(xp),
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('🎉 Recompensa dobrada com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      },
     );
   }
 

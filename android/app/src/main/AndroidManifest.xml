@@ -45,6 +45,11 @@
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyAL3GspjsIORyPJpWrKgnKFcHY7BX09oDs" />
 
+        <!-- 💰 Google AdMob -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-7215014769653180~1577870814"/>
+
         <!-- 🧩 Integração Flutter -->
         <meta-data
             android:name="flutterEmbedding"
