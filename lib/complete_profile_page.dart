@@ -223,8 +223,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         'state': _stateController.text.trim(),
 
         'createdAt': FieldValue.serverTimestamp(),
-        'isPro': true,
-        'veterano': true,
+        'isPro': false,
+        'veterano': false,
       }, SetOptions(merge: true));
 
       await user.updateDisplayName(_displayNameController.text.trim());
