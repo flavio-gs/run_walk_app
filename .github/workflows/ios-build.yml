@@ -117,25 +117,11 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # =========================
-      # BUILD IOS
+      # BUILD SIGNED IPA
       # =========================
 
-      - name: Build iOS
-        run: flutter build ios --release --no-codesign --verbose
-
-      # =========================
-      # CREATE IPA
-      # =========================
-
-      - name: Create IPA
-        run: |
-          cd build/ios/iphoneos
-
-          mkdir Payload
-
-          cp -r Runner.app Payload/
-
-          zip -r Runner.ipa Payload
+      - name: Build signed IPA
+        run: flutter build ipa --release
 
       # =========================
       # UPLOAD IPA
@@ -145,4 +131,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-app
-          path: build/ios/iphoneos/Runner.ipa
+          path: build/ios/ipa/*.ipa
