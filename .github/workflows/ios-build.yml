@@ -14,13 +14,66 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # =========================
+      # FLUTTER
+      # =========================
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.2'
+          cache: true
+
+      # =========================
+      # CACHE
+      # =========================
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v3
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+
+      # =========================
+      # DEPENDENCIES
+      # =========================
 
       - name: Install dependencies
         run: flutter pub get
+
+      # =========================
+      # CLEAN IOS
+      # =========================
+
+      - name: Clean iOS build
+        run: |
+          flutter clean
+          rm -rf ios/Pods
+          rm -rf ios/Podfile.lock
+
+      # =========================
+      # INSTALL COCOAPODS
+      # =========================
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod repo update
+          pod install --verbose
+
+      # =========================
+      # KEYCHAIN
+      # =========================
 
       - name: Create temporary keychain
         run: |
@@ -28,6 +81,10 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
+
+      # =========================
+      # CERTIFICATE
+      # =========================
 
       - name: Import certificate
         run: |
@@ -38,6 +95,10 @@ jobs:
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
             -T /usr/bin/codesign
 
+      # =========================
+      # PROVISION PROFILE
+      # =========================
+
       - name: Install provisioning profile
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
@@ -46,8 +107,16 @@ jobs:
 
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
+      # =========================
+      # BUILD SIGNED IPA
+      # =========================
+
       - name: Build signed IPA
-        run: flutter build ipa --release
+        run: flutter build ipa --release --verbose
+
+      # =========================
+      # UPLOAD IPA
+      # =========================
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
