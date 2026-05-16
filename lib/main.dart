@@ -13,14 +13,16 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:run_walk_app/widgets/main_scaffold_wear.dart';
 import 'package:run_walk_app/login_wear_page.dart';
 import 'package:run_walk_app/service/wear_offline_sync_service.dart';
-
 import 'package:run_walk_app/service/season_service.dart';
 import 'dart:math';
-import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // 🚨 NOVOS IMPORTS PARA FCM
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:audioplayers/audioplayers.dart';
+
 
 // 🔹 Serviços
 import 'package:run_walk_app/service/background_tracking.dart';
@@ -174,6 +176,28 @@ Future<bool> isWearOS() async {
 // ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await MobileAds.instance.initialize();
+
+  // Configura o áudio global para "Ducking" (não pausar outros apps, apenas baixar volume)
+  if (Platform.isAndroid || Platform.isIOS) {
+    await AudioPlayer.global.setAudioContext(
+      AudioContext(
+        android: AudioContextAndroid(
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.assistanceSonification,
+          audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+        ),
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: {
+            AVAudioSessionOptions.duckOthers,
+            AVAudioSessionOptions.mixWithOthers,
+          },
+        ),
+      ),
+    );
+  }
+
   await Firebase.initializeApp();
   final bool isWear = await isWearOS();
 
@@ -289,6 +313,16 @@ class _MyAppState extends State<MyApp> {
             debugShowCheckedModeBanner: false,
             theme: themeData,
             navigatorKey: navigatorKey,
+            locale: const Locale('pt', 'BR'),
+            supportedLocales: const [
+              Locale('pt', 'BR'),
+              Locale('en', 'US'),
+            ],
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
             home: widget.initialPage,
             routes: {
               '/tutorial': (context) => const MapTutorialPage(),

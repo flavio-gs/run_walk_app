@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:video_compress/video_compress.dart';
 import 'package:geolocator/geolocator.dart';
 
 class CreatePostPage extends StatefulWidget {
@@ -120,19 +119,10 @@ class _CreatePostPageState extends State<CreatePostPage> {
     return File(compressed.path);
   }
 
-  // 🔹 Compressão de vídeo
+  // 🔹 Compressão de vídeo (temporariamente desativada)
+// Retorna o vídeo original para evitar problemas com Android 15 / 16 KB
   Future<File> _compressVideo(File file) async {
-    final info = await VideoCompress.compressVideo(
-      file.path,
-      quality: VideoQuality.MediumQuality,
-      deleteOrigin: false,
-    );
-
-    if (info == null || info.path == null) {
-      return file;
-    }
-
-    return File(info.path!);
+    return file;
   }
 
   // 🔹 Upload da mídia com progresso → retorna { mediaType, mediaUrl }

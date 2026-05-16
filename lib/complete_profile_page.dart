@@ -10,6 +10,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:run_walk_app/widgets/main_scaffold.dart';
+import 'package:intl/intl.dart';
 
 class CompleteProfilePage extends StatefulWidget {
   const CompleteProfilePage({super.key});
@@ -223,8 +224,8 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         'state': _stateController.text.trim(),
 
         'createdAt': FieldValue.serverTimestamp(),
-        'isPro': true,
-        'veterano': true,
+        'isPro': false,
+        'veterano': false,
       }, SetOptions(merge: true));
 
       await user.updateDisplayName(_displayNameController.text.trim());
@@ -822,15 +823,25 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
         suffixIcon: const Icon(Icons.calendar_today, color: Colors.black54),
       ),
       onTap: () async {
+        final locale = _selectedCountry == 'US'
+            ? const Locale('en', 'US')
+            : const Locale('pt', 'BR');
+
         final date = await showDatePicker(
           context: context,
+          locale: locale, // 👈 resolve calendário americano
           initialDate: DateTime(2000),
           firstDate: DateTime(1950),
           lastDate: DateTime.now(),
         );
+
         if (date != null) {
+          final format = _selectedCountry == 'US'
+              ? 'MM/dd/yyyy'
+              : 'dd/MM/yyyy';
+
           _birthDateController.text =
-          "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}";
+              DateFormat(format).format(date);
         }
       },
     );

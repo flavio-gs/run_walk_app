@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1268,6 +1269,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         distanceFilter: 8,
       ),
     ).listen((position) {
+
+      if(!mounted) return;
+
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
@@ -1815,6 +1819,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
+
+      if(!mounted) return;
 
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
@@ -2858,6 +2864,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     final audioPath = selected["audio"]!;
 
     final player = AudioPlayer();
+
+    // Configura o áudio para "ducking" (não pausar outros apps, apenas baixar o volume deles)
+    if (Platform.isAndroid || Platform.isIOS) {
+      await player.setAudioContext(
+        AudioContext(
+          android: AudioContextAndroid(
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.assistanceSonification,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: {
+              AVAudioSessionOptions.duckOthers,
+              AVAudioSessionOptions.mixWithOthers,
+            },
+          ),
+        ),
+      );
+    }
     await player.play(AssetSource(audioPath));
 
     await showDialog(
@@ -5021,6 +5047,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
 
       // 🏅 XP automático no salvamento
+      int totalXPGanho = 0;
       try {
         int baseXP = (distanceKm * 10).floor() + 5;
         double xpMultiplier = 1.0;
@@ -5031,12 +5058,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         final inActiveChallenge = await _userHasActiveChallenge();
         if (inActiveChallenge) xpMultiplier *= 1.5;
 
-        final totalXP = (baseXP * xpMultiplier).round();
+        totalXPGanho = (baseXP * xpMultiplier).round();
 
         final minutes = (durationSnapshot / 60).floor();
 
         await GamificationService().addPoints(
-          points: totalXP,
+          points: totalXPGanho,
           source: "Corrida",
           description: "Concluiu ${distanceKm.toStringAsFixed(2)} km em $minutes min",
           meta: {
@@ -5050,17 +5077,20 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
         await GamificationService().updateChallengesAfterRun(
           distanciaKm: distanceKm,
-          xpGanho: totalXP,
+          xpGanho: totalXPGanho,
           runCreatedAt: endTime,
           context: context,
         );
 
 
-        _showXPAnimation("+$totalXP XP");
+        _showXPAnimation("+$totalXPGanho XP");
         await _updateLeaderboard();
       } catch (e) {
         debugPrint('Erro ao conceder XP no _saveRun: $e');
       }
+
+      // ✅ Atualiza o documento da corrida com o XP real ganho
+      await runRef.update({'xpEarned': totalXPGanho});
 
       if (context.mounted && !wearMode) {
         ScaffoldMessenger.of(context).showSnackBar(

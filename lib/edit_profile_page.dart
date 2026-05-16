@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 class EditProfilePage extends StatefulWidget {
   final String userId;
@@ -523,17 +524,25 @@ class _EditProfilePageState extends State<EditProfilePage> {
         suffixIcon: const Icon(Icons.calendar_today, color: Colors.black54),
       ),
       onTap: () async {
-        final now = DateTime.now();
-        final initial = now.subtract(const Duration(days: 365 * 20));
+        final locale = _selectedCountry == 'US'
+            ? const Locale('en', 'US')
+            : const Locale('pt', 'BR');
+
         final date = await showDatePicker(
           context: context,
-          initialDate: initial,
+          locale: locale, // 👈 resolve calendário americano
+          initialDate: DateTime(2000),
           firstDate: DateTime(1950),
-          lastDate: now,
+          lastDate: DateTime.now(),
         );
+
         if (date != null) {
+          final format = _selectedCountry == 'US'
+              ? 'MM/dd/yyyy'
+              : 'dd/MM/yyyy';
+
           _birthDateController.text =
-          "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}";
+              DateFormat(format).format(date);
         }
       },
     );
