@@ -11,6 +11,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
+
       # =========================
       # CHECKOUT
       # =========================
@@ -29,7 +30,7 @@ jobs:
           cache: true
 
       # =========================
-      # CACHE
+      # CACHE PUB
       # =========================
 
       - name: Cache pub dependencies
@@ -38,15 +39,6 @@ jobs:
           path: |
             ~/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
-
-      - name: Cache CocoaPods
-        uses: actions/cache@v3
-        with:
-          path: |
-            ios/Pods
-            ~/Library/Caches/CocoaPods
-            ~/.cocoapods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
 
       # =========================
       # CLEAN IOS
@@ -59,24 +51,37 @@ jobs:
           rm -rf ios/Podfile.lock
 
       # =========================
-      # INSTALL DEPENDENCIES
+      # FLUTTER DEPENDENCIES
       # =========================
 
       - name: Install Flutter dependencies
         run: flutter pub get
 
       # =========================
-      # INSTALL COCOAPODS
+      # COCOAPODS
       # =========================
 
       - name: Install CocoaPods dependencies
         run: |
           cd ios
-          pod repo update
-          pod install --verbose
+
+          pod deintegrate
+
+          rm -rf Pods
+          rm -rf Podfile.lock
+
+          pod install --repo-update
 
       # =========================
-      # CREATE KEYCHAIN
+      # VERIFY PODS
+      # =========================
+
+      - name: Verify Pods scripts
+        run: |
+          ls -la ios/Pods/Target\ Support\ Files/Pods-Runner/
+
+      # =========================
+      # KEYCHAIN
       # =========================
 
       - name: Create temporary keychain
@@ -87,7 +92,7 @@ jobs:
           security set-keychain-settings -lut 21600 build.keychain
 
       # =========================
-      # IMPORT CERTIFICATE
+      # CERTIFICATE
       # =========================
 
       - name: Import certificate
@@ -100,7 +105,7 @@ jobs:
             -T /usr/bin/codesign
 
       # =========================
-      # INSTALL PROVISION PROFILE
+      # PROVISION PROFILE
       # =========================
 
       - name: Install provisioning profile
@@ -112,11 +117,25 @@ jobs:
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # =========================
-      # BUILD IPA
+      # BUILD IOS
       # =========================
 
-      - name: Build signed IPA
-        run: flutter build ipa --release --verbose
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign --verbose
+
+      # =========================
+      # CREATE IPA
+      # =========================
+
+      - name: Create IPA
+        run: |
+          cd build/ios/iphoneos
+
+          mkdir Payload
+
+          cp -r Runner.app Payload/
+
+          zip -r Runner.ipa Payload
 
       # =========================
       # UPLOAD IPA
@@ -126,4 +145,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-app
-          path: build/ios/ipa/*.ipa
+          path: build/ios/iphoneos/Runner.ipa
