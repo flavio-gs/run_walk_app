@@ -19,6 +19,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:run_walk_app/theme/season_theme_scope.dart';
+import 'package:run_walk_app/service/story_upload_service.dart';
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
@@ -31,6 +32,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   Stream<QuerySnapshot>? _postsStream;
   bool _isLoading = true;
   String _selectedFeed = 'following'; // valores: 'following' ou 'global'
+  List<String> _followingIds = [];
 
   final _currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -320,6 +322,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
     if (mounted) {
       setState(() {
+        _followingIds = followingIds;
         _postsStream = query.orderBy('timestamp', descending: true).snapshots();
         _isLoading = false;
       });
@@ -707,7 +710,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
             for (var doc in snapshot.data!.docs) {
               final data = doc.data() as Map<String, dynamic>;
               final authorId = data['authorId'] as String? ?? '';
-              if (authorId.isNotEmpty) {
+              if (authorId.isNotEmpty && _followingIds.contains(authorId)) {
                 storiesByAuthor.putIfAbsent(authorId, () => <DocumentSnapshot>[]).add(doc);
               }
             }
@@ -803,15 +806,40 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'Seu story',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: s.foreground.withOpacity(0.8),
-                    fontWeight: FontWeight.w600,
-                  ),
+                ValueListenableBuilder<double?>(
+                  valueListenable: StoryUploadService().uploadProgress,
+                  builder: (context, progress, child) {
+                    if (progress == null) {
+                      return Text(
+                        'Seu story',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: s.foreground.withOpacity(0.8),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            backgroundColor: s.border,
+                            color: s.primary,
+                            minHeight: 3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Enviando...',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -823,6 +851,14 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
   Widget _buildOtherStoryItem(String authorId, List<DocumentSnapshot> stories) {
     final s = SeasonThemeScope.of(context);
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    // Verifica se todos os stories desse autor já foram visualizados pelo usuário atual
+    final bool allViewed = stories.every((story) {
+      final data = story.data() as Map<String, dynamic>;
+      final viewers = List<String>.from(data['viewers'] ?? []);
+      return viewers.contains(userId);
+    });
 
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
@@ -849,11 +885,14 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                   padding: const EdgeInsets.all(2.5),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [s.primary, Colors.orange, Colors.purpleAccent],
-                      begin: Alignment.topRight,
-                      end: Alignment.bottomLeft,
-                    ),
+                    gradient: allViewed
+                        ? null
+                        : LinearGradient(
+                            colors: [s.primary, Colors.orange, Colors.purpleAccent],
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                          ),
+                    color: allViewed ? s.border : null,
                   ),
                   child: Container(
                     padding: const EdgeInsets.all(2),
@@ -930,7 +969,18 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                         Navigator.pop(context);
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'image')),
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'image', source: ImageSource.camera)),
+                        );
+                      },
+                    ),
+                    _buildStoryOption(
+                      icon: Icons.photo_library_rounded,
+                      label: 'Galeria',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'image', source: ImageSource.gallery)),
                         );
                       },
                     ),
@@ -952,7 +1002,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                         Navigator.pop(context);
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'video')),
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'video', source: ImageSource.camera)),
                         );
                       },
                     ),
