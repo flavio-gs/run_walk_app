@@ -122,11 +122,12 @@ Future<void> onStartBackgroundTracking(ServiceInstance service) async {
     positionStream?.cancel();
     positionStream = Geolocator.getPositionStream(
       locationSettings: AndroidSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0, // Atualização instantânea
+        intervalDuration: const Duration(milliseconds: 500), // Tenta pegar a cada meio segundo
         foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationText: "Rastreando sua corrida em segundo plano...",
-          notificationTitle: "🏃 Runner Ativo",
+          notificationText: "Sua corrida está sendo gravada passo a passo.",
+          notificationTitle: "🏃 Runner em Tempo Real",
           enableWakeLock: true,
         ),
       ),

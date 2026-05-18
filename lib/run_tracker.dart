@@ -1265,22 +1265,37 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 8,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
       ),
     ).listen((position) {
 
       if(!mounted) return;
 
+      final latLngPos = LatLng(position.latitude, position.longitude);
+
       setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
+        _previousPosition = _currentPosition;
+        _animatedPosition = latLngPos;
+
+        _previousBearing = _currentBearing;
+        if (position.heading > 0) {
+          _targetBearing = position.heading;
+        }
       });
 
-      _updateMarker();
+      _animationController.forward(from: 0.0);
 
       if (!isWearOS && _followUser) {
         _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(_currentPosition),
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: latLngPos,
+              zoom: 17,
+              bearing: _targetBearing,
+              tilt: 45,
+            ),
+          ),
         );
       }
     });
@@ -1577,6 +1592,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   // ✅ Temporada atual
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _seasonStream;
 
+  double _currentBearing = 0.0;
+  double _targetBearing = 0.0;
+  double _previousBearing = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -1636,17 +1655,22 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 250),
     )..addListener(() {
       if (_previousPosition != null && _animatedPosition != null) {
+        final t = _animationController.value;
         setState(() {
-          final t = _animationController.value;
+          // Interpolação de Posição
           _currentPosition = LatLng(
             _previousPosition!.latitude +
                 (_animatedPosition!.latitude - _previousPosition!.latitude) * t,
             _previousPosition!.longitude +
                 (_animatedPosition!.longitude - _previousPosition!.longitude) * t,
           );
+          
+          // Interpolação de Rotação (Bearing)
+          _currentBearing = _previousBearing + (_targetBearing - _previousBearing) * t;
+          
           _updateMarker();
         });
       }
@@ -1654,6 +1678,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _listenToActiveChallenge();
     _setOnlineInitially();
+
+    // 📍 Busca posição inicial o mais rápido possível
+    _fetchFastInitialLocation();
 
     // ✅ Listener para atualizações vindas do serviço de background
     FlutterBackgroundService().on('update').listen((event) {
@@ -1799,11 +1826,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   Future<void> _updateMarker() async {
-    if (isWearOS) return; // sem mapa no Wear
+    if (isWearOS) return;
     if (!mounted) return;
 
     final customIcon = await _createUserCircleIcon(
-      size: 60,
+      size: 70, // Um pouco maior
       fillColor: const Color(0xFFFF7600),
     );
 
@@ -1814,6 +1841,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           markerId: const MarkerId('currentLocation'),
           position: _currentPosition,
           icon: customIcon,
+          rotation: _currentBearing, // Aplica a rotação suave
+          flat: true, // Faz o marcador "deitar" no mapa
           anchor: const Offset(0.5, 0.5),
           zIndex: 10000,
         ),
@@ -3247,8 +3276,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.bestForNavigation, // Máxima precisão
+        distanceFilter: 0, // Notifica a cada pequena mudança, sem espera
       ),
     ).listen((position) {
       final latLngPos = LatLng(position.latitude, position.longitude);
@@ -3357,12 +3386,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         // 5) animação / tracking
         _previousPosition = _currentPosition;
         _animatedPosition = latLngPos;
+        
+        _previousBearing = _currentBearing;
+        if (position.heading > 0) {
+          _targetBearing = position.heading;
+        }
       });
 
       _animationController.forward(from: 0.0);
 
       if (!isWearOS && _followUser) {
-        _googleMapController?.animateCamera(CameraUpdate.newLatLng(latLngPos));
+        _googleMapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: latLngPos,
+              zoom: 17,
+              bearing: _targetBearing, // Faz a câmera girar junto com você
+              tilt: 45, // Dá um aspecto 3D mais moderno
+            ),
+          ),
+        );
       }
     });
   }
@@ -3613,6 +3656,23 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       debugPrint("✅ Usuário inicializado como online em ${pos.latitude}, ${pos.longitude}");
     } catch (e) {
       debugPrint("❌ Erro ao inicializar online: $e");
+    }
+  }
+
+  Future<void> _fetchFastInitialLocation() async {
+    try {
+      // Tenta pegar a última localização conhecida (é instantâneo)
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && mounted) {
+        setState(() {
+          _currentPosition = LatLng(lastKnown.latitude, lastKnown.longitude);
+        });
+      }
+
+      // Em paralelo, busca a posição atual precisa
+      _setInitialLocation();
+    } catch (e) {
+      debugPrint("Erro no fetch inicial rápido: $e");
     }
   }
 
@@ -4289,6 +4349,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             onMapCreated: (controller) async {
               _googleMapController = controller;
               _mapReady = true;
+
+              // Se já detectamos a localização (pelo fetch rápido), movemos a câmera na hora
+              if (_currentPosition.latitude != -23.5505) {
+                controller.moveCamera(
+                  CameraUpdate.newLatLngZoom(_currentPosition, 17),
+                );
+              }
 
               await _updateMarker();
               _applyBestMapStyle();
