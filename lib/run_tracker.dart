@@ -1626,6 +1626,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleLocationDisclosureOnce();
+      _syncWithBackgroundService(); // ✅ Tenta recuperar corrida ativa
     });
 
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -1653,6 +1654,87 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _listenToActiveChallenge();
     _setOnlineInitially();
+
+    // ✅ Listener para atualizações vindas do serviço de background
+    FlutterBackgroundService().on('update').listen((event) {
+      if (!mounted) return;
+      if (event == null) return;
+
+      setState(() {
+        _isRunning = true;
+        _totalDistance = (event['distance'] as num).toDouble();
+        _seconds = (event['seconds'] as num).toInt();
+        _caloriesBurned = (event['calories'] as num).toDouble();
+        _averagePace = (event['pace'] as num).toDouble();
+        
+        if (event['startTime'] != null) {
+           _startTime = DateTime.tryParse(event['startTime']);
+        }
+        
+        if (event['isPaused'] != null) {
+           _isPaused = event['isPaused'];
+        }
+
+        if (event['path'] != null) {
+           final List<dynamic> pathData = event['path'];
+           if (pathData.length > _positions.length) {
+              _positions.clear();
+              for (var p in pathData) {
+                _positions.add(LatLng(p['lat'], p['lng']));
+              }
+              _rebuildPolylines();
+           }
+           if (_positions.isNotEmpty) {
+              _currentPosition = _positions.last;
+           }
+        } else if (event['latitude'] != null && event['longitude'] != null) {
+           final newPos = LatLng(event['latitude'], event['longitude']);
+           if (_positions.isEmpty || _positions.last != newPos) {
+              _positions.add(newPos);
+              if (!isWearOS) _updatePolyline();
+           }
+           _currentPosition = newPos;
+        }
+      });
+    });
+  }
+
+  void _rebuildPolylines() {
+    if (isWearOS) return;
+    _polylines.clear();
+    if (_positions.length < 2) return;
+    
+    // Simplificado para reconstrução em lote
+    for (int i = 0; i < _positions.length - 1; i++) {
+       final start = _positions[i];
+       final end = _positions[i+1];
+       _polylines.add(
+        Polyline(
+          polylineId: PolylineId('segment_$i'),
+          points: [start, end],
+          color: const Color(0xFF3FA9F5), // Cor padrão na reconstrução
+          width: 6,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncWithBackgroundService() async {
+    final service = FlutterBackgroundService();
+    bool running = await service.isRunning();
+    if (running) {
+      debugPrint("🔄 [Sync] Serviço de background detectado rodando. Sincronizando...");
+      service.invoke('request_state');
+      setState(() {
+        _isRunning = true;
+        _isPaused = false;
+      });
+      _startTimerTick();
+      _startPositionStream();
+    }
   }
 
 
@@ -3151,10 +3233,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   void _startTimerTick() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        _seconds = _stopwatch.elapsed.inSeconds;
-        _calculatePaceAndCalories();
-      });
+      if (!_isPaused) {
+        setState(() {
+          _seconds++;
+          _calculatePaceAndCalories();
+        });
+      }
     });
   }
 
@@ -3291,6 +3375,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _timer?.cancel();
     _stopwatch.stop();
     _positionStream?.pause();
+    FlutterBackgroundService().invoke('pauseService');
 
     setState(() {
       _isPaused = true;
@@ -3305,6 +3390,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.start();
     _startTimerTick();
     _positionStream?.resume();
+    FlutterBackgroundService().invoke('resumeService');
 
     setState(() {
       _isPaused = false;
@@ -3467,7 +3553,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _calculatePaceAndCalories() {
     final dMeters = _totalDistance;
-    final secs = _stopwatch.elapsed.inSeconds;
+    final secs = _seconds;
 
     if (secs > 0 && dMeters > 1) {
       final km = dMeters / 1000.0;
@@ -4814,7 +4900,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       // ✅ snapshot IMEDIATO (fonte de verdade pra validação e salvamento)
       final positionsSnapshot = List<LatLng>.from(_positions);
       final distanceSnapshot = _totalDistance; // metros
-      final durationSnapshot = _stopwatch.elapsed.inSeconds;
+      final durationSnapshot = _seconds;
       final avgPaceSnapshot = _averagePace;
       final caloriesSnapshot = _caloriesBurned;
       final avgSpeedSnapshot = _avgSpeedKmh;

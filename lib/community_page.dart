@@ -34,6 +34,11 @@ class _CommunityPageState extends State<CommunityPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -65,15 +70,16 @@ class _CommunityPageState extends State<CommunityPage>
           ),
         ),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(118),
+          preferredSize: Size.fromHeight(_tabController.index == 0 ? 118 : 64),
           child: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-                child: _SearchBar(
-                  onChanged: (v) => _searchQuery.value = v,
+              if (_tabController.index == 0)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+                  child: _SearchBar(
+                    onChanged: (v) => _searchQuery.value = v,
+                  ),
                 ),
-              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: Container(
@@ -1291,97 +1297,152 @@ class _RankingTabState extends State<_RankingTab> {
     return all;
   }
 
+  Future<List<QueryDocumentSnapshot>> _getLeaderboardDocsByIdsChunked(String col, List<String> ids) async {
+    if (ids.isEmpty) return [];
+    final chunks = <List<String>>[];
+    for (var i = 0; i < ids.length; i += 10) {
+      chunks.add(ids.sublist(i, (i + 10 > ids.length) ? ids.length : i + 10));
+    }
+
+    final all = <QueryDocumentSnapshot>[];
+    for (final c in chunks) {
+      final s = await widget.firestore
+          .collection(col)
+          .where('userId', whereIn: c)
+          .get();
+      all.addAll(s.docs);
+    }
+    return all;
+  }
+
   Future<void> _loadRanking() async {
     setState(() => _loading = true);
 
     try {
-      Query query;
       final me = widget.auth.currentUser?.uid;
-
       final bool isTerritories = _metric == 'territories';
       final String orderField = isTerritories ? 'territories.activeCount' : _metric;
 
-      if (isTerritories) {
-        if (_rankingType == 'weekly') _rankingType = 'global';
+      List<QueryDocumentSnapshot> docs = [];
+      int? userPos;
 
-        if (_rankingType == 'friends') {
-          final followsSnap = await widget.firestore
-              .collection('users')
-              .doc(me)
-              .collection('following')
-              .get();
+      if (_rankingType == 'friends') {
+        final followsSnap = await widget.firestore
+            .collection('users')
+            .doc(me)
+            .collection('following')
+            .get();
 
-          final friendIds = followsSnap.docs.map((d) => d.id).toList();
-          if (me != null && me.isNotEmpty) friendIds.add(me);
+        final friendIds = followsSnap.docs.map((d) => d.id).toList();
+        if (me != null && me.isNotEmpty) friendIds.add(me);
 
-          // ✅ chunk para não quebrar
-          final docs = await _getUsersByIdsChunked(friendIds);
-          docs.sort((a, b) {
-            final ad = (a.data() as Map<String, dynamic>);
-            final bd = (b.data() as Map<String, dynamic>);
-            final av = (ad['territories']?['activeCount'] ?? 0) as num;
-            final bv = (bd['territories']?['activeCount'] ?? 0) as num;
+        if (isTerritories) {
+          final allFriendsDocs = await _getUsersByIdsChunked(friendIds);
+          allFriendsDocs.sort((a, b) {
+            final av = ((a.data() as Map)['territories']?['activeCount'] ?? 0) as num;
+            final bv = ((b.data() as Map)['territories']?['activeCount'] ?? 0) as num;
             return bv.compareTo(av);
           });
-
-          final top = docs.take(50).toList();
-
-          final index = top.indexWhere((d) => d.id == me);
-          setState(() {
-            _docs = top;
-            _userPosition = index != -1 ? index + 1 : null;
-          });
-
-          return;
+          docs = allFriendsDocs;
         } else {
+          final col = _rankingType == 'weekly' ? 'leaderboard_weekly' : 'leaderboard_global';
+          final allFriendsDocs = await _getLeaderboardDocsByIdsChunked(col, friendIds);
+
+          allFriendsDocs.sort((a, b) {
+            final av = ((a.data() as Map)[_metric] ?? 0) as num;
+            final bv = ((b.data() as Map)[_metric] ?? 0) as num;
+            return bv.compareTo(av);
+          });
+          docs = allFriendsDocs;
+        }
+
+        final index = docs.indexWhere((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return isTerritories ? (d.id == me) : (data['userId'] == me);
+        });
+
+        if (index != -1) {
+          userPos = index + 1;
+        }
+        docs = docs.take(50).toList();
+
+      } else {
+        // Global ou Weekly
+        Query query;
+        if (isTerritories) {
           query = widget.firestore
               .collection('users')
               .orderBy(orderField, descending: true)
               .limit(50);
-        }
-      } else {
-        if (_rankingType == 'weekly') {
-          final now = DateTime.now();
-          final weekStart =
-          DateTime(now.year, now.month, now.day - (now.weekday - 1));
-          query = widget.firestore
-              .collection('leaderboard_weekly')
-              .where('weekStart',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart));
-        } else if (_rankingType == 'friends') {
-          final followsSnap = await widget.firestore
-              .collection('users')
-              .doc(me)
-              .collection('following')
-              .get();
-
-          final friendIds = followsSnap.docs.map((d) => d.id).toList();
-          if (me != null && me.isNotEmpty) friendIds.add(me);
-
-          // ⚠️ leaderboard_global friends ainda tem whereIn(10)
-          // Se você quiser, eu te passo o mesmo chunk aqui também (ou muda estrutura).
-          query = widget.firestore
-              .collection('leaderboard_global')
-              .where('userId',
-              whereIn: friendIds.isEmpty ? ['dummy'] : friendIds);
         } else {
-          query = widget.firestore.collection('leaderboard_global');
+          if (_rankingType == 'weekly') {
+            final now = DateTime.now();
+            final weekStart = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+            query = widget.firestore
+                .collection('leaderboard_weekly')
+                .where('weekStart', isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart))
+                .orderBy(orderField, descending: true)
+                .limit(50);
+          } else {
+            query = widget.firestore
+                .collection('leaderboard_global')
+                .orderBy(orderField, descending: true)
+                .limit(50);
+          }
         }
 
-        query = query.orderBy(orderField, descending: true).limit(50);
+        final snap = await query.get();
+        docs = snap.docs;
+
+        final index = docs.indexWhere((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return isTerritories ? (d.id == me) : (data['userId'] == me);
+        });
+
+        if (index != -1) {
+          userPos = index + 1;
+        } else if (me != null) {
+          // Fora do Top 50, calcula posição real
+          try {
+            if (isTerritories) {
+              final userDoc = await widget.firestore.collection('users').doc(me).get();
+              final myVal = (userDoc.data()?['territories']?['activeCount'] ?? 0) as num;
+              final countSnap = await widget.firestore.collection('users')
+                  .where('territories.activeCount', isGreaterThan: myVal)
+                  .count().get();
+              userPos = (countSnap.count ?? 0) + 1;
+            } else if (_rankingType == 'global') {
+              final myDoc = await widget.firestore.collection('leaderboard_global').doc(me).get();
+              if (myDoc.exists) {
+                final myVal = (myDoc.data()?[_metric] ?? 0) as num;
+                final countSnap = await widget.firestore.collection('leaderboard_global')
+                    .where(_metric, isGreaterThan: myVal)
+                    .count().get();
+                userPos = (countSnap.count ?? 0) + 1;
+              }
+            } else if (_rankingType == 'weekly') {
+              final now = DateTime.now();
+              final weekStart = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+              final weekId = "${weekStart.year}_${weekStart.month.toString().padLeft(2, '0')}_${weekStart.day.toString().padLeft(2, '0')}";
+              final myDoc = await widget.firestore.collection('leaderboard_weekly').doc("$weekId-$me").get();
+              if (myDoc.exists) {
+                final myVal = (myDoc.data()?[_metric] ?? 0) as num;
+                final countSnap = await widget.firestore.collection('leaderboard_weekly')
+                    .where('weekStart', isGreaterThanOrEqualTo: Timestamp.fromDate(weekStart))
+                    .where(_metric, isGreaterThan: myVal)
+                    .count().get();
+                userPos = (countSnap.count ?? 0) + 1;
+              }
+            }
+          } catch (e) {
+            debugPrint('Erro ao calcular posição real: $e');
+          }
+        }
       }
-
-      final snap = await query.get();
-      final docs = snap.docs;
-
-      final index = docs.indexWhere((d) {
-        final data = d.data() as Map<String, dynamic>;
-        return isTerritories ? (d.id == me) : (data['userId'] == me);
-      });
 
       setState(() {
         _docs = docs;
-        _userPosition = index != -1 ? index + 1 : null;
+        _userPosition = userPos;
       });
     } catch (e) {
       debugPrint('Erro ao carregar ranking: $e');
@@ -1411,181 +1472,199 @@ class _RankingTabState extends State<_RankingTab> {
 
     return Container(
       color: s.background,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      child: Stack(
         children: [
-          Text(
-            '🏆 Rankings',
-            style: TextStyle(
-              color: s.foreground,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.1,
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
             children: [
-              _ToggleChip(
-                label: '🌍 Global',
-                active: _rankingType == 'global',
-                onTap: () => _changeRanking('global'),
-              ),
-              Opacity(
-                opacity: isTerritories ? 0.45 : 1,
-                child: IgnorePointer(
-                  ignoring: isTerritories,
-                  child: _ToggleChip(
-                    label: '🗓️ Semanal',
-                    active: _rankingType == 'weekly',
-                    onTap: () => _changeRanking('weekly'),
-                  ),
-                ),
-              ),
-              _ToggleChip(
-                label: '👥 Amigos',
-                active: _rankingType == 'friends',
-                onTap: () => _changeRanking('friends'),
-              ),
-            ],
-          ),
-
-          if (isTerritories) ...[
-            const SizedBox(height: 8),
-            Text(
-              '🗺️ Territórios ativos = territórios que ainda são seus agora.',
-              style: TextStyle(
-                color: s.mutedForeground,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-
-          const SizedBox(height: 12),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _ToggleChip(
-                label: '⚡ XP',
-                active: _metric == 'xp',
-                onTap: () => _changeMetric('xp'),
-              ),
-              const SizedBox(width: 8),
-              _ToggleChip(
-                label: '🏃 KM',
-                active: _metric == 'km',
-                onTap: () => _changeMetric('km'),
-              ),
-              const SizedBox(width: 8),
-              _ToggleChip(
-                label: '🗺️ Territórios',
-                active: _metric == 'territories',
-                onTap: () => _changeMetric('territories'),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-
-          _loading
-              ? Center(child: CircularProgressIndicator(color: s.primary))
-              : _docs.isEmpty
-              ? Padding(
-            padding: const EdgeInsets.all(20),
-            child: Center(
-              child: Text(
-                'Nenhum dado encontrado neste ranking.',
+              Text(
+                '🏆 Ranking Top 50',
                 style: TextStyle(
-                  color: s.mutedForeground,
-                  fontWeight: FontWeight.w700,
+                  color: s.foreground,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.1,
                 ),
               ),
-            ),
-          )
-              : Column(
-            children: [
-              _PodiumTop3(docs: _docs, metric: _metric),
+              const SizedBox(height: 10),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ToggleChip(
+                    label: '🌍 Global',
+                    active: _rankingType == 'global',
+                    onTap: () => _changeRanking('global'),
+                  ),
+                  Opacity(
+                    opacity: isTerritories ? 0.45 : 1,
+                    child: IgnorePointer(
+                      ignoring: isTerritories,
+                      // child: _ToggleChip(
+                      //   label: '🗓️ Semanal',
+                      //   active: _rankingType == 'weekly',
+                      //   onTap: () => _changeRanking('weekly'),
+                      // ),
+                    ),
+                  ),
+                  _ToggleChip(
+                    label: '👥 Amigos',
+                    active: _rankingType == 'friends',
+                    onTap: () => _changeRanking('friends'),
+                  ),
+                ],
+              ),
+
+              if (isTerritories) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '🗺️ Territórios ativos = territórios que ainda são seus agora.',
+                  style: TextStyle(
+                    color: s.mutedForeground,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+
               const SizedBox(height: 12),
 
-              Container(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _ToggleChip(
+                    label: '⚡ XP',
+                    active: _metric == 'xp',
+                    onTap: () => _changeMetric('xp'),
+                  ),
+                  const SizedBox(width: 8),
+                  _ToggleChip(
+                    label: '🏃 KM',
+                    active: _metric == 'km',
+                    onTap: () => _changeMetric('km'),
+                  ),
+                  const SizedBox(width: 8),
+                  _ToggleChip(
+                    label: '🗺️ Territórios',
+                    active: _metric == 'territories',
+                    onTap: () => _changeMetric('territories'),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              _loading
+                  ? Center(child: CircularProgressIndicator(color: s.primary))
+                  : _docs.isEmpty
+                  ? Padding(
+                padding: const EdgeInsets.all(20),
+                child: Center(
+                  child: Text(
+                    'Nenhum dado encontrado neste ranking.',
+                    style: TextStyle(
+                      color: s.mutedForeground,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              )
+                  : Column(
+                children: [
+                  _PodiumTop3(docs: _docs, metric: _metric),
+                  const SizedBox(height: 12),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: s.card,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: s.border),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.35),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        for (int i = 0; i < _docs.length; i++)
+                          if (i >= 3)
+                            Builder(builder: (_) {
+                              final data =
+                              _docs[i].data() as Map<String, dynamic>;
+
+                              final displayName = (data['displayName'] ??
+                                  data['username'] ??
+                                  'Runner')
+                                  .toString();
+
+                              final value = _metric == 'xp'
+                                  ? _fmtXp(data['xp'])
+                                  : _metric == 'territories'
+                                  ? '🗺️ ${(data['territories']?['activeCount'] ?? 0)}'
+                                  : '${((data['km'] ?? 0) as num).toDouble().toStringAsFixed(2)} km';
+
+                              return _LeaderTile(
+                                position: i + 1,
+                                name: displayName,
+                                value: value,
+                              );
+                            }),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+                ],
+              ),
+            ],
+          ),
+          if (_userPosition != null && !_loading)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 120,
+              child: Container(
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: s.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: s.border),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: s.primary.withOpacity(0.5), width: 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.35),
-                      blurRadius: 18,
-                      offset: const Offset(0, 10),
+                      color: Colors.black.withOpacity(0.45),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    for (int i = 0; i < _docs.length; i++)
-                      if (i >= 3)
-                        Builder(builder: (_) {
-                          final data =
-                          _docs[i].data() as Map<String, dynamic>;
-
-                          final displayName = (data['displayName'] ??
-                              data['username'] ??
-                              'Runner')
-                              .toString();
-
-                          final value = _metric == 'xp'
-                              ? _fmtXp(data['xp'])
-                              : _metric == 'territories'
-                              ? '🗺️ ${(data['territories']?['activeCount'] ?? 0)}'
-                              : '${((data['km'] ?? 0) as num).toDouble().toStringAsFixed(2)} km';
-
-                          return _LeaderTile(
-                            position: i + 1,
-                            name: displayName,
-                            value: value,
-                          );
-                        }),
+                    Icon(Icons.stars_rounded, color: s.primary),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        'Você está em $_userPositionº lugar no ranking',
+                        style: TextStyle(
+                          color: s.foreground,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
-
-              const SizedBox(height: 18),
-
-              if (_userPosition != null)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: s.primary.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: s.primary.withOpacity(0.35)),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '🏁 Você está em $_userPositionº lugar '
-                          '${_rankingType == 'weekly'
-                          ? 'nesta semana!'
-                          : _rankingType == 'friends'
-                          ? 'entre seus amigos!'
-                          : 'no global!'}',
-                      style: TextStyle(
-                        color: s.foreground,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+            ),
         ],
       ),
     );
   }
+
 }
 
 class _ToggleChip extends StatelessWidget {
