@@ -8,7 +8,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
+    timeout-minutes: 60
 
     steps:
 
@@ -31,11 +32,19 @@ jobs:
       # CACHE PUB
       # =========================
       - name: Cache pub dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.pub-cache
           key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      # =========================
+      # FLUTTER DEPENDENCIES
+      # =========================
+      - name: Install Flutter dependencies
+        run: flutter pub get
 
       # =========================
       # CLEAN IOS
@@ -47,21 +56,13 @@ jobs:
           rm -rf ios/Podfile.lock
 
       # =========================
-      # FLUTTER DEPENDENCIES
-      # =========================
-      - name: Install Flutter dependencies
-        run: flutter pub get
-
-      # =========================
       # COCOAPODS
       # =========================
       - name: Install CocoaPods dependencies
         run: |
           cd ios
 
-          rm -rf Pods
-          rm -rf Podfile.lock
-          pod deintegrate
+          pod deintegrate || true
           pod install --repo-update
 
       # =========================
@@ -72,60 +73,117 @@ jobs:
           ls -la ios/Pods/Target\ Support\ Files/Pods-Runner/
 
       # =========================
+      # CREATE EXPORT OPTIONS
+      # =========================
+      - name: Create ExportOptions.plist
+        run: |
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+
+              <key>signingStyle</key>
+              <string>manual</string>
+
+              <key>stripSwiftSymbols</key>
+              <true/>
+
+              <key>compileBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOF
+
+      # =========================
       # KEYCHAIN
       # =========================
       - name: Create temporary keychain
         run: |
           security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+
           security default-keychain -s build.keychain
+
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+
           security set-keychain-settings -lut 21600 build.keychain
 
+          security list-keychains -d user -s build.keychain login.keychain
+
       # =========================
-      # CERTIFICATE
+      # IMPORT CERTIFICATE
       # =========================
       - name: Import certificate
         run: |
           echo "${{ secrets.IOS_CERTIFICATE }}" | base64 --decode > certificate.p12
+
           security import certificate.p12 \
             -k build.keychain \
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
-            -T /usr/bin/codesign
+            -A
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${{ secrets.KEYCHAIN_PASSWORD }}" \
+            build.keychain
 
       # =========================
-      # PROVISION PROFILE
+      # INSTALL PROVISION PROFILE
       # =========================
       - name: Install provisioning profile
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+
           echo "${{ secrets.IOS_PROVISION_PROFILE }}" | base64 --decode > profile.mobileprovision
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i profile.mobileprovision)")
+
+          cp profile.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
       # =========================
-      # BUILD IOS
+      # VERIFY CERTIFICATES
+      # =========================
+      - name: Verify certificates
+        run: |
+          security find-identity -v -p codesigning
+
+      # =========================
+      # BUILD IPA
       # =========================
       - name: Build and Sign IPA
         run: |
-          flutter build ipa --release --export-method=app-store --verbose
-
+          flutter build ipa \
+            --release \
+            --export-options-plist=ios/ExportOptions.plist
 
       # =========================
-      # UPLOAD PARA O TESTFLIGHT
+      # VERIFY IPA
+      # =========================
+      - name: Verify IPA exists
+        run: |
+          ls -lah build/ios/ipa/
+
+      # =========================
+      # UPLOAD TO TESTFLIGHT
       # =========================
       - name: Upload to TestFlight
         run: |
-          # Caminho atualizado para apontar para a IPA oficial gerada pelo Flutter
-          xcrun altool --upload-app \
-            --type ios \
-            --file build/ios/ipa/*.ipa \
-            --username "${{ secrets.APPLE_USERNAME }}" \
-            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+          xcrun iTMSTransporter \
+            -m upload \
+            -assetFile build/ios/ipa/*.ipa \
+            -u "${{ secrets.APPLE_USERNAME }}" \
+            -p "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
 
       # =========================
-      # UPLOAD IPA
+      # UPLOAD IPA ARTIFACT
       # =========================
-      - name: Upload IPA
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-app
-          path: build/ios/iphoneos/Runner.ipa
+          path: build/ios/ipa/*.ipa
