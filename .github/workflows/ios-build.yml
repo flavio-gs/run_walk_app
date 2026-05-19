@@ -103,28 +103,20 @@ jobs:
       # =========================
       # BUILD IOS
       # =========================
-      - name: Build iOS
-        run: flutter build ios --release --no-codesign --verbose
-
-      # =========================
-      # CREATE IPA
-      # =========================
-      - name: Create IPA
+      - name: Build and Sign IPA
         run: |
-          cd build/ios/iphoneos
-          mkdir Payload
-          cp -r Runner.app Payload/
-          zip -r Runner.ipa Payload
+          flutter build ipa --release --export-method=app-store --verbose
+
 
       # =========================
-      # UPLOAD PARA O TESTFLIGHT (NOVO)
+      # UPLOAD PARA O TESTFLIGHT
       # =========================
       - name: Upload to TestFlight
         run: |
-          # Envia a IPA gerada pelo seu zip manual diretamente para a Apple Connect
+          # Caminho atualizado para apontar para a IPA oficial gerada pelo Flutter
           xcrun altool --upload-app \
             --type ios \
-            --file build/ios/iphoneos/Runner.ipa \
+            --file build/ios/ipa/*.ipa \
             --username "${{ secrets.APPLE_USERNAME }}" \
             --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
 
