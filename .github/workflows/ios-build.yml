@@ -41,12 +41,6 @@ jobs:
             ${{ runner.os }}-pub-
 
       # =========================
-      # FLUTTER DEPENDENCIES
-      # =========================
-      - name: Install Flutter dependencies
-        run: flutter pub get
-
-      # =========================
       # CLEAN IOS
       # =========================
       - name: Clean iOS build
@@ -56,6 +50,20 @@ jobs:
           rm -rf ios/Podfile.lock
 
       # =========================
+      # INSTALL FLUTTER DEPENDENCIES
+      # =========================
+      - name: Install Flutter dependencies
+        run: |
+          flutter pub get
+
+      # =========================
+      # GENERATE IOS FILES
+      # =========================
+      - name: Generate iOS Flutter config
+        run: |
+          flutter precache --ios
+
+      # =========================
       # COCOAPODS
       # =========================
       - name: Install CocoaPods dependencies
@@ -63,6 +71,7 @@ jobs:
           cd ios
 
           pod deintegrate || true
+
           pod install --repo-update
 
       # =========================
@@ -83,6 +92,7 @@ jobs:
           "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+
               <key>method</key>
               <string>app-store</string>
 
@@ -94,6 +104,7 @@ jobs:
 
               <key>compileBitcode</key>
               <false/>
+
           </dict>
           </plist>
           EOF
