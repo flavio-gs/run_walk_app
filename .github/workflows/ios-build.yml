@@ -15,14 +15,12 @@ jobs:
       # =========================
       # CHECKOUT
       # =========================
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # =========================
       # FLUTTER
       # =========================
-
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,7 +30,6 @@ jobs:
       # =========================
       # CACHE PUB
       # =========================
-
       - name: Cache pub dependencies
         uses: actions/cache@v3
         with:
@@ -43,23 +40,21 @@ jobs:
       # =========================
       # CLEAN IOS
       # =========================
-
       - name: Clean iOS build
         run: |
           flutter clean
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
+
       # =========================
       # FLUTTER DEPENDENCIES
       # =========================
-
       - name: Install Flutter dependencies
         run: flutter pub get
 
       # =========================
       # COCOAPODS
       # =========================
-
       - name: Install CocoaPods dependencies
         run: |
           cd ios
@@ -67,73 +62,74 @@ jobs:
           rm -rf Pods
           rm -rf Podfile.lock
           pod install --repo-update
+
       # =========================
       # VERIFY PODS
       # =========================
-
       - name: Verify Pods scripts
         run: |
           ls -la ios/Pods/Target\ Support\ Files/Pods-Runner/
+
       # =========================
       # KEYCHAIN
       # =========================
-
       - name: Create temporary keychain
         run: |
           security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          # Ajuste Técnico 1: Define uma lista de partições para evitar pop-ups do Xcode pedindo permissão de acesso à chave privada
           security set-keychain-settings -lut 21600 build.keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+
       # =========================
       # CERTIFICATE
       # =========================
-
       - name: Import certificate
         run: |
           echo "${{ secrets.IOS_CERTIFICATE }}" | base64 --decode > certificate.p12
           security import certificate.p12 \
             -k build.keychain \
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
-            -T /usr/bin/codesign
+            -T /usr/bin/codesign \
+            -T /usr/bin/productsign
+
       # =========================
       # PROVISION PROFILE
       # =========================
-
       - name: Install provisioning profile
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "${{ secrets.IOS_PROVISION_PROFILE }}" | base64 --decode > profile.mobileprovision
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-      # =========================
-      # BUILD IOS
-      # =========================
+          # Ajuste Técnico 2: O Xcode busca perfis usando o UUID do arquivo. Esse comando extrai o UUID real do arquivo gerado para renomeá-lo corretamente.
+          UUID=$(UUID=$(security cms -D -i profile.mobileprovision | plutil -extract UUID raw -) && echo "$UUID")
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
-      - name: Build iOS
+      # =========================
+      # BUILD E ASSINATURA DA IPA OFICIAL
+      # =========================
+      - name: Build and Sign IPA
         run: |
-          # 1. Força o Flutter a reconstruir os arquivos de configuração nativos com o CocoaPods integrado
-          flutter build ios --release --no-codesign
-          
-          # 2. Compila nativamente gerando a IPA assinada oficial
           flutter build ipa --release \
-            --export-method=app-store
+            --export-method=app-store \
+            --verbose
 
       # =========================
-      # CREATE IPA
+      # UPLOAD PARA O TESTFLIGHT
       # =========================
-
-      - name: Create IPA
+      - name: Upload to TestFlight
         run: |
-          cd build/ios/iphoneos
-          mkdir Payload
-          cp -r Runner.app Payload/
-          zip -r Runner.ipa Payload
-      # =========================
-      # UPLOAD IPA
-      # =========================
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/ios/ipa/*.ipa \
+            --username "${{ secrets.APPLE_USERNAME }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
 
-      - name: Upload IPA
+      # =========================
+      # UPLOAD DO ARTEFATO (OPCIONAL)
+      # =========================
+      - name: Upload IPA Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
-          name: ios-app
-          # O Flutter exporta a IPA oficial exatamente para este caminho abaixo:
+          name: ios-app-signed
           path: build/ios/ipa/*.ipa
