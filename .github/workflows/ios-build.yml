@@ -78,9 +78,7 @@ jobs:
           security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
-          # Ajuste Técnico 1: Define uma lista de partições para evitar pop-ups do Xcode pedindo permissão de acesso à chave privada
           security set-keychain-settings -lut 21600 build.keychain
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
 
       # =========================
       # CERTIFICATE
@@ -91,8 +89,7 @@ jobs:
           security import certificate.p12 \
             -k build.keychain \
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/productsign
+            -T /usr/bin/codesign
 
       # =========================
       # PROVISION PROFILE
@@ -101,35 +98,41 @@ jobs:
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "${{ secrets.IOS_PROVISION_PROFILE }}" | base64 --decode > profile.mobileprovision
-          # Ajuste Técnico 2: O Xcode busca perfis usando o UUID do arquivo. Esse comando extrai o UUID real do arquivo gerado para renomeá-lo corretamente.
-          UUID=$(UUID=$(security cms -D -i profile.mobileprovision | plutil -extract UUID raw -) && echo "$UUID")
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # =========================
-      # BUILD E ASSINATURA DA IPA OFICIAL
+      # BUILD IOS
       # =========================
-      - name: Build and Sign IPA
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign --verbose
+
+      # =========================
+      # CREATE IPA
+      # =========================
+      - name: Create IPA
         run: |
-          flutter build ipa --release \
-            --export-method=app-store \
-            --verbose
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r Runner.ipa Payload
 
       # =========================
-      # UPLOAD PARA O TESTFLIGHT
+      # UPLOAD PARA O TESTFLIGHT (NOVO)
       # =========================
       - name: Upload to TestFlight
         run: |
+          # Envia a IPA gerada pelo seu zip manual diretamente para a Apple Connect
           xcrun altool --upload-app \
             --type ios \
-            --file build/ios/ipa/*.ipa \
+            --file build/ios/iphoneos/Runner.ipa \
             --username "${{ secrets.APPLE_USERNAME }}" \
             --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
 
       # =========================
-      # UPLOAD DO ARTEFATO (OPCIONAL)
+      # UPLOAD IPA
       # =========================
-      - name: Upload IPA Artifact to GitHub
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-app-signed
-          path: build/ios/ipa/*.ipa
+          name: ios-app
+          path: build/ios/iphoneos/Runner.ipa
