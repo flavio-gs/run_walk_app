@@ -58,9 +58,10 @@ jobs:
       - name: Install CocoaPods dependencies
         run: |
           cd ios
-          pod deintegrate
+
           rm -rf Pods
           rm -rf Podfile.lock
+          pod deintegrate
           pod install --repo-update
 
       # =========================
