@@ -13,11 +13,16 @@ jobs:
 
     steps:
 
-      # =========================
-      # CHECKOUT
-      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # =========================
+      # SELECT XCODE
+      # =========================
+      - name: Select Xcode 15.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app
+          xcodebuild -version
 
       # =========================
       # FLUTTER
