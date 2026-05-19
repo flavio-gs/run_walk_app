@@ -49,7 +49,6 @@ jobs:
           flutter clean
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
-
       # =========================
       # FLUTTER DEPENDENCIES
       # =========================
@@ -64,14 +63,10 @@ jobs:
       - name: Install CocoaPods dependencies
         run: |
           cd ios
-
           pod deintegrate
-
           rm -rf Pods
           rm -rf Podfile.lock
-
           pod install --repo-update
-
       # =========================
       # VERIFY PODS
       # =========================
@@ -79,7 +74,6 @@ jobs:
       - name: Verify Pods scripts
         run: |
           ls -la ios/Pods/Target\ Support\ Files/Pods-Runner/
-
       # =========================
       # KEYCHAIN
       # =========================
@@ -90,7 +84,6 @@ jobs:
           security default-keychain -s build.keychain
           security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
           security set-keychain-settings -lut 21600 build.keychain
-
       # =========================
       # CERTIFICATE
       # =========================
@@ -98,12 +91,10 @@ jobs:
       - name: Import certificate
         run: |
           echo "${{ secrets.IOS_CERTIFICATE }}" | base64 --decode > certificate.p12
-
           security import certificate.p12 \
             -k build.keychain \
             -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
             -T /usr/bin/codesign
-
       # =========================
       # PROVISION PROFILE
       # =========================
@@ -111,18 +102,31 @@ jobs:
       - name: Install provisioning profile
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-
           echo "${{ secrets.IOS_PROVISION_PROFILE }}" | base64 --decode > profile.mobileprovision
-
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+      # =========================
+      # BUILD IOS
+      # =========================
+
+      - name: Build iOS
+        run: |
+          # 1. Força o Flutter a reconstruir os arquivos de configuração nativos com o CocoaPods integrado
+          flutter build ios --release --no-codesign
+          
+          # 2. Compila nativamente gerando a IPA assinada oficial
+          flutter build ipa --release \
+            --export-method=app-store
 
       # =========================
-      # BUILD SIGNED IPA
+      # CREATE IPA
       # =========================
 
-      - name: Build signed IPA
-        run: flutter build ipa --release --verbose
-
+      - name: Create IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir Payload
+          cp -r Runner.app Payload/
+          zip -r Runner.ipa Payload
       # =========================
       # UPLOAD IPA
       # =========================
@@ -131,4 +135,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-app
+          # O Flutter exporta a IPA oficial exatamente para este caminho abaixo:
           path: build/ios/ipa/*.ipa
