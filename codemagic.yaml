@@ -5,9 +5,9 @@ workflows:
     max_build_duration: 120
 
     environment:
-      flutter: 3.41.2
-      xcode: 15.4
-      cocoapods: default
+  flutter: 3.41.2
+  xcode: 16.4
+  cocoapods: default
 
       vars:
         BUNDLE_ID: "com.nexus.runWalkApp"
