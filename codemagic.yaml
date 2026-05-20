@@ -76,11 +76,21 @@ workflows:
       # =========================
       - name: Build IPA
         script: |
-          flutter build ipa \
-            --release \
-            --export-method=app-store \
-            --build-name=1.0.0 \
-            --build-number=$BUILD_NUMBER
+          xcode-project use-profiles
+
+          flutter build ios --release --no-codesign
+
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/Runner.xcarchive \
+            archive
+
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist /Users/builder/export_options.plist \
+            -exportPath build/ios/ipa
 
     artifacts:
       - build/ios/ipa/*.ipa
