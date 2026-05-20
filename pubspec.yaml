@@ -2,7 +2,7 @@ name: run_walk_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+21
+version: 1.0.0+22
 
 environment:
   sdk: ^3.6.0
