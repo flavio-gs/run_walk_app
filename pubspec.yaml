@@ -29,12 +29,14 @@ dependencies:
   device_info_plus: ^11.1.1
 
 
-  # ✅ Firebase (Geração 3.x compatível entre si)
-  firebase_core: ^3.7.0
-  firebase_auth: ^5.3.3
-  cloud_firestore: ^5.4.4
-  firebase_storage: ^12.3.4
-  firebase_analytics: ^11.2.1
+  # ✅ FIREBASE ATUALIZADO
+  firebase_core: ^3.15.1
+  firebase_auth: ^5.6.2
+  cloud_firestore: ^5.6.11
+  firebase_storage: ^12.4.9
+  firebase_analytics: ^11.5.2
+  firebase_messaging: ^15.2.9
+
   connectivity_plus: ^6.1.0
   shared_preferences: ^2.3.2
   package_info_plus: ^8.3.1
@@ -48,7 +50,6 @@ dependencies:
   flutter_markdown: ^0.6.18
   path_provider: ^2.1.4
 
-  firebase_messaging: ^15.0.0
   flutter_local_notifications: ^17.2.1
   permission_handler: ^11.0.1
 
