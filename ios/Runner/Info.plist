@@ -45,9 +45,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-7215014769653180~1577870814</string>
@@ -58,5 +56,60 @@
 			<string>cstr6suwn9.skadnetwork</string>
 		</dict>
 	</array>
+	<!-- ========================= -->
+	<!-- LOCALIZAÇÃO -->
+	<!-- ========================= -->
+
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para registrar corridas, caminhadas e desafios territoriais.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização em segundo plano para continuar registrando atividades físicas durante a corrida.</string>
+
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para rastrear atividades físicas e mapas.</string>
+
+	<!-- ========================= -->
+	<!-- NOTIFICAÇÕES -->
+	<!-- ========================= -->
+
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>O aplicativo envia notificações sobre corridas, interações sociais e desafios.</string>
+
+	<!-- ========================= -->
+	<!-- TRACKING -->
+	<!-- ========================= -->
+
+	<key>NSUserTrackingUsageDescription</key>
+	<string>O aplicativo pode utilizar identificadores para melhorar anúncios e experiência do usuário.</string>
+
+	<!-- ========================= -->
+	<!-- BACKGROUND MODES -->
+	<!-- ========================= -->
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- ========================= -->
+	<!-- APP TRANSPORT SECURITY -->
+	<!-- ========================= -->
+
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+
+	<!-- ========================= -->
+	<!-- FIREBASE -->
+	<!-- ========================= -->
+
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
 </dict>
 </plist>
