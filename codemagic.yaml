@@ -11,6 +11,8 @@ workflows:
 
       vars:
         BUNDLE_ID: "com.nexus.runWalkApp"
+        XCODE_PROJECT: "ios/Runner.xcodeproj"
+        XCODE_SCHEME: "Runner"
 
       ios_signing:
         distribution_type: app_store
@@ -76,6 +78,7 @@ workflows:
         script: |
           flutter build ipa \
             --release \
+            --export-method=app-store \
             --build-name=1.0.0 \
             --build-number=$BUILD_NUMBER
 
