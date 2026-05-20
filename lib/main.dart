@@ -176,7 +176,7 @@ Future<bool> isWearOS() async {
 // ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await MobileAds.instance.initialize();
+  //await MobileAds.instance.initialize();
 
   // Configura o áudio global para "Ducking" (não pausar outros apps, apenas baixar volume)
   if (Platform.isAndroid || Platform.isIOS) {
@@ -198,7 +198,11 @@ Future<void> main() async {
     );
   }
 
+  try {
   await Firebase.initializeApp();
+} catch (e) {
+  debugPrint("ERRO FIREBASE: $e");
+}
   final bool isWear = await isWearOS();
 
   if (!isWear) {
@@ -326,7 +330,15 @@ class _MyAppState extends State<MyApp> {
             home: widget.initialPage,
             routes: {
               '/tutorial': (context) => const MapTutorialPage(),
-              '/splash': (context) => const SplashPage(),
+              '/splash': (context) => const Scaffold(
+  backgroundColor: Colors.black,
+  body: Center(
+    child: Text(
+      'Império da Corrida',
+      style: TextStyle(color: Colors.white),
+    ),
+  ),
+),
               '/main': (context) => const MainScaffold(),
               '/main_wear': (context) => const MainScaffoldWear(),
               '/complete_profile': (context) => const CompleteProfilePage(),
