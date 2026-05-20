@@ -258,7 +258,7 @@ Future<void> main() async {
         : const WearTextTutorialPage();
   } else {
     // ✅ Continua igual: se não viu tutorial -> tutorial (e ao finalizar, ele vai pro splash)
-    initialPage = hasSeenTutorial ? const AuthGate() : const MapTutorialPage();
+    initialPage = const AuthGate();
   }
 
   runApp(MyApp(initialPage: initialPage));
