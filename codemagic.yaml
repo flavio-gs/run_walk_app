@@ -6,7 +6,7 @@ workflows:
 
     environment:
       flutter: 3.41.2
-      xcode: 16.4
+      xcode: latest
       cocoapods: default
 
       vars:
