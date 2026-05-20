@@ -172,13 +172,39 @@ Future<bool> isWearOS() async {
 }
 
 // ------------------------------------------------------------
-// 🔹 MAIN (Chamada do setupFCM)
+// 🔹 FUNÇÃO PARA INICIALIZAÇÃO EM BACKGROUND (NÃO BLOQUEANTE)
+// ------------------------------------------------------------
+void _initializeBackgroundTasks() async {
+  // FCM Setup
+  setupFCM();
+
+  // Permissões
+  if (await Permission.notification.isDenied) {
+    await Permission.notification.request();
+  }
+
+  // Tracking
+  await initializeBackgroundTracking();
+
+  // Status Online e Gamificação
+  final user = FirebaseAuth.instance.currentUser;
+  if (user != null) {
+    FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      'isOnline': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true)).catchError((e) => debugPrint("Erro status: $e"));
+  }
+
+  GamificationService().syncNow().catchError((e) => debugPrint("Erro sync gamification: $e"));
+}
+
+// ------------------------------------------------------------
+// 🔹 MAIN
 // ------------------------------------------------------------
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  //await MobileAds.instance.initialize();
 
-  // Configura o áudio global para "Ducking" (não pausar outros apps, apenas baixar volume)
+  // 1. Configura o áudio global
   if (Platform.isAndroid || Platform.isIOS) {
     await AudioPlayer.global.setAudioContext(
       AudioContext(
@@ -198,48 +224,30 @@ Future<void> main() async {
     );
   }
 
+  // 2. Inicializa o Firebase (Obrigatório antes de qualquer uso)
   try {
-  await Firebase.initializeApp();
-} catch (e) {
-  debugPrint("ERRO FIREBASE: $e");
-}
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint("ERRO FIREBASE: $e");
+  }
+
   final bool isWear = await isWearOS();
 
   if (!isWear) {
-    if (await Permission.notification.isDenied) {
-      await Permission.notification.request();
-    }
+    // 3. Tarefas de background que não devem impedir o app de abrir
+    _initializeBackgroundTasks();
 
+    // Verificação rápida de serviço de background
     Future<void> ensureServiceStoppedIfNotTracking() async {
       final prefs = await SharedPreferences.getInstance();
       final isTracking = prefs.getBool('isTracking') ?? false;
-
       final service = FlutterBackgroundService();
       final running = await service.isRunning();
-
       if (!isTracking && running) {
-        debugPrint("🛑 [Main] Serviço estava rodando sem corrida ativa. Parando...");
         service.invoke('stopService');
       }
     }
-
-    await ensureServiceStoppedIfNotTracking();
-    await initializeBackgroundTracking();
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'isOnline': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
-
-    await GamificationService().syncNow();
-
-    // 🚨 CHAMADA PRINCIPAL DO SETUP FCM AQUI
-    await setupFCM();
-  } else {
-    debugPrint("⌚ [Main] Wear OS detectado — inicialização leve.");
+    ensureServiceStoppedIfNotTracking();
   }
 
   final prefs = await SharedPreferences.getInstance();
@@ -249,15 +257,11 @@ Future<void> main() async {
   if (isWear) {
     Connectivity().onConnectivityChanged.listen((result) async {
       if (result != ConnectivityResult.none) {
-        debugPrint("⌚ [Sync] Wear OS online — sincronizando dados pendentes...");
         await WearOfflineSyncService.syncPendingData();
       }
     });
-    initialPage = hasSeenTutorial
-        ? const LoginWearPage()
-        : const WearTextTutorialPage();
+    initialPage = hasSeenTutorial ? const LoginWearPage() : const WearTextTutorialPage();
   } else {
-    // ✅ Continua igual: se não viu tutorial -> tutorial (e ao finalizar, ele vai pro splash)
     initialPage = const AuthGate();
   }
 
@@ -276,8 +280,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // ... (initState e Connectivity listen mantidos) ...
-
   final _seasonService = SeasonService();
 
   @override
@@ -288,7 +290,6 @@ class _MyAppState extends State<MyApp> {
         final season = snapshot.data;
         final t = season?.theme ?? {};
 
-        // Fallbacks (teu tema atual)
         final primary = parseHslToColor(t['primary']) ?? const Color(0xFFFF7A00);
         final bg = parseHslToColor(t['background']) ?? Colors.black;
         final card = parseHslToColor(t['card']) ?? const Color(0xFF12121A);
@@ -331,14 +332,14 @@ class _MyAppState extends State<MyApp> {
             routes: {
               '/tutorial': (context) => const MapTutorialPage(),
               '/splash': (context) => const Scaffold(
-  backgroundColor: Colors.black,
-  body: Center(
-    child: Text(
-      'Império da Corrida',
-      style: TextStyle(color: Colors.white),
-    ),
-  ),
-),
+                    backgroundColor: Colors.black,
+                    body: Center(
+                      child: Text(
+                        'Império da Corrida',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
               '/main': (context) => const MainScaffold(),
               '/main_wear': (context) => const MainScaffoldWear(),
               '/complete_profile': (context) => const CompleteProfilePage(),
@@ -347,8 +348,7 @@ class _MyAppState extends State<MyApp> {
               '/login': (context) => const LoginPage(),
               '/historico': (context) => const HistoricoPage(),
               '/perfil': (context) {
-                final userId =
-                ModalRoute.of(context)?.settings.arguments as String?;
+                final userId = ModalRoute.of(context)?.settings.arguments as String?;
                 return ProfilePage(
                   userId: userId ?? FirebaseAuth.instance.currentUser!.uid,
                 );
@@ -358,15 +358,12 @@ class _MyAppState extends State<MyApp> {
             },
           ),
         );
-
       },
     );
   }
 
   SeasonTheme buildSeasonTheme(Map<String, dynamic> t) {
-    Color c(String key, Color fallback) =>
-        parseHslToColor(t[key]) ?? fallback;
-
+    Color c(String key, Color fallback) => parseHslToColor(t[key]) ?? fallback;
     return SeasonTheme(
       accent: c('accent', const Color(0xFFFF7A00)),
       accentForeground: c('accentForeground', Colors.black),
@@ -390,24 +387,17 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-
-
   Color? parseHslToColor(dynamic value) {
     if (value == null || value is! String) return null;
-
     final parts = value.trim().split(RegExp(r'\s+'));
     if (parts.length < 3) return null;
-
     final h = double.tryParse(parts[0]);
     final s = double.tryParse(parts[1].replaceAll('%', ''));
     final l = double.tryParse(parts[2].replaceAll('%', ''));
-
     if (h == null || s == null || l == null) return null;
-
     final hh = h % 360;
     final ss = (s / 100).clamp(0.0, 1.0);
     final ll = (l / 100).clamp(0.0, 1.0);
-
     return _hslToColor(hh, ss, ll);
   }
 
@@ -415,7 +405,6 @@ class _MyAppState extends State<MyApp> {
     final c = (1 - (2 * l - 1).abs()) * s;
     final x = c * (1 - ((h / 60) % 2 - 1).abs());
     final m = l - c / 2;
-
     double r = 0, g = 0, b = 0;
     if (h < 60) { r = c; g = x; }
     else if (h < 120) { r = x; g = c; }
@@ -423,7 +412,6 @@ class _MyAppState extends State<MyApp> {
     else if (h < 240) { g = x; b = c; }
     else if (h < 300) { r = x; b = c; }
     else { r = c; b = x; }
-
     int to255(double v) => ((v + m) * 255).round().clamp(0, 255);
     return Color.fromARGB(255, to255(r), to255(g), to255(b));
   }
