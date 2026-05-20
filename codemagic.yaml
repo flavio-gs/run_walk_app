@@ -16,6 +16,9 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.nexus.runWalkApp
 
+    integrations:
+      app_store_connect: Codemagicv1
+
     scripts:
 
       # =========================
