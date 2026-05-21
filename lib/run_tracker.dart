@@ -428,7 +428,10 @@ class RunTrackingPage extends StatefulWidget {
 }
 
 class _RunTrackingPageState extends State<RunTrackingPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+
+  @override
+  bool get wantKeepAlive => true;
 
   final TerritoryController _territoryController =
   TerritoryController(
@@ -440,6 +443,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   // ✅ Token para cancelar "carregamentos antigos" (async) quando trocar de modo
   int _overlayEpoch = 0;
+
+  // ✅ Caches para evitar recarregar dados e fotos de usuários repetidamente
+  final Map<String, BitmapDescriptor> _userMarkerIconCache = {};
+  final Map<String, Map<String, dynamic>> _userDataCache = {};
 
   // ✅ opcional: controla se estamos no modo livre (facilita checks)
   bool get _isFreeMode => _territoryController.mode == MapTerritoryMode.livre;
@@ -1438,9 +1445,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   double _distanceSinceLastXP = 0; // distância acumulada até o próximo ponto
 
   StreamSubscription<Position>? _positionStream;
-  LatLng _currentPosition =
-  const LatLng(-23.5505, -46.6333); // fallback (São Paulo)
+  LatLng _currentPosition = const LatLng(-23.5505, -46.6333); // fallback
   bool _loadingLocation = true;
+
+  Future<void> _loadLastKnownLocation() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lat = prefs.getDouble('last_lat');
+    final lng = prefs.getDouble('last_lng');
+    if (lat != null && lng != null) {
+      setState(() {
+        _currentPosition = LatLng(lat, lng);
+        _loadingLocation = false;
+      });
+    }
+  }
+
+  Future<void> _saveLastKnownLocation(LatLng pos) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('last_lat', pos.latitude);
+    await prefs.setDouble('last_lng', pos.longitude);
+  }
   LocationPermission? _locationPermission;
 
   late AnimationController _animationController;
@@ -1580,7 +1604,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   @override
   void initState() {
     super.initState();
-
+    _loadLastKnownLocation();
     _loadPreRunAdvice();
 
     // ✅ Stream (se você usa pra banner, pode manter)
@@ -1842,6 +1866,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         _loadingLocation = false;
       });
 
+      _saveLastKnownLocation(_currentPosition);
       await _updateMarker();
 
       if (!isWearOS && _followUser && _mapReady) {
@@ -2298,12 +2323,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     await _cancelTerritoryBoundsSubs();
 
-    // ✅ modo livre: limpa e sai
+    // ✅ modo livre: limpa apenas o que é visível, mantém o cache pesado em memória
     if (_territoryController.mode == MapTerritoryMode.livre) {
       _territoryDocsById.clear();
-      _ownerMarkersByTerritory.clear();
-      _polygonsByTerritory.clear();
-      _territorySig.clear();
+      // _ownerMarkersByTerritory.clear(); // Mantém cache
+      // _polygonsByTerritory.clear();    // Mantém cache
+      // _territorySig.clear();           // Mantém cache
 
       _territories.clear();
       _territoryPolygons.clear();
@@ -2736,12 +2761,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       }
 
       // ✅ markers do dono — só cria se não existir
+      int markersBatchCount = 0;
       for (final t in owners) {
         if (token != _mergeToken) return;
 
         if (_ownerMarkersByTerritory.containsKey(t.id)) {
+          _markers.add(_ownerMarkersByTerritory[t.id]!); // ✅ Garante que está no set visível
           _markersDone++;
-          if (mounted) setState(() {});
+          markersBatchCount++;
+          if (markersBatchCount >= 15) {
+            if (mounted) setState(() {});
+            markersBatchCount = 0;
+          }
           continue;
         }
 
@@ -2749,11 +2780,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           territoryId: t.id,
           ownerId: t.ownerId,
           territoryPoints: t.points,
+          skipSetState: true, // ✅ Evita rebuilds excessivos
         );
 
         _markersDone++;
-        if (mounted) setState(() {});
+        markersBatchCount++;
+        if (markersBatchCount >= 15) {
+          if (mounted) setState(() {});
+          markersBatchCount = 0;
+        }
       }
+
+      // ✅ Garante que o último lote de marcadores seja renderizado
+      if (mounted) setState(() {});
 
       // ✅ atualiza controller com cache final
       _territoryController.territoryPolygons
@@ -4742,6 +4781,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return _buildMobileBody();
   }
 
@@ -5546,6 +5586,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     required String territoryId,
     required String ownerId,
     required List<LatLng> territoryPoints,
+    bool skipSetState = false,
   }) async {
     if (isWearOS) return;
 
@@ -5559,10 +5600,47 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     // ✅ centro do território
     final position = _territoryCenter(territoryPoints);
 
+    // 1️⃣ Se já temos o ícone no cache, usa ele direto (Ganhamos MUITA performance aqui)
+    if (_userMarkerIconCache.containsKey(ownerId)) {
+      final marker = Marker(
+        markerId: MarkerId("territory_owner_$territoryId"),
+        position: position,
+        icon: _userMarkerIconCache[ownerId]!,
+        anchor: const Offset(0.5, 0.5),
+        zIndex: 9000,
+        onTap: () {
+          HapticFeedback.lightImpact();
+          _showPlayerCard(context, ownerId, fromTerritory: true, territoryId: territoryId);
+        },
+      );
+
+      _ownerMarkersByTerritory[territoryId] = marker;
+
+      if (!mounted || epoch != _overlayEpoch || _territoryController.mode == MapTerritoryMode.livre) return;
+
+      if (!skipSetState) {
+        setState(() {
+          _markers.removeWhere((m) => m.markerId.value == "territory_owner_$territoryId");
+          _markers.add(marker);
+        });
+      } else {
+        _markers.removeWhere((m) => m.markerId.value == "territory_owner_$territoryId");
+        _markers.add(marker);
+      }
+      return;
+    }
+
     try {
-      // 🔎 busca dados do dono
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(ownerId).get();
-      final data = userDoc.data() ?? {};
+      // 2️⃣ Busca dados do dono (com cache de memória)
+      Map<String, dynamic> data;
+      if (_userDataCache.containsKey(ownerId)) {
+        data = _userDataCache[ownerId]!;
+      } else {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(ownerId).get();
+        data = userDoc.data() ?? {};
+        _userDataCache[ownerId] = data;
+      }
+
       final userName = (data['displayName'] as String?) ?? 'Jogador';
       final photoUrl = (data['photoURL'] as String?);
 
@@ -5648,10 +5726,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       final image = await recorder.endRecording().toImage(size.toInt(), size.toInt());
       final bytes = (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
 
+      final icon = BitmapDescriptor.fromBytes(bytes);
+      _userMarkerIconCache[ownerId] = icon; // ✅ Salva no cache global
+
       final marker = Marker(
         markerId: MarkerId("territory_owner_$territoryId"),
         position: position,
-        icon: BitmapDescriptor.fromBytes(bytes),
+        icon: icon,
         anchor: const Offset(0.5, 0.5), // ✅ centralizado no território
         zIndex: 9000,
         onTap: () async {
@@ -5675,13 +5756,20 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       );
 
+      _ownerMarkersByTerritory[territoryId] = marker;
+
       if (!mounted || epoch != _overlayEpoch || _territoryController.mode == MapTerritoryMode.livre) return;
 
-      setState(() {
-        // remove se já existia (pra atualizar)
+      if (!skipSetState) {
+        setState(() {
+          // remove se já existia (pra atualizar)
+          _markers.removeWhere((m) => m.markerId.value == "territory_owner_$territoryId");
+          _markers.add(marker);
+        });
+      } else {
         _markers.removeWhere((m) => m.markerId.value == "territory_owner_$territoryId");
         _markers.add(marker);
-      });
+      }
     } catch (e) {
       debugPrint("❌ Erro ao criar marker do dono do território: $e");
     }
