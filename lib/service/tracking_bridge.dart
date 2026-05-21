@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 
 class TrackingBridge {
@@ -10,7 +11,12 @@ class TrackingBridge {
 
   static Future<void> startService() async {
     try {
-      await _channel.invokeMethod('startTracking');
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      await _channel.invokeMethod('startTracking', {
+        'userId': user.uid,
+      });
     } on PlatformException catch (e) {
       print("Erro ao iniciar nativo: ${e.message}");
     }
