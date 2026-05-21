@@ -8,7 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // HapticFeedback + rootBundle
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -24,6 +23,7 @@ import 'dart:math';
 import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
+import 'package:run_walk_app/service/tracking_bridge.dart';
 import 'package:run_walk_app/service/weather_service.dart';
 import 'package:run_walk_app/territory_danger_map_page.dart';
 import 'package:run_walk_app/theme/season_theme_scope.dart';
@@ -3109,7 +3109,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
-    FlutterBackgroundService().startService();
+    
+    // Inicia o rastreamento nativo no Android
+    TrackingBridge.startService();
 
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -3451,7 +3453,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     await _playStop(); // som apenas no Wear
     ScaffoldVisibilityController.show();
-    FlutterBackgroundService().invoke('stopService');
+    
+    // Para o rastreamento nativo no Android
+    TrackingBridge.stopService();
 
     // 🚫 Evita corrida inválida
     if (_totalDistance < 10) {

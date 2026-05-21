@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:run_walk_app/run_tracker_wear.dart';
 import 'package:run_walk_app/theme/season_theme_scope.dart';
@@ -25,7 +24,6 @@ import 'package:audioplayers/audioplayers.dart';
 
 
 // 🔹 Serviços
-import 'package:run_walk_app/service/background_tracking.dart';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 
@@ -183,9 +181,6 @@ void _initializeBackgroundTasks() async {
     await Permission.notification.request();
   }
 
-  // Tracking
-  await initializeBackgroundTracking();
-
   // Status Online e Gamificação
   final user = FirebaseAuth.instance.currentUser;
   if (user != null) {
@@ -236,18 +231,6 @@ Future<void> main() async {
   if (!isWear) {
     // 3. Tarefas de background que não devem impedir o app de abrir
     _initializeBackgroundTasks();
-
-    // Verificação rápida de serviço de background
-    Future<void> ensureServiceStoppedIfNotTracking() async {
-      final prefs = await SharedPreferences.getInstance();
-      final isTracking = prefs.getBool('isTracking') ?? false;
-      final service = FlutterBackgroundService();
-      final running = await service.isRunning();
-      if (!isTracking && running) {
-        service.invoke('stopService');
-      }
-    }
-    ensureServiceStoppedIfNotTracking();
   }
 
   final prefs = await SharedPreferences.getInstance();
