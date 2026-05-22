@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // HapticFeedback + rootBundle
 import 'package:geolocator/geolocator.dart';
@@ -1267,30 +1268,54 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
   }
 
-  Future<void> _startPassiveLocationTracking() async {
-    await _positionStream?.cancel();
+  Future<void> _startPassiveLocationTracking() async {    await _positionStream?.cancel();
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 8,
+  // Configurações específicas para manter o GPS ativo com a tela apagada
+  late LocationSettings locationSettings;
+
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    locationSettings = AndroidSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 8,
+      // Isso cria a notificação persistente no Android para não matar o app
+      foregroundNotificationConfig: const ForegroundNotificationConfig(
+        notificationText: "O Império da Corrida está acompanhando seu progresso",
+        notificationTitle: "Rastreamento em Execução",
+        enableWakeLock: true, // Mantém o processador acordado
       ),
-    ).listen((position) {
+    );
+  } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+    locationSettings = AppleSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 8,
+      activityType: ActivityType.fitness, // Otimiza para esportes
+      pauseLocationUpdatesAutomatically: false, // IMPEDE o "pulo" no iOS
+      showBackgroundLocationIndicator: true, // Mostra a pílula azul no topo do iPhone
+    );
+  } else {
+    locationSettings = const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 8,
+    );
+  }
 
-      if(!mounted) return;
+  _positionStream = Geolocator.getPositionStream(
+    locationSettings: locationSettings,
+  ).listen((position) {
+    if (!mounted) return;
 
-      setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
-      });
-
-      _updateMarker();
-
-      if (!isWearOS && _followUser) {
-        _googleMapController?.animateCamera(
-          CameraUpdate.newLatLng(_currentPosition),
-        );
-      }
+    setState(() {
+      _currentPosition = LatLng(position.latitude, position.longitude);
     });
+
+    _updateMarker();
+
+    if (!isWearOS && _followUser) {
+      _googleMapController?.animateCamera(
+        CameraUpdate.newLatLng(_currentPosition),
+      );
+    }
+  });
   }
 
   void _clearMapOverlaysForFreeMode() {

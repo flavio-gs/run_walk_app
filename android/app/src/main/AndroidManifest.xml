@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.nexusdev.runner_imperio"
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- 🌍 Permissões de rede e localização -->

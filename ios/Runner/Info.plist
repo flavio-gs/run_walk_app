@@ -68,6 +68,17 @@
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>O aplicativo utiliza sua localização para rastrear atividades físicas e mapas.</string>
 
+	<key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <!-- Esta é a mais importante para evitar o pulo no iOS -->
+    <key>NSLocationTemporaryUsageDescriptionDictionary</key>
+    <dict>
+      <key>PreciseLocation</key>
+      <string>O aplicativo precisa de localização precisa para rastrear sua corrida corretamente.</string>
+    </dict>
+
 	<!-- ========================= -->
 	<!-- NOTIFICAÇÕES -->
 	<!-- ========================= -->
