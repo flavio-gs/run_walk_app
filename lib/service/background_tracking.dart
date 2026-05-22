@@ -110,23 +110,37 @@ Future<void> onStartBackgroundTracking(ServiceInstance service) async {
   double totalDistance = 0.0;
   int totalSeconds = 0;
   double totalCalories = 0.0;
+  double pace = 0.0;
+  List<Map<String, double>> path = [];
+  DateTime? startTime;
+  bool isPaused = false;
 
-  service.on('stopService').listen((_) {
-    debugPrint("🛑 [Service] Parando serviço.");
-    service.stopSelf();
-  });
+  StreamSubscription<Position>? positionStream;
 
-  Timer.periodic(const Duration(seconds: 5), (timer) async {
-    totalSeconds += 5;
-    debugPrint("⏱ [Timer] Tick — verificando posição...");
-
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.best,
-      );
-
+  void startTracking() {
+    startTime ??= DateTime.now();
+    positionStream?.cancel();
+    positionStream = Geolocator.getPositionStream(
+      locationSettings: AndroidSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0, // Captura por tempo
+        intervalDuration: const Duration(seconds: 1),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Rastreando sua corrida em segundo plano...",
+          notificationTitle: "🏃 Runner Ativo",
+          enableWakeLock: true,
+        ),
+      ),
+    ).listen((position) async {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
+
+      final currentPoint = {"lat": position.latitude, "lng": position.longitude};
+      if (path.isEmpty || 
+          path.last['lat'] != position.latitude || 
+          path.last['lng'] != position.longitude) {
+        path.add(currentPoint);
+      }
 
       if (lastPosition != null) {
         final distance = Geolocator.distanceBetween(
@@ -139,42 +153,96 @@ Future<void> onStartBackgroundTracking(ServiceInstance service) async {
         if (distance >= 3) {
           totalDistance += distance;
           totalCalories = totalDistance / 15;
+          
+          if (totalDistance > 0 && totalSeconds > 0) {
+            final minutes = totalSeconds / 60;
+            final km = totalDistance / 1000;
+            pace = minutes / km;
+          }
         }
       }
       lastPosition = position;
 
-      double pace = 0;
-      if (totalDistance > 0) {
-        final minutes = totalSeconds / 60;
-        final km = totalDistance / 1000;
-        pace = minutes / km;
-      }
-
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'distance_m': totalDistance,
-        'kcal': totalCalories,
-        'pace_min_km': pace,
+      // Envia atualização para a UI
+      service.invoke('update', {
+        "distance": totalDistance,
+        "seconds": totalSeconds,
+        "calories": totalCalories,
+        "pace": pace,
+        "latitude": position.latitude,
+        "longitude": position.longitude,
+        "path": path,
+        "startTime": startTime?.toIso8601String(),
+        "isPaused": isPaused,
       });
 
+      // Atualiza a notificação (Android)
       if (service is AndroidServiceInstance) {
         final kmStr = (totalDistance / 1000).toStringAsFixed(2);
-        final kcalStr = totalCalories.toStringAsFixed(0);
         final paceMin = pace.floor();
         final paceSec = ((pace - paceMin) * 60).round().toString().padLeft(2, '0');
 
-        await service.setForegroundNotificationInfo(
-          title: '🏃 Corrida ativa',
-          content:
-          'Distância: ${kmStr} km • ${kcalStr} kcal • Pace: ${paceMin}\'${paceSec}\"/km',
+        service.setForegroundNotificationInfo(
+          title: '🏃 Corrida em andamento',
+          content: 'Distância: ${kmStr} km • Pace: ${paceMin}\'${paceSec}\"/km',
         );
       }
+    });
+  }
 
-      debugPrint("🧭 [Firestore] Localização e métricas atualizadas!");
-    } catch (e) {
-      debugPrint("❌ [Erro] Falha no tracking: $e");
+  service.on('stopService').listen((_) {
+    debugPrint("🛑 [Service] Parando serviço.");
+    positionStream?.cancel();
+    service.stopSelf();
+  });
+
+  service.on('pauseService').listen((_) {
+    isPaused = true;
+    positionStream?.pause();
+    debugPrint("⏸ [Service] Tracking pausado.");
+  });
+
+  service.on('resumeService').listen((_) {
+    isPaused = false;
+    positionStream?.resume();
+    debugPrint("▶️ [Service] Tracking retomado.");
+  });
+
+  service.on('request_state').listen((_) {
+    service.invoke('update', {
+      "distance": totalDistance,
+      "seconds": totalSeconds,
+      "calories": totalCalories,
+      "pace": pace,
+      "latitude": lastPosition?.latitude,
+      "longitude": lastPosition?.longitude,
+      "path": path,
+      "startTime": startTime?.toIso8601String(),
+      "isPaused": isPaused,
+    });
+  });
+
+  startTracking();
+
+  // Timer apenas para o cronômetro (segundos)
+  Timer.periodic(const Duration(seconds: 1), (timer) {
+    if (!isPaused) {
+      totalSeconds++;
+      
+      // Opcional: a cada 10s atualiza o firestore se necessário
+      if (totalSeconds % 10 == 0 && lastPosition != null) {
+          final user = FirebaseAuth.instance.currentUser;
+          if (user != null) {
+               FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+                  'lat': lastPosition!.latitude,
+                  'lng': lastPosition!.longitude,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                  'distance_m': totalDistance,
+                  'kcal': totalCalories,
+                  'pace_min_km': pace,
+                }).catchError((e) => debugPrint("Erro firestore bg: $e"));
+          }
+      }
     }
   });
 }

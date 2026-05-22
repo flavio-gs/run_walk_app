@@ -13,10 +13,13 @@ import 'package:run_walk_app/search_users_page.dart';
 import 'package:run_walk_app/create_challenge_page.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:run_walk_app/profile_page.dart';
+import 'package:run_walk_app/create_story_page.dart';
+import 'package:run_walk_app/story_view_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:run_walk_app/theme/season_theme_scope.dart';
+import 'package:run_walk_app/service/story_upload_service.dart';
 
 class FeedPage extends StatefulWidget {
   const FeedPage({super.key});
@@ -29,6 +32,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
   Stream<QuerySnapshot>? _postsStream;
   bool _isLoading = true;
   String _selectedFeed = 'following'; // valores: 'following' ou 'global'
+  List<String> _followingIds = [];
 
   final _currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
@@ -99,6 +103,18 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 16),
+              _buildCreateOption(
+                context: context,
+                icon: Icons.add_a_photo_rounded,
+                color: s.primary,
+                title: 'Adicionar ao Story',
+                subtitle: 'Poste uma foto, vídeo ou enquete rápida',
+                onTap: () {
+                  Navigator.pop(context);
+                  _showStoryOptions();
+                },
+              ),
+              const SizedBox(height: 8),
               _buildCreateOption(
                 context: context,
                 icon: Icons.edit,
@@ -306,6 +322,7 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
 
     if (mounted) {
       setState(() {
+        _followingIds = followingIds;
         _postsStream = query.orderBy('timestamp', descending: true).snapshots();
         _isLoading = false;
       });
@@ -495,13 +512,9 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 return Center(child: CircularProgressIndicator(color: s.primary));
               }
 
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return _emptyFeedMessage();
-              }
+              final posts = snapshot.hasData ? snapshot.data!.docs : [];
 
-              final posts = snapshot.data!.docs;
-
-// ✅ aplica filtro por tipo (no client)
+              // ✅ aplica filtro por tipo (no client)
               final filteredPosts = posts.where((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 final type = (data['type'] ?? 'post').toString();
@@ -509,12 +522,22 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
                 return type == _selectedTypeFilter;
               }).toList();
 
-              if (filteredPosts.isEmpty) {
-                return _emptyFeedMessage();
-              }
+              final int itemCount = filteredPosts.isEmpty ? 2 : filteredPosts.length + 1;
+
               return ListView.builder(
-                itemCount: filteredPosts.length,
-                itemBuilder: (context, index) => _buildPostItem(filteredPosts[index]),
+                itemCount: itemCount,
+                itemBuilder: (context, index) {
+                  if (index == 0) return _buildStoriesBar();
+
+                  if (filteredPosts.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 100),
+                      child: _emptyFeedMessage(),
+                    );
+                  }
+
+                  return _buildPostItem(filteredPosts[index - 1]);
+                },
               );
             },
           ),
@@ -657,6 +680,368 @@ class _FeedPageState extends State<FeedPage> with TickerProviderStateMixin {
           ),
         );
       },
+    );
+  }
+
+  // ====================================
+  // STORIES SECTION
+  // ====================================
+
+  Widget _buildStoriesBar() {
+    final s = SeasonThemeScope.of(context);
+    final twentyFourHoursAgo = DateTime.now().subtract(const Duration(hours: 24));
+
+    return Container(
+      height: 115,
+      padding: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: s.background,
+        border: Border(bottom: BorderSide(color: s.border.withOpacity(0.4), width: 0.5)),
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('stories')
+            .where('timestamp', isGreaterThan: Timestamp.fromDate(twentyFourHoursAgo))
+            .orderBy('timestamp', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          final Map<String, List<DocumentSnapshot>> storiesByAuthor = {};
+          if (snapshot.hasData) {
+            for (var doc in snapshot.data!.docs) {
+              final data = doc.data() as Map<String, dynamic>;
+              final authorId = data['authorId'] as String? ?? '';
+              if (authorId.isNotEmpty && _followingIds.contains(authorId)) {
+                storiesByAuthor.putIfAbsent(authorId, () => <DocumentSnapshot>[]).add(doc);
+              }
+            }
+          }
+
+          storiesByAuthor.remove(_currentUserId);
+
+          return ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: storiesByAuthor.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return _buildMyStoryItem();
+              }
+              final authorId = storiesByAuthor.keys.elementAt(index - 1);
+              final authorStories = storiesByAuthor[authorId]!;
+              return _buildOtherStoryItem(authorId, authorStories);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMyStoryItem() {
+    final user = FirebaseAuth.instance.currentUser;
+    final s = SeasonThemeScope.of(context);
+    final twentyFourHoursAgo = DateTime.now().subtract(const Duration(hours: 24));
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('stories')
+          .where('authorId', isEqualTo: _currentUserId)
+          .where('timestamp', isGreaterThan: Timestamp.fromDate(twentyFourHoursAgo))
+          .snapshots(),
+      builder: (context, snapshot) {
+        final hasStories = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+        final stories = snapshot.hasData ? snapshot.data!.docs : <DocumentSnapshot>[];
+
+        return GestureDetector(
+          onTap: () {
+            if (hasStories) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => StoryViewPage(authorId: _currentUserId, stories: stories),
+                ),
+              );
+            } else {
+              _showStoryOptions();
+            }
+          },
+          onLongPress: _showStoryOptions,
+          child: Container(
+            margin: const EdgeInsets.only(right: 12),
+            width: 72,
+            child: Column(
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: hasStories ? s.primary : s.border,
+                          width: hasStories ? 2 : 1,
+                        ),
+                      ),
+                      child: CircleAvatar(
+                        radius: 30,
+                        backgroundColor: s.card,
+                        backgroundImage: (user?.photoURL != null && user!.photoURL!.isNotEmpty)
+                            ? NetworkImage(user.photoURL!)
+                            : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                      ),
+                    ),
+                    if (!hasStories)
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: s.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: s.background, width: 2),
+                          ),
+                          padding: const EdgeInsets.all(2),
+                          child: const Icon(Icons.add, size: 16, color: Colors.black),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ValueListenableBuilder<double?>(
+                  valueListenable: StoryUploadService().uploadProgress,
+                  builder: (context, progress, child) {
+                    if (progress == null) {
+                      return Text(
+                        'Seu story',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: s.foreground.withOpacity(0.8),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            backgroundColor: s.border,
+                            color: s.primary,
+                            minHeight: 3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Enviando...',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOtherStoryItem(String authorId, List<DocumentSnapshot> stories) {
+    final s = SeasonThemeScope.of(context);
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
+    // Verifica se todos os stories desse autor já foram visualizados pelo usuário atual
+    final bool allViewed = stories.every((story) {
+      final data = story.data() as Map<String, dynamic>;
+      final viewers = List<String>.from(data['viewers'] ?? []);
+      return viewers.contains(userId);
+    });
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(authorId).snapshots(),
+      builder: (context, userSnap) {
+        final userData = userSnap.data?.data() as Map<String, dynamic>?;
+        final name = userData?['displayName'] ?? 'Usuário';
+        final photoUrl = userData?['photoURL'];
+
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => StoryViewPage(authorId: authorId, stories: stories),
+              ),
+            );
+          },
+          child: Container(
+            margin: const EdgeInsets.only(right: 12),
+            width: 72,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(2.5),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: allViewed
+                        ? null
+                        : LinearGradient(
+                            colors: [s.primary, Colors.orange, Colors.purpleAccent],
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                          ),
+                    color: allViewed ? s.border : null,
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: s.background,
+                      shape: BoxShape.circle,
+                    ),
+                    child: CircleAvatar(
+                      radius: 28,
+                      backgroundColor: s.card,
+                      backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                          ? NetworkImage(photoUrl)
+                          : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  name.split(' ').first,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: s.foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showStoryOptions() {
+    final s = SeasonThemeScope.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: s.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: s.mutedForeground.withOpacity(0.24),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                Text(
+                  'Adicionar ao Story',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: s.foreground),
+                ),
+                const SizedBox(height: 25),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStoryOption(
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Câmera',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'image', source: ImageSource.camera)),
+                        );
+                      },
+                    ),
+                    _buildStoryOption(
+                      icon: Icons.photo_library_rounded,
+                      label: 'Galeria',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'image', source: ImageSource.gallery)),
+                        );
+                      },
+                    ),
+                    _buildStoryOption(
+                      icon: Icons.poll_rounded,
+                      label: 'Enquete',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'poll')),
+                        );
+                      },
+                    ),
+                    _buildStoryOption(
+                      icon: Icons.videocam_rounded,
+                      label: 'Vídeo',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const CreateStoryPage(type: 'video', source: ImageSource.camera)),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStoryOption({required IconData icon, required String label, required VoidCallback onTap}) {
+    final s = SeasonThemeScope.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: s.primary.withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: s.primary, size: 32),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            label,
+            style: TextStyle(
+              color: s.foreground,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -495,6 +495,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   double _maxElevation = 0.0;
 
   double? _lastAltFiltered;        // para filtro
+  double? _lastLatFiltered;        // para filtro de suavização
+  double? _lastLngFiltered;        // para filtro de suavização
   double _currentSpeedMps = 0.0;   // velocidade instantânea m/s
   double _currentSpeedKmh = 0.0;   // velocidade instantânea km/h
   double _avgSpeedKmh = 0.0;       // velocidade média km/h
@@ -514,6 +516,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   static const String _kLoadingRouteName = '__loading_overlay__';
 
   int _lastSampleSecond = -999;
+
+  Color _currentSegmentColor = const Color(0xFF3FA9F5);
+  int _currentSegmentWidth = 6;
 
   bool _savingRun = false;
 
@@ -1265,18 +1270,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 8,
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
       ),
     ).listen((position) {
+      if (!mounted) return;
 
-      if(!mounted) return;
+      final latLngPos = LatLng(position.latitude, position.longitude);
 
       setState(() {
-        _currentPosition = LatLng(position.latitude, position.longitude);
+        _currentPosition = latLngPos;
+        _updateMarker(); // Já utiliza o ícone em cache
       });
-
-      _updateMarker();
 
       if (!isWearOS && _followUser) {
         _googleMapController?.animateCamera(
@@ -1626,6 +1631,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleLocationDisclosureOnce();
+      _syncWithBackgroundService(); // ✅ Tenta recuperar corrida ativa
     });
 
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -1638,21 +1644,120 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       duration: const Duration(milliseconds: 1000),
     )..addListener(() {
       if (_previousPosition != null && _animatedPosition != null) {
-        setState(() {
-          final t = _animationController.value;
-          _currentPosition = LatLng(
-            _previousPosition!.latitude +
-                (_animatedPosition!.latitude - _previousPosition!.latitude) * t,
-            _previousPosition!.longitude +
-                (_animatedPosition!.longitude - _previousPosition!.longitude) * t,
-          );
-          _updateMarker();
-        });
+        final t = _animationController.value;
+        final newLat = _previousPosition!.latitude +
+            (_animatedPosition!.latitude - _previousPosition!.latitude) * t;
+        final newLng = _previousPosition!.longitude +
+            (_animatedPosition!.longitude - _previousPosition!.longitude) * t;
+        
+        _currentPosition = LatLng(newLat, newLng);
+        
+        if (mounted) {
+          setState(() {
+            // 1) Atualiza o marcador do jogador
+            _markers.removeWhere((m) => m.markerId.value == 'currentLocation');
+            if (_userIcon != null) {
+              _markers.add(
+                Marker(
+                  markerId: const MarkerId('currentLocation'),
+                  position: _currentPosition,
+                  icon: _userIcon!,
+                  anchor: const Offset(0.5, 0.5),
+                  zIndex: 10000,
+                ),
+              );
+            }
+
+            // 2) Faz o traçado (Polyline) caminhar junto com o marcador
+            if (_isRunning && !isWearOS && _positions.length >= 2) {
+              _updatePolylineHead(_currentPosition);
+            }
+          });
+        }
       }
     });
 
     _listenToActiveChallenge();
     _setOnlineInitially();
+
+    // ✅ Listener para atualizações vindas do serviço de background
+    FlutterBackgroundService().on('update').listen((event) {
+      if (!mounted) return;
+      if (event == null) return;
+
+      setState(() {
+        _isRunning = true;
+        _totalDistance = (event['distance'] as num).toDouble();
+        _seconds = (event['seconds'] as num).toInt();
+        _caloriesBurned = (event['calories'] as num).toDouble();
+        _averagePace = (event['pace'] as num).toDouble();
+        
+        if (event['startTime'] != null) {
+           _startTime = DateTime.tryParse(event['startTime']);
+        }
+        
+        if (event['isPaused'] != null) {
+           _isPaused = event['isPaused'];
+        }
+
+        // Se o app estiver em primeiro plano, o _startPositionStream já cuida da posição.
+        // Só usamos a posição do evento se o stream local não estiver ativo (ex: após reconexão)
+        if (_positionStream == null && event['latitude'] != null && event['longitude'] != null) {
+           final newPos = LatLng(event['latitude'], event['longitude']);
+           _currentPosition = newPos;
+           _updateMarker();
+        }
+
+        if (event['path'] != null) {
+           final List<dynamic> pathData = event['path'];
+           if (pathData.length > _positions.length) {
+              _positions.clear();
+              for (var p in pathData) {
+                _positions.add(LatLng(p['lat'], p['lng']));
+              }
+              _rebuildPolylines();
+           }
+        }
+      });
+    });
+  }
+
+  void _rebuildPolylines() {
+    if (isWearOS) return;
+    _polylines.clear();
+    if (_positions.length < 2) return;
+    
+    // Simplificado para reconstrução em lote
+    for (int i = 0; i < _positions.length - 1; i++) {
+       final start = _positions[i];
+       final end = _positions[i+1];
+       _polylines.add(
+        Polyline(
+          polylineId: PolylineId('segment_$i'),
+          points: [start, end],
+          color: const Color(0xFF3FA9F5), // Cor padrão na reconstrução
+          width: 6,
+          jointType: JointType.round,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncWithBackgroundService() async {
+    final service = FlutterBackgroundService();
+    bool running = await service.isRunning();
+    if (running) {
+      debugPrint("🔄 [Sync] Serviço de background detectado rodando. Sincronizando...");
+      service.invoke('request_state');
+      setState(() {
+        _isRunning = true;
+        _isPaused = false;
+      });
+      _startTimerTick();
+      _startPositionStream();
+    }
   }
 
 
@@ -1731,11 +1836,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     await _setInitialLocation();
   }
 
+  BitmapDescriptor? _userIcon;
+
   Future<void> _updateMarker() async {
     if (isWearOS) return; // sem mapa no Wear
     if (!mounted) return;
 
-    final customIcon = await _createUserCircleIcon(
+    _userIcon ??= await _createUserCircleIcon(
       size: 60,
       fillColor: const Color(0xFFFF7600),
     );
@@ -1746,7 +1853,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         Marker(
           markerId: const MarkerId('currentLocation'),
           position: _currentPosition,
-          icon: customIcon,
+          icon: _userIcon!,
           anchor: const Offset(0.5, 0.5),
           zIndex: 10000,
         ),
@@ -3142,6 +3249,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _minElevation = 0.0;
     _maxElevation = 0.0;
     _lastAltFiltered = null;
+    _lastLatFiltered = null;
+    _lastLngFiltered = null;
 
     _currentSpeedMps = 0.0;
     _currentSpeedKmh = 0.0;
@@ -3166,23 +3275,65 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   void _startTimerTick() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        _seconds = _stopwatch.elapsed.inSeconds;
-        _calculatePaceAndCalories();
-      });
+      if (!_isPaused) {
+        setState(() {
+          _seconds++;
+          _calculatePaceAndCalories();
+        });
+      }
     });
   }
 
   void _startPositionStream() {
     _positionStream?.cancel();
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    // Configuração para captura em alta frequência (1Hz) e alta precisão
+    final LocationSettings locationSettings;
+    if (Platform.isAndroid) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.best,
-        distanceFilter: 5,
-      ),
+        distanceFilter: 0, // Captura por tempo, não por distância
+        intervalDuration: const Duration(seconds: 1),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "Rastreando sua corrida com precisão máxima",
+          notificationTitle: "Runner: GPS Ativo",
+          enableWakeLock: true,
+        ),
+      );
+    } else if (Platform.isIOS || Platform.isMacOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((position) {
-      final latLngPos = LatLng(position.latitude, position.longitude);
+      // 🛡️ Filtro de precisão: ignora pontos com erro maior que 15 metros
+      if (position.accuracy > 15) return;
+
+      double lat = position.latitude;
+      double lng = position.longitude;
+
+      // 🌊 Filtro EMA (Exponential Moving Average) para suavizar o traçado
+      // Com captura 1Hz, o alpha de 0.4 oferece equilíbrio perfeito entre suavidade e resposta
+      const double alphaCoord = 0.4;
+      if (_lastLatFiltered != null && _lastLngFiltered != null) {
+        lat = _lastLatFiltered! + alphaCoord * (lat - _lastLatFiltered!);
+        lng = _lastLngFiltered! + alphaCoord * (lng - _lastLngFiltered!);
+      }
+      _lastLatFiltered = lat;
+      _lastLngFiltered = lng;
+
+      final latLngPos = LatLng(lat, lng);
 
       // tempo decorrido (fora do setState pra ficar consistente)
       final secs = _stopwatch.elapsed.inSeconds;
@@ -3194,10 +3345,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
       // elevação + filtro simples (EMA)
       final alt = position.altitude;
-      const alpha = 0.15;
+      const alphaAlt = 0.15;
       final filteredAlt = (_lastAltFiltered == null)
           ? alt
-          : (_lastAltFiltered! + alpha * (alt - _lastAltFiltered!));
+          : (_lastAltFiltered! + alphaAlt * (alt - _lastAltFiltered!));
 
       // distância incremental
       double d = 0.0;
@@ -3214,25 +3365,14 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         if (_positions.isEmpty) {
           _positions.add(latLngPos);
         } else {
-          if (d > 0.5) {
+          // Só adiciona se o movimento suavizado for relevante (> 1m)
+          if (d > 1.0) {
             _totalDistance += d;
+
+            // Calcula cor e largura ANTES de adicionar o ponto, para a animação usar
+            _prepareNextSegment(latLngPos);
+
             _positions.add(latLngPos);
-
-            // XP em tempo real
-            _distanceSinceLastXP += d;
-            if (_distanceSinceLastXP >= 100) {
-              _distanceSinceLastXP -= 100;
-              _sessionXP += 1;
-              _showXPGainEffect("+1 XP");
-
-              if (_sessionXP >= _nextXPThreshold) {
-                _nextXPThreshold += 100;
-                HapticFeedback.mediumImpact();
-                _showXPLevelUp();
-              }
-            }
-
-            if (!isWearOS) _updatePolyline();
           }
         }
 
@@ -3306,6 +3446,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _timer?.cancel();
     _stopwatch.stop();
     _positionStream?.pause();
+    FlutterBackgroundService().invoke('pauseService');
 
     setState(() {
       _isPaused = true;
@@ -3320,6 +3461,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.start();
     _startTimerTick();
     _positionStream?.resume();
+    FlutterBackgroundService().invoke('resumeService');
 
     setState(() {
       _isPaused = false;
@@ -3330,14 +3472,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   DateTime? _lastPointTime;
 
-  void _updatePolyline() {
-    if (isWearOS) return;
-    if (_positions.length < 2) return;
-
-    final i = _positions.length - 2;
-    final start = _positions[i];
-    final end = _positions[i + 1];
-
+  void _prepareNextSegment(LatLng nextPoint) {
+    if (_positions.isEmpty) return;
+    
+    final start = _positions.last;
     final now = DateTime.now();
     double elapsed = 1.0;
     if (_lastPointTime != null) {
@@ -3346,58 +3484,63 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _lastPointTime = now;
 
     final distance = Geolocator.distanceBetween(
-      start.latitude,
-      start.longitude,
-      end.latitude,
-      end.longitude,
+      start.latitude, start.longitude,
+      nextPoint.latitude, nextPoint.longitude,
     );
-    if (distance < 0.5) return;
+    
+    final speed = (distance / (elapsed > 0 ? elapsed : 1.0)).clamp(0.2, 6.0);
 
-    final speed = (distance / elapsed).clamp(0.2, 6.0);
-
-    final color = Color.lerp(
+    _currentSegmentColor = Color.lerp(
       const Color(0xFF3FA9F5),
       const Color(0xFFFF3D00),
       (speed / 6).clamp(0, 1),
-    )!;
+    )!.withOpacity(0.9);
 
-    final width = (4 + speed * 1.2).clamp(4, 12).toInt();
+    _currentSegmentWidth = (4 + speed * 1.2).clamp(4, 12).toInt();
+  }
 
+  void _updatePolylineHead(LatLng headPoint) {
+    if (_positions.length < 2) return;
+
+    final i = _positions.length - 2;
+    final start = _positions[i];
+
+    // Atualiza o segmento atual para terminar exatamente onde o marcador está
     _polylines.add(
       Polyline(
         polylineId: PolylineId('segment_$i'),
-        points: [start, end],
-        color: color.withOpacity(0.9),
-        width: width,
+        points: [start, headPoint],
+        color: _currentSegmentColor,
+        width: _currentSegmentWidth,
         jointType: JointType.round,
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
       ),
     );
 
-    // ✅ Se estiver em modo livre, NÃO conquista território (nem calcula, nem desenha)
-    if (_isFreeMode) {
-      if (_areaCaptured != 0 || _areaCapturedFormatted != "0 m²" || _polygons.isNotEmpty) {
-        _areaCaptured = 0;
-        _areaCapturedFormatted = "0 m²";
-        _polygons.clear();
-      }
-      return;
-    }
-
-    // 🟩 Atualiza área/plot do território (somente modo território)
-    if (_positions.length >= 3) {
-      _areaCapturedFormatted = _calculateAreaFormatted(_positions);
+    // 🟩 Atualiza área/plot do território acompanhando o marcador
+    if (!_isFreeMode && _positions.length >= 3) {
+      final List<LatLng> currentPath = List.from(_positions.sublist(0, _positions.length - 1));
+      currentPath.add(headPoint);
+      
+      _areaCapturedFormatted = _calculateAreaFormatted(currentPath);
       _polygons
         ..clear()
         ..add(Polygon(
           polygonId: const PolygonId('territorio'),
-          points: List.from(_positions),
-          strokeColor: color,
+          points: currentPath,
+          strokeColor: _currentSegmentColor,
           strokeWidth: 2,
-          fillColor: color.withOpacity(0.3),
+          fillColor: _currentSegmentColor.withOpacity(0.3),
         ));
     }
+  }
+
+  void _updatePolyline() {
+    // Mantido por compatibilidade com outras partes do código se necessário, 
+    // mas a lógica principal agora está no _updatePolylineHead chamado pela animação.
+    if (isWearOS || _positions.length < 2) return;
+    _updatePolylineHead(_positions.last);
   }
 
 
@@ -3482,7 +3625,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _calculatePaceAndCalories() {
     final dMeters = _totalDistance;
-    final secs = _stopwatch.elapsed.inSeconds;
+    final secs = _seconds;
 
     if (secs > 0 && dMeters > 1) {
       final km = dMeters / 1000.0;
@@ -4836,7 +4979,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       // ✅ snapshot IMEDIATO (fonte de verdade pra validação e salvamento)
       final positionsSnapshot = List<LatLng>.from(_positions);
       final distanceSnapshot = _totalDistance; // metros
-      final durationSnapshot = _stopwatch.elapsed.inSeconds;
+      final durationSnapshot = _seconds;
       final avgPaceSnapshot = _averagePace;
       final caloriesSnapshot = _caloriesBurned;
       final avgSpeedSnapshot = _avgSpeedKmh;
