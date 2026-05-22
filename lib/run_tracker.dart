@@ -19,13 +19,11 @@ import 'dart:ui';
 import 'package:run_walk_app/service/service/gamification_service.dart';
 import 'package:run_walk_app/service/achievement_service.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'dart:math';
 import 'package:lottie/lottie.dart' hide Marker;
 import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:run_walk_app/service/tracking_bridge.dart';
 import 'package:run_walk_app/service/weather_service.dart';
-import 'package:run_walk_app/territory_danger_map_page.dart';
 import 'package:run_walk_app/theme/season_theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'UI/territory_toggle.dart';
@@ -34,13 +32,6 @@ import 'enums/territory_mode.dart';
 import 'model/run_model.dart';
 import 'detalhe_corrida_page.dart';
 import 'widgets/main_scaffold.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:geolocator/geolocator.dart';
-
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-
-
-import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 
 
 
@@ -80,9 +71,6 @@ final List<Map<String, String>> preRunPhrases = [
 
 class SimpleGeoHash {
   static const _base32 = '0123456789bcdefghjkmnpqrstuvwxyz';
-  static final _decodeMap = {
-    for (int i = 0; i < _base32.length; i++) _base32[i]: i
-  };
 
   String encode(double lat, double lng, {int precision = 9}) {
     double minLat = -90, maxLat = 90;
@@ -1655,7 +1643,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleLocationDisclosureOnce();
-      _syncWithBackgroundService(); // ✅ Tenta recuperar corrida ativa
     });
 
     _powerupTicker = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -1703,47 +1690,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _listenToActiveChallenge();
     _setOnlineInitially();
-
-    // ✅ Listener para atualizações vindas do serviço de background
-    FlutterBackgroundService().on('update').listen((event) {
-      if (!mounted) return;
-      if (event == null) return;
-
-      setState(() {
-        _isRunning = true;
-        _totalDistance = (event['distance'] as num).toDouble();
-        _seconds = (event['seconds'] as num).toInt();
-        _caloriesBurned = (event['calories'] as num).toDouble();
-        _averagePace = (event['pace'] as num).toDouble();
-        
-        if (event['startTime'] != null) {
-           _startTime = DateTime.tryParse(event['startTime']);
-        }
-        
-        if (event['isPaused'] != null) {
-           _isPaused = event['isPaused'];
-        }
-
-        // Se o app estiver em primeiro plano, o _startPositionStream já cuida da posição.
-        // Só usamos a posição do evento se o stream local não estiver ativo (ex: após reconexão)
-        if (_positionStream == null && event['latitude'] != null && event['longitude'] != null) {
-           final newPos = LatLng(event['latitude'], event['longitude']);
-           _currentPosition = newPos;
-           _updateMarker();
-        }
-
-        if (event['path'] != null) {
-           final List<dynamic> pathData = event['path'];
-           if (pathData.length > _positions.length) {
-              _positions.clear();
-              for (var p in pathData) {
-                _positions.add(LatLng(p['lat'], p['lng']));
-              }
-              _rebuildPolylines();
-           }
-        }
-      });
-    });
   }
 
   void _rebuildPolylines() {
@@ -1766,21 +1712,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           endCap: Cap.roundCap,
         ),
       );
-    }
-  }
-
-  Future<void> _syncWithBackgroundService() async {
-    final service = FlutterBackgroundService();
-    bool running = await service.isRunning();
-    if (running) {
-      debugPrint("🔄 [Sync] Serviço de background detectado rodando. Sincronizando...");
-      service.invoke('request_state');
-      setState(() {
-        _isRunning = true;
-        _isPaused = false;
-      });
-      _startTimerTick();
-      _startPositionStream();
     }
   }
 
@@ -3487,7 +3418,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _timer?.cancel();
     _stopwatch.stop();
     _positionStream?.pause();
-    FlutterBackgroundService().invoke('pauseService');
 
     setState(() {
       _isPaused = true;
@@ -3502,8 +3432,6 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _stopwatch.start();
     _startTimerTick();
     _positionStream?.resume();
-    FlutterBackgroundService().invoke('resumeService');
-
     setState(() {
       _isPaused = false;
     });
