@@ -15,7 +15,7 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.nexusdev.runner_imperio"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion "27.0.12077973"
+    ndkVersion "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.nexusdev.runner_imperio"
@@ -78,4 +78,9 @@ dependencies {
     // 🔒 Força versão nova do core e core-ktx
     implementation "androidx.core:core:1.13.1"
     implementation "androidx.core:core-ktx:1.13.1"
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
+
+    // 🔥 Firebase Nativo
+    implementation platform('com.google.firebase:firebase-bom:33.1.2')
+    implementation 'com.google.firebase:firebase-firestore-ktx'
 }

@@ -57,11 +57,9 @@
 
         <!-- 🛰️ Serviço de rastreamento em segundo plano -->
         <service
-            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:name=".TrackingService"
             android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="location"
-            tools:replace="android:exported" />
+            android:foregroundServiceType="location" />
 
         <!-- 🎵 Serviço de escuta para Spotify/Música (nowplaying) -->
         <service android:name="com.gomes.nowplaying.NowPlayingListenerService"
