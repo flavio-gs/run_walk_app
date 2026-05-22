@@ -1761,14 +1761,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
 
-  void _applyBestMapStyle() {
+  void _applyBestMapStyle() async {
     if (!_mapReady || _googleMapController == null) return;
 
-    final styleToApply = _seasonMapStyle ?? _fallbackMapStyle;
+    // Use a variável correta que você carregou no initState
+    // (Supondo que seja _mapStyle ou renomeie para _fallbackMapStyle)
+    final styleToApply = _seasonMapStyle ?? _mapStyle;
 
-    if (styleToApply == null || styleToApply.trim().isEmpty) return;
+    if (styleToApply == null || styleToApply.trim().isEmpty) {
+      debugPrint("⚠️ Style está vazio, não aplicando.");
+      return;
+    }
 
-    _googleMapController!.setMapStyle(styleToApply);
+    try {
+      // No iOS, um pequeno respiro garante que a View nativa está pronta para receber o JSON
+      if (Platform.isIOS) {
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
+
+      await _googleMapController!.setMapStyle(styleToApply);
+      debugPrint("✅ Estilo do mapa aplicado com sucesso.");
+    } catch (e) {
+      debugPrint("❌ Erro ao aplicar estilo: $e");
+    }
   }
 
 
@@ -4348,6 +4363,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
               _mapReady = true;
 
               await _updateMarker();
+
+              // No iOS, o motor de renderização (Metal/OpenGL) precisa de
+              // alguns milissegundos a mais para aceitar comandos de estilo.
+              if (Platform.isIOS) {
+                await Future.delayed(const Duration(milliseconds: 200));
+              }
+
               _applyBestMapStyle();
             },
             polylines: _polylines,

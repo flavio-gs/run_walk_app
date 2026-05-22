@@ -62,13 +62,26 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location"
             tools:replace="android:exported" />
+
+        <!-- 🎵 Serviço de escuta para Spotify/Música (nowplaying) -->
+        <service android:name="com.gomes.nowplaying.NowPlayingListenerService"
+                 android:label="NowPlayingListenerService"
+                 android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+                 android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 
-    <!-- 🔍 Permite detectar intents de compartilhamento de texto -->
+    <!-- 🔍 Permite detectar intents de compartilhamento de texto e outras atividades -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
         </intent>
     </queries>
 </manifest>

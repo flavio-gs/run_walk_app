@@ -1,0 +1,104 @@
+workflows:
+  ios-release:
+    name: iOS Release Build
+
+    max_build_duration: 120
+
+    environment:
+      flutter: 3.41.2
+      xcode: latest
+      cocoapods: default
+
+      vars:
+        BUNDLE_ID: "com.nexus.runWalkApp"
+        XCODE_PROJECT: "ios/Runner.xcodeproj"
+        XCODE_SCHEME: "Runner"
+
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.nexus.runWalkApp
+
+    integrations:
+      app_store_connect: Codemagicv1
+
+    scripts:
+
+      # =========================
+      # FLUTTER CLEAN
+      # =========================
+      - name: Flutter clean
+        script: |
+          flutter clean
+
+      # =========================
+      # PUB GET
+      # =========================
+      - name: Install dependencies
+        script: |
+          flutter pub get
+
+      # =========================
+      # IOS PRECACHE
+      # =========================
+      - name: Precache iOS
+        script: |
+          flutter precache --ios
+
+      # =========================
+      # COCOAPODS
+      # =========================
+      - name: Install CocoaPods
+        script: |
+          cd ios
+
+          rm -rf Pods
+          rm -rf Podfile.lock
+
+          pod repo update
+          pod install
+
+      # =========================
+      # VERIFY XCODE
+      # =========================
+      - name: Verify versions
+        script: |
+          echo "===== XCODE ====="
+          xcodebuild -version
+
+          echo "===== SWIFT ====="
+          swift --version
+
+          echo "===== FLUTTER ====="
+          flutter --version
+
+      # =========================
+      # BUILD IPA
+      # =========================
+      - name: Build IPA
+        script: |
+          xcode-project use-profiles
+
+          flutter build ios --release --no-codesign
+
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath build/Runner.xcarchive \
+            archive
+
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist /Users/builder/export_options.plist \
+            -exportPath build/ios/ipa
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

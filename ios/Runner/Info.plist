@@ -2,10 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Empire Of The Run</string>
+	<string>Runner: Império da Corrida </string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,6 +26,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -41,10 +45,6 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-7215014769653180~1577870814</string>
 	<key>SKAdNetworkItems</key>
@@ -54,5 +54,74 @@
 			<string>cstr6suwn9.skadnetwork</string>
 		</dict>
 	</array>
+
+	<!-- ========================= -->
+	<!-- LOCALIZAÇÃO -->
+	<!-- ========================= -->
+
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para registrar corridas, caminhadas e desafios territoriais.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização em segundo plano para continuar registrando atividades físicas durante a corrida.</string>
+
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para rastrear atividades físicas e mapas.</string>
+
+	<!-- ========================= -->
+	<!-- NOTIFICAÇÕES -->
+	<!-- ========================= -->
+
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>O aplicativo envia notificações sobre corridas, interações sociais e desafios.</string>
+
+	<!-- ========================= -->
+	<!-- TRACKING -->
+	<!-- ========================= -->
+
+	<key>NSUserTrackingUsageDescription</key>
+	<string>O aplicativo pode utilizar identificadores para melhorar anúncios e experiência do usuário.</string>
+
+    <!-- ========================= -->
+	<!-- MOVIMENTO / FITNESS -->
+	<!-- ========================= -->
+
+	<key>NSMotionUsageDescription</key>
+	<string>O aplicativo utiliza dados de movimento para melhorar o rastreamento das atividades físicas.</string>
+
+	<!-- ========================= -->
+	<!-- MICROFONE (caso use áudio futuramente) -->
+	<!-- ========================= -->
+
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O aplicativo pode utilizar o microfone para funcionalidades relacionadas à atividade física.</string>
+
+	<!-- ========================= -->
+	<!-- BACKGROUND MODES -->
+	<!-- ========================= -->
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- ========================= -->
+	<!-- APP TRANSPORT SECURITY -->
+	<!-- ========================= -->
+
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+
+	<!-- ========================= -->
+	<!-- FIREBASE -->
+	<!-- ========================= -->
+
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
 </dict>
 </plist>

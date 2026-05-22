@@ -338,8 +338,8 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
         _statsGrid(corrida, runData),
         const SizedBox(height: 18),
 
-        if (isOwner && runData != null && runData['xpEarned'] != null && runData['rewardDoubled'] != true)
-          _doubleRewardButton(runData),
+        if (isOwner && runData != null && runData['xpEarned'] != null)
+          runData['rewardDoubled'] == true ? _rewardDoubledBadge(runData) : _doubleRewardButton(runData),
 
         if (corrida.id != null) ...[
           _samplesCard(corrida.id!),
@@ -449,6 +449,36 @@ class _DetalheCorridaPageState extends State<DetalheCorridaPage> {
           style: GoogleFonts.poppins(fontWeight: FontWeight.w900, fontSize: 16),
         ),
         onPressed: _isAdLoading ? null : () => _showAdAndDoubleReward(xpEarned, widget.corrida.id!),
+      ),
+    );
+  }
+
+  Widget _rewardDoubledBadge(Map<String, dynamic> runData) {
+    final xpEarned = (runData['xpEarned'] as num).toInt();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.green.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.withOpacity(0.5), width: 2),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.check_circle_outline, color: Colors.green, size: 24),
+          const SizedBox(width: 10),
+          Text(
+            'BÔNUS DE XP RESGATADO ($xpEarned XP)',
+            style: GoogleFonts.poppins(
+              color: Colors.green,
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+        ],
       ),
     );
   }
