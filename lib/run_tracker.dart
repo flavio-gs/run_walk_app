@@ -25,6 +25,7 @@ import 'package:run_walk_app/service/service/territory_service.dart';
 import 'package:run_walk_app/service/level_frame_manager.dart';
 import 'package:run_walk_app/service/tracking_bridge.dart';
 import 'package:run_walk_app/service/weather_service.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:run_walk_app/territory_danger_map_page.dart';
 import 'package:run_walk_app/theme/season_theme_scope.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -561,6 +562,39 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   Timer? _adviceTimer;
   int _adviceSecondsLeft = 0;
+
+  // Cache de progresso vindo do motor nativo
+  Map<String, double> _nativeTerritoryProgress = {};
+  StreamSubscription? _trackingSubscription;
+
+  final FlutterTts _flutterTts = FlutterTts();
+
+  Future<void> _initTts() async {
+    await _flutterTts.setLanguage("pt-BR");
+    await _flutterTts.setSpeechRate(0.5);
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+  }
+
+  void _speakMetrics(int km, double distanceM, double kcal, double paceMinKm) async {
+    final int totalSeconds = _stopwatch.elapsed.inSeconds;
+    final int displayMinutes = totalSeconds ~/ 60;
+    final int displaySeconds = totalSeconds % 60;
+
+    final int paceMin = paceMinKm.floor();
+    final int paceSec = ((paceMinKm - paceMin) * 60).round();
+
+    final int calories = kcal.toInt();
+
+    final String kmText = km == 1 ? "1 quilômetro" : "$km quilômetros";
+
+    final String text = "$kmText. "
+        "Tempo total $displayMinutes minutos e $displaySeconds segundos. "
+        "Ritmo médio $paceMin minutos e $paceSec segundos por quilômetro. "
+        "$calories calorias.";
+
+    await _flutterTts.speak(text);
+  }
 
 
 // reaplica SEM consultar banco (instantâneo)
@@ -3140,17 +3174,63 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _startRun() async {
-    _runFinalized = false;      // ✅ libera salvar novamente
+    _runFinalized = false;
     _navigatingToDetails = false;
 
     await _loadUserWeight();
-
+    await _initTts();
 
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
-    
-    // Inicia o rastreamento nativo no Android
-    TrackingBridge.startService();
+
+    // 1. Inicia ouvinte do motor nativo
+    _trackingSubscription?.cancel();
+    _trackingSubscription = TrackingBridge.trackingStream.listen((data) {
+      if (!mounted || !_isRunning) return;
+
+      final lat = (data['latitude'] as num?)?.toDouble();
+      final lng = (data['longitude'] as num?)?.toDouble();
+      final alt = (data['altitude'] as num?)?.toDouble() ?? 0.0;
+
+      if (lat != null && lng != null) {
+        final pos = LatLng(lat, lng);
+
+        setState(() {
+          _totalDistance = (data['distance_m'] as num?)?.toDouble() ?? _totalDistance;
+          _caloriesBurned = (data['kcal'] as num?)?.toDouble() ?? _caloriesBurned;
+          _averagePace = (data['pace_min_km'] as num?)?.toDouble() ?? _averagePace;
+          _currentSpeedKmh = ((data['speed'] as num?)?.toDouble() ?? 0) * 3.6;
+
+          if (data['territory_progress'] != null) {
+            _nativeTerritoryProgress = Map<String, double>.from(data['territory_progress']);
+          }
+
+          if (_positions.isEmpty) {
+            _positions.add(pos);
+          } else {
+             _positions.add(pos);
+             if (!isWearOS) _updatePolyline();
+          }
+          _currentPosition = pos;
+        });
+
+        // 📢 GATILHO DE VOZ (REPRODUZ QUANDO O KOTLIN MANDA)
+        if (data['type'] == 'km_reached') {
+          final int kmCount = (data['km_count'] as num).toInt();
+          final double d = (data['distance_m'] as num).toDouble();
+          final double k = (data['kcal'] as num).toDouble();
+          final double p = (data['pace_min_km'] as num).toDouble();
+          _speakMetrics(kmCount, d, k, p);
+        }
+
+        if (!isWearOS && _followUser) {
+          _googleMapController?.animateCamera(CameraUpdate.newLatLng(pos));
+        }
+      }
+    });
+
+    // 2. Inicia o serviço nativo no Android com o peso carregado
+    TrackingBridge.startService(weight: _userWeightKg);
 
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -3177,13 +3257,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _sessionXP = 0;
     _distanceSinceLastXP = 0;
     _nextXPThreshold = 100;
-
     _altitudes.clear();
     _elevationGain = 0.0;
     _minElevation = 0.0;
     _maxElevation = 0.0;
     _lastAltFiltered = null;
-
     _currentSpeedMps = 0.0;
     _currentSpeedKmh = 0.0;
     _avgSpeedKmh = 0.0;
@@ -3198,10 +3276,8 @@ class _RunTrackingPageState extends State<RunTrackingPage>
       _isPaused = false;
     });
 
-    await _playStart(); // som apenas no Wear
-
+    await _playStart(); 
     _startTimerTick();
-    _startPositionStream();
   }
 
   void _startTimerTick() {

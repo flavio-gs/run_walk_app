@@ -85,6 +85,7 @@ dependencies:
   model_viewer_plus: ^1.9.1
   flutter_launcher_icons: ^0.14.4
   google_mobile_ads: ^5.2.0
+  flutter_tts: ^4.2.2
 
 
 dev_dependencies:

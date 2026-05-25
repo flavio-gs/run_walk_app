@@ -9,13 +9,14 @@ class TrackingBridge {
     return _eventChannel.receiveBroadcastStream().map((event) => Map<String, dynamic>.from(event));
   }
 
-  static Future<void> startService() async {
+  static Future<void> startService({required double weight}) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
       await _channel.invokeMethod('startTracking', {
         'userId': user.uid,
+        'weight': weight,
       });
     } on PlatformException catch (e) {
       print("Erro ao iniciar nativo: ${e.message}");
