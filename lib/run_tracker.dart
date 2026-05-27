@@ -433,6 +433,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   @override
   bool get wantKeepAlive => true;
+  bool _isTtsEnabled = true;
 
   final TerritoryController _territoryController =
   TerritoryController(
@@ -486,6 +487,29 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   String _areaCapturedFormatted = "0 m²";
 
   final Set<Polygon> _territoryPolygons = {}; // 🟩 Territórios salvos
+
+  Future<void> _loadTtsPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isTtsEnabled = prefs.getBool('tts_enabled') ?? true;
+    });
+  }
+
+  Future<void> _toggleTts() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isTtsEnabled = !_isTtsEnabled;
+      prefs.setBool('tts_enabled', _isTtsEnabled);
+    });
+
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_isTtsEnabled ? "🔊 Voz do treinador ativada" : "🔇 Voz do treinador desativada"),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   // 🟩 NOVO: Área conquistada
   final Set<Polygon> _polygons = {};
@@ -577,6 +601,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _speakMetrics(int km, double distanceM, double kcal, double paceMinKm) async {
+    if (!_isTtsEnabled) return;
     final int totalSeconds = _stopwatch.elapsed.inSeconds;
     final int displayMinutes = totalSeconds ~/ 60;
     final int displaySeconds = totalSeconds % 60;
@@ -1640,6 +1665,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     super.initState();
     _loadLastKnownLocation();
     _loadPreRunAdvice();
+    _loadTtsPreference();
 
     // ✅ Stream (se você usa pra banner, pode manter)
     _seasonStream = FirebaseFirestore.instance
@@ -3180,6 +3206,10 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     await _loadUserWeight();
     await _initTts();
 
+  if (_isTtsEnabled) {
+  await _flutterTts.speak(
+      "corra tranquilamente, passarei todas as suas métricas a cada quilômetro percorrido");
+  }
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
 
@@ -4518,6 +4548,38 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             right: 0,
             bottom: 30,
             child: _buildBottomRunControls(),
+          ),
+
+          Positioned(
+            top: MediaQuery.of(context).padding.top + MediaQuery.of(context).size.height * 0.65,
+            right: 20,
+            child: GestureDetector(
+              onTap: _toggleTts,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.card,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.primary.withOpacity(0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: _isTtsEnabled ? theme.primary : theme.border,
+                    width: 1.5,
+                  ),
+                ),
+                child: Icon(
+                  _isTtsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                  color: _isTtsEnabled ? theme.primary : theme.mutedForeground,
+                  size: 24,
+                ),
+              ),
+            ),
           ),
 
           // 🔘 RECENTER
