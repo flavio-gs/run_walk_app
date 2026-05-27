@@ -1,0 +1,2 @@
+C:/Users/0116895574.DECEX0/StudioProjects/run_walk_app/android/app/.cxx/debug/91c3x28a/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/0116895574.DECEX0/StudioProjects/run_walk_app/android/app/.cxx/debug/91c3x28a/x86_64/CMakeFiles/rebuild_cache.dir
