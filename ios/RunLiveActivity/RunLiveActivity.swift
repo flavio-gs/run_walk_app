@@ -11,7 +11,6 @@ struct RunAttributes: ActivityAttributes {
     }
 }
 
-@main
 struct RunLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RunAttributes.self) { context in
