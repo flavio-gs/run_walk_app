@@ -87,9 +87,7 @@ jobs:
         run: |
 
           flutter clean
-
           rm -rf ios/Pods
-          rm -rf ios/Podfile.lock
 
       # ==========================================
       # INSTALL DEPENDENCIES
@@ -117,8 +115,7 @@ jobs:
         run: |
 
           cd ios
-
-          pod repo update
+          
           pod install
 
       # ==========================================
