@@ -1,3 +1,4 @@
+
 name: iOS Release Build
 
 on:
@@ -9,8 +10,17 @@ on:
 jobs:
   build:
 
-    runs-on: macos-14
+    # ==========================================
+    # MESMA BASE DO CODEMAGIC
+    # ==========================================
+
+    runs-on: macos-13
     timeout-minutes: 90
+
+    env:
+      BUNDLE_ID: com.nexus.runWalkApp
+      XCODE_PROJECT: ios/Runner.xcodeproj
+      XCODE_SCHEME: Runner
 
     steps:
 
@@ -22,18 +32,29 @@ jobs:
         uses: actions/checkout@v4
 
       # ==========================================
-      # SELECT XCODE
+      # XCODE (mais próximo do Codemagic)
       # ==========================================
 
-      - name: Select Xcode 15.4
+      - name: Select Xcode 15.2
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app
+
+          sudo xcode-select -s /Applications/Xcode_15.2.app
 
           echo "===== XCODE ====="
           xcodebuild -version
 
           echo "===== SWIFT ====="
           swift --version
+
+      # ==========================================
+      # JAVA 17
+      # ==========================================
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       # ==========================================
       # FLUTTER
@@ -64,7 +85,9 @@ jobs:
 
       - name: Clean project
         run: |
+
           flutter clean
+
           rm -rf ios/Pods
           rm -rf ios/Podfile.lock
 
@@ -74,8 +97,8 @@ jobs:
 
       - name: Install Flutter dependencies
         run: |
+
           flutter pub get
-          dart pub get
 
       # ==========================================
       # IOS PRECACHE
@@ -83,6 +106,7 @@ jobs:
 
       - name: Precache iOS
         run: |
+
           flutter precache --ios
 
       # ==========================================
@@ -91,6 +115,7 @@ jobs:
 
       - name: Install CocoaPods
         run: |
+
           cd ios
 
           pod repo update
@@ -102,6 +127,7 @@ jobs:
 
       - name: Verify Pods
         run: |
+
           ls -la ios/Pods/Target\ Support\ Files/Pods-Runner/
 
       # ==========================================
@@ -220,6 +246,7 @@ jobs:
 
       - name: Verify signing identities
         run: |
+
           security find-identity -v -p codesigning
 
       # ==========================================
@@ -228,6 +255,7 @@ jobs:
 
       - name: Flutter build iOS
         run: |
+
           flutter build ios --release --no-codesign
 
       # ==========================================
@@ -265,6 +293,7 @@ jobs:
 
       - name: Verify IPA
         run: |
+
           ls -lah build/ios/ipa/
 
       # ==========================================
@@ -297,3 +326,4 @@ jobs:
         with:
           name: ios-app
           path: build/ios/ipa/*.ipa
+```
