@@ -4,6 +4,7 @@ import 'dart:math';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:live_activities/live_activities.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -209,34 +210,6 @@ class SimpleGeoHash {
 }
 
 
-class Character3D extends StatelessWidget {
-  final double bearing;
-
-  const Character3D({super.key, required this.bearing});
-
-  @override
-  Widget build(BuildContext context) {
-    return ModelViewer(
-      src: 'assets/models/runner.glb',
-      backgroundColor: Colors.transparent,
-      disableZoom: true,
-      cameraControls: false,
-      autoPlay: true,
-      animationName: "Run",
-      autoRotate: false,
-
-      // 📸 Ajustes finos:
-      // - 180° pra virar o personagem “de frente pra frente do mapa”
-      // - 3m de distância pra mostrar o corpo todo
-      // - alvo da câmera levemente mais alto (1.7m)
-      cameraOrbit: "${(bearing + 180).toStringAsFixed(0)}deg 65deg 3m",
-      cameraTarget: "0m 1.7m 0m",
-      fieldOfView: "28deg",
-      exposure: 1.2,
-      disableTap: true,
-    );
-  }
-}
 
 class _TerritoryDispute {
   final String status;
@@ -431,9 +404,13 @@ class RunTrackingPage extends StatefulWidget {
 class _RunTrackingPageState extends State<RunTrackingPage>
     with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
 
+
   @override
   bool get wantKeepAlive => true;
   bool _isTtsEnabled = true;
+
+  final _liveActivitiesPlugin = LiveActivities();
+  String? _latestActivityId;
 
   final TerritoryController _territoryController =
   TerritoryController(
@@ -3200,6 +3177,7 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   }
 
   void _startRun() async {
+
     _runFinalized = false;
     _navigatingToDetails = false;
 
@@ -3210,6 +3188,18 @@ class _RunTrackingPageState extends State<RunTrackingPage>
   await _flutterTts.speak(
       "corra tranquilamente, passarei todas as suas métricas a cada quilômetro percorrido");
   }
+
+    // 🍎 iOS Live Activity: Inicialização
+    if (Platform.isIOS) {
+      _latestActivityId = await _liveActivitiesPlugin.createActivity(
+        'RunAttributes', // 1º argumento: O nome da struct no Swift
+        {                // 2º argumento: O mapa de dados
+          'distance': '0.00 km',
+          'pace': '00:00',
+          'time': '00:00:00',
+        },
+      );
+    }
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
 
@@ -3243,6 +3233,9 @@ class _RunTrackingPageState extends State<RunTrackingPage>
           }
           _currentPosition = pos;
         });
+
+        // 🍎 iOS Live Activity: Atualiza distância e pace
+        _updateLiveActivity();
 
         // 📢 GATILHO DE VOZ (REPRODUZ QUANDO O KOTLIN MANDA)
         if (data['type'] == 'km_reached') {
@@ -3317,7 +3310,19 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         _seconds = _stopwatch.elapsed.inSeconds;
         _calculatePaceAndCalories();
       });
+      // 🍎 iOS Live Activity: Atualiza o cronômetro na tela de bloqueio
+      _updateLiveActivity();
     });
+  }
+
+  void _updateLiveActivity() {
+    if (Platform.isIOS && _latestActivityId != null) {
+      _liveActivitiesPlugin.updateActivity(_latestActivityId!, {
+        'distance': '${(_totalDistance / 1000).toStringAsFixed(2)} km',
+        'pace': _formatPace(_averagePace),
+        'time': _formatDuration(Duration(seconds: _seconds)),
+      });
+    }
   }
 
   void _startPositionStream() {
@@ -3601,6 +3606,12 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     
     // Para o rastreamento nativo no Android
     TrackingBridge.stopService();
+
+    // 🍎 iOS Live Activity: Encerra
+    if (Platform.isIOS && _latestActivityId != null) {
+      _liveActivitiesPlugin.endActivity(_latestActivityId!);
+      _latestActivityId = null;
+    }
 
     // 🚫 Evita corrida inválida
     if (_totalDistance < 10) {
