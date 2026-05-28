@@ -224,18 +224,20 @@ jobs:
 
       - name: Install provisioning profiles
         run: |
-
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-
+          
+          # Decodifica os perfis
           echo "${{ secrets.APP_PROFILE }}" | base64 --decode > app.mobileprovision
-
           echo "${{ secrets.LIVE_PROFILE }}" | base64 --decode > live.mobileprovision
-
-          cp app.mobileprovision \
-            ~/Library/MobileDevice/Provisioning\ Profiles/
-
-          cp live.mobileprovision \
-            ~/Library/MobileDevice/Provisioning\ Profiles/
+          
+          # Copia para a pasta que o Xcode consulta
+          # Importante: O Xcode muitas vezes busca pelo UUID. 
+          # Se o build falhar, tentaremos renomear para o UUID.
+          cp app.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          cp live.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          
+          # Lista para conferência no log
+          ls ~/Library/MobileDevice/Provisioning\ Profiles/
 
       # ==========================================
       # VERIFY CERTIFICATES
@@ -268,8 +270,6 @@ jobs:
             -archivePath build/Runner.xcarchive \
             DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
             CODE_SIGN_STYLE=Manual \
-            PROVISIONING_PROFILE_SPECIFIER="CodeNovo" \
-            "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*][bundle-identifier=com.nexus.runWalkApp.RunLiveActivity]"="RunLiveActivity" \
             archive
 
       # ==========================================
