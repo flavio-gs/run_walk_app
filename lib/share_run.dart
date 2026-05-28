@@ -98,8 +98,12 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
       final file = File("${dir.path}/runner_${DateTime.now().millisecondsSinceEpoch}.png");
       await file.writeAsBytes(bytes);
 
+      final box = context.findRenderObject() as RenderBox?;
+      final rect = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+
       await Share.shareXFiles(
         [XFile(file.path, name: "corrida_runner.png")],
+        sharePositionOrigin: rect,
       );
     } catch (e) {
       _mostrarErro("Erro ao salvar: $e");
@@ -129,10 +133,14 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                    "⚡ Ritmo: ${_calcularRitmo(widget.corrida.distance, widget.corrida.duration)}\n\n"
                    "#RunnerApp #CorridadeRua #Workout #Fitness";
 
+      final box = context.findRenderObject() as RenderBox?;
+      final rect = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+
       await Share.shareXFiles(
         [XFile(file.path)],
         text: text,
         subject: 'Minha Corrida no Runner App',
+        sharePositionOrigin: rect,
       );
     } catch (e) {
       debugPrint("Erro ao compartilhar: $e");
