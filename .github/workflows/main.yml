@@ -35,14 +35,12 @@ jobs:
       # XCODE (mais próximo do Codemagic)
       # ==========================================
 
-      - name: Select Xcode 15.2
+      - name: Select Xcode
         run: |
-
-          sudo xcode-select -s /Applications/Xcode_15.2.app
-
+          # No macos-14, as versões disponíveis costumam ser 15.4 ou 16.0
+          sudo xcode-select -s /Applications/Xcode_15.4.app
           echo "===== XCODE ====="
           xcodebuild -version
-
           echo "===== SWIFT ====="
           swift --version
 
