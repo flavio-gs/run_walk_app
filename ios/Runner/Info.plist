@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSSupportsLiveActivities</key>
+    <true/>
+    <key>NSLiveActivitiesUsageDescription</key>
+    <string>Exibir métricas da sua corrida em tempo real na tela de bloqueio.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
