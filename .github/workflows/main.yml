@@ -224,20 +224,39 @@ jobs:
 
       - name: Install provisioning profiles
         run: |
+
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          
-          # Decodifica os perfis
+
+          # ==========================================
+          # APP PROFILE
+          # ==========================================
+
           echo "${{ secrets.APP_PROFILE }}" | base64 --decode > app.mobileprovision
+
+          APP_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i app.mobileprovision)")
+
+          cp app.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$APP_UUID.mobileprovision
+
+          # ==========================================
+          # LIVE ACTIVITY PROFILE
+          # ==========================================
+
           echo "${{ secrets.LIVE_PROFILE }}" | base64 --decode > live.mobileprovision
-          
-          # Copia para a pasta que o Xcode consulta
-          # Importante: O Xcode muitas vezes busca pelo UUID. 
-          # Se o build falhar, tentaremos renomear para o UUID.
-          cp app.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-          cp live.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-          
-          # Lista para conferência no log
-          ls ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          LIVE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i live.mobileprovision)")
+
+          cp live.mobileprovision \
+            ~/Library/MobileDevice/Provisioning\ Profiles/$LIVE_UUID.mobileprovision
+
+          # ==========================================
+          # DEBUG
+          # ==========================================
+
+          echo "===== INSTALLED PROFILES ====="
+
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+
 
       # ==========================================
       # VERIFY CERTIFICATES
