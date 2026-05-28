@@ -37,12 +37,15 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # No macos-14, as versões disponíveis costumam ser 15.4 ou 16.0
-          sudo xcode-select -s /Applications/Xcode_15.4.app
-          echo "===== XCODE ====="
+          # Lista os Xcodes disponíveis para debug se falhar
+          ls /Applications/ | grep Xcode
+          
+          # Tenta selecionar a versão 15 disponível (pode ser 15.0, 15.4, etc)
+          XCODE_PATH=$(ls -d /Applications/Xcode_15*.app | head -n 1)
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          
+          echo "===== XCODE SELECTED ====="
           xcodebuild -version
-          echo "===== SWIFT ====="
-          swift --version
 
       # ==========================================
       # JAVA 17
