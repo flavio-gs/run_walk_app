@@ -18,7 +18,6 @@
 		B74490DF2FC7C0CF00D30E08 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B74490DE2FC7C0CF00D30E08 /* WidgetKit.framework */; };
 		B74490E12FC7C0CF00D30E08 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B74490E02FC7C0CF00D30E08 /* SwiftUI.framework */; };
 		B74490E42FC7C0D000D30E08 /* RunLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */; };
-		B74490E62FC7C0D000D30E08 /* RunLiveActivityLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74490E52FC7C0D000D30E08 /* RunLiveActivityLiveActivity.swift */; };
 		B74490E82FC7C0D000D30E08 /* RunLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */; };
 		B74490EB2FC7C0D300D30E08 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B74490EA2FC7C0D300D30E08 /* Assets.xcassets */; };
 		B74490ED2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */; };
@@ -90,7 +89,6 @@
 		B74490DE2FC7C0CF00D30E08 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		B74490E02FC7C0CF00D30E08 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityBundle.swift; sourceTree = "<group>"; };
-		B74490E52FC7C0D000D30E08 /* RunLiveActivityLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityLiveActivity.swift; sourceTree = "<group>"; };
 		B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivity.swift; sourceTree = "<group>"; };
 		B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = RunLiveActivity.intentdefinition; sourceTree = "<group>"; };
 		B74490EA2FC7C0D300D30E08 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -203,7 +201,6 @@
 			isa = PBXGroup;
 			children = (
 				B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */,
-				B74490E52FC7C0D000D30E08 /* RunLiveActivityLiveActivity.swift */,
 				B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */,
 				B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */,
 				B74490EA2FC7C0D300D30E08 /* Assets.xcassets */,
@@ -446,7 +443,6 @@
 				B74490E42FC7C0D000D30E08 /* RunLiveActivityBundle.swift in Sources */,
 				B74490E82FC7C0D000D30E08 /* RunLiveActivity.swift in Sources */,
 				B74490ED2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */,
-				B74490E62FC7C0D000D30E08 /* RunLiveActivityLiveActivity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
