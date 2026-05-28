@@ -2,7 +2,7 @@ import UIKit
 import Flutter
 import GoogleMaps
 import CoreLocation
-import FirebaseCore
+import Firebase
 import FirebaseFirestore
 import AVFoundation
 
