@@ -20,8 +20,6 @@
 		B74490E42FC7C0D000D30E08 /* RunLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */; };
 		B74490E82FC7C0D000D30E08 /* RunLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */; };
 		B74490EB2FC7C0D300D30E08 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B74490EA2FC7C0D300D30E08 /* Assets.xcassets */; };
-		B74490ED2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */; };
-		B74490EE2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */; };
 		B74490F12FC7C0D300D30E08 /* RunLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B74490DD2FC7C0CF00D30E08 /* RunLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B755CB502FBD740200351B2A /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = B755CB4F2FBD740200351B2A /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
@@ -90,7 +88,6 @@
 		B74490E02FC7C0CF00D30E08 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityBundle.swift; sourceTree = "<group>"; };
 		B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivity.swift; sourceTree = "<group>"; };
-		B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */ = {isa = PBXFileReference; lastKnownFileType = file.intentdefinition; path = RunLiveActivity.intentdefinition; sourceTree = "<group>"; };
 		B74490EA2FC7C0D300D30E08 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B74490EC2FC7C0D300D30E08 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B755CB4F2FBD740200351B2A /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
@@ -202,7 +199,6 @@
 			children = (
 				B74490E32FC7C0D000D30E08 /* RunLiveActivityBundle.swift */,
 				B74490E72FC7C0D000D30E08 /* RunLiveActivity.swift */,
-				B74490E92FC7C0D000D30E08 /* RunLiveActivity.intentdefinition */,
 				B74490EA2FC7C0D300D30E08 /* Assets.xcassets */,
 				B74490EC2FC7C0D300D30E08 /* Info.plist */,
 			);
@@ -432,7 +428,6 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
-				B74490EE2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -442,7 +437,6 @@
 			files = (
 				B74490E42FC7C0D000D30E08 /* RunLiveActivityBundle.swift in Sources */,
 				B74490E82FC7C0D000D30E08 /* RunLiveActivity.swift in Sources */,
-				B74490ED2FC7C0D300D30E08 /* RunLiveActivity.intentdefinition in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
