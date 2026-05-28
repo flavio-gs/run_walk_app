@@ -261,7 +261,6 @@ jobs:
 
       - name: Archive app
         run: |
-
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
@@ -269,6 +268,8 @@ jobs:
             -archivePath build/Runner.xcarchive \
             DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
             CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="CodeNovo" \
+            "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*][bundle-identifier=com.nexus.runWalkApp.RunLiveActivity]"="RunLiveActivity" \
             archive
 
       # ==========================================
