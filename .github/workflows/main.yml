@@ -37,15 +37,14 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Lista os Xcodes disponíveis para debug se falhar
-          ls /Applications/ | grep Xcode
+          # O runner macos-latest (M1/M2) usa o Xcode 16 como padrão
+          # Vamos selecionar o Xcode.app que é o link para a versão estável
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           
-          # Tenta selecionar a versão 15 disponível (pode ser 15.0, 15.4, etc)
-          XCODE_PATH=$(ls -d /Applications/Xcode_15*.app | head -n 1)
-          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
-          
-          echo "===== XCODE SELECTED ====="
+          echo "===== XCODE VERSION ====="
           xcodebuild -version
+          echo "===== SWIFT VERSION ====="
+          swift --version
 
       # ==========================================
       # JAVA 17
