@@ -3181,24 +3181,43 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     _runFinalized = false;
     _navigatingToDetails = false;
 
+    // 1. ATIVA A INTERFACE IMEDIATAMENTE (O cronômetro começa agora!)
+    setState(() {
+      _isRunning = true;
+      _isPaused = false;
+      _seconds = 0;
+      _totalDistance = 0;
+    });
+
+    _stopwatch.reset();
+    _stopwatch.start();
+    _startTime = DateTime.now();
+    _startTimerTick(); // Inicia o relógio na tela
+
+    // 2. Prepara o áudio e o peso (em paralelo)
     await _loadUserWeight();
     await _initTts();
 
-  if (_isTtsEnabled) {
-  await _flutterTts.speak(
-      "corra tranquilamente, passarei todas as suas métricas a cada quilômetro percorrido");
-  }
+    // 3. FALA SEM ESPERAR (Removido o 'await' para não travar a corrida)
+    if (_isTtsEnabled) {
+      _flutterTts.speak(
+          "corra tranquilamente, passarei todas as suas métricas a cada quilômetro percorrido");
+    }
 
-    // 🍎 iOS Live Activity: Inicialização
+    // 4. Inicia Live Activity (iOS)
     if (Platform.isIOS) {
-      _latestActivityId = await _liveActivitiesPlugin.createActivity(
-        'RunAttributes', // 1º argumento: O nome da struct no Swift
-        {                // 2º argumento: O mapa de dados
-          'distance': '0.00 km',
-          'pace': '00:00',
-          'time': '00:00:00',
-        },
-      );
+      try {
+        _latestActivityId = await _liveActivitiesPlugin.createActivity(
+          'RunAttributes',
+          {
+            'distance': '0.00 km',
+            'pace': '00:00',
+            'time': '00:00:00',
+          },
+        );
+      } catch (e) {
+        debugPrint("Erro ao criar Live Activity: $e");
+      }
     }
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();

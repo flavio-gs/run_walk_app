@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'model/run_model.dart';
 import 'run_share_overlay_editor.dart';
@@ -82,6 +83,31 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
     }
   }
 
+  Future<void> _salvarImagem() async {
+    if (sharing) return;
+    setState(() => sharing = true);
+
+    try {
+      final bytes = await _gerarImagemCompartilhamento(
+        widget.corrida,
+        selectedBackground,
+        storyMode,
+      );
+      
+      final dir = await getTemporaryDirectory();
+      final file = File("${dir.path}/runner_${DateTime.now().millisecondsSinceEpoch}.png");
+      await file.writeAsBytes(bytes);
+
+      await Share.shareXFiles(
+        [XFile(file.path, name: "corrida_runner.png")],
+      );
+    } catch (e) {
+      _mostrarErro("Erro ao salvar: $e");
+    } finally {
+      if (mounted) setState(() => sharing = false);
+    }
+  }
+
   Future<void> _compartilhar() async {
     if (sharing) return;
     setState(() => sharing = true);
@@ -92,25 +118,33 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
         selectedBackground,
         storyMode,
       );
-      final dir = await Directory.systemTemp.createTemp();
-      final file = File("${dir.path}/runner_share.png");
+      
+      final dir = await getTemporaryDirectory();
+      final file = File("${dir.path}/share_run.png");
       await file.writeAsBytes(bytes);
+
+      final text = "🏃 Corrida concluída!\n"
+                   "📏 ${(widget.corrida.distance / 1000).toStringAsFixed(2)} km\n"
+                   "⏱️ ${_formatDuration(widget.corrida.duration)}\n"
+                   "⚡ Ritmo: ${_calcularRitmo(widget.corrida.distance, widget.corrida.duration)}\n\n"
+                   "#RunnerApp #CorridadeRua #Workout #Fitness";
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text:
-        "🏃 Corrida concluída!\n${(widget.corrida.distance / 1000).toStringAsFixed(2)} km em ${_formatDuration(widget.corrida.duration)} 🏁\n#RunnerApp",
+        text: text,
+        subject: 'Minha Corrida no Runner App',
       );
     } catch (e) {
       debugPrint("Erro ao compartilhar: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erro ao compartilhar: $e")),
-        );
-      }
+      _mostrarErro("Erro ao compartilhar: $e");
+    } finally {
+      if (mounted) setState(() => sharing = false);
     }
+  }
 
-    if (mounted) setState(() => sharing = false);
+  void _mostrarErro(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<Uint8List> _gerarImagemCompartilhamento(
@@ -554,6 +588,15 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  _bigAction(
+                    theme,
+                    icon: Icons.download_rounded,
+                    label: "Salvar",
+                    color: theme.primary,
+                    fg: theme.primaryForeground,
+                    onTap: sharing ? null : _salvarImagem,
+                  ),
+                  const SizedBox(width: 18),
                   _bigAction(
                     theme,
                     icon: Icons.share,
