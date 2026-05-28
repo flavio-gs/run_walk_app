@@ -326,4 +326,3 @@ jobs:
         with:
           name: ios-app
           path: build/ios/ipa/*.ipa
-```
