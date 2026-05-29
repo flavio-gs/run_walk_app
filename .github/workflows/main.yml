@@ -276,6 +276,11 @@ jobs:
 
           flutter build ios --release --no-codesign
 
+      - name: Show project signing config
+        run: |
+          grep -R "CODE_SIGN_STYLE" ios/Runner.xcodeproj/project.pbxproj
+          grep -R "PROVISIONING_PROFILE_SPECIFIER" ios/Runner.xcodeproj/project.pbxproj
+
       # ==========================================
       # ARCHIVE APP
       # ==========================================
