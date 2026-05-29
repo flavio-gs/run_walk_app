@@ -288,13 +288,14 @@ jobs:
       - name: Archive app
         run: |
 
-          xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -archivePath build/Runner.xcarchive \
-            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
-            archive
+              xcodebuild \
+              -workspace ios/Runner.xcworkspace \
+              -scheme Runner \
+              -configuration Release \
+              -archivePath build/Runner.xcarchive \
+              DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+              -allowProvisioningUpdates \
+              archive
 
 
       # ==========================================
