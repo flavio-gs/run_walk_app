@@ -2,7 +2,7 @@ name: run_walk_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+32
+version: 1.0.0+33
 
 environment:
   sdk: ^3.6.0
@@ -104,6 +104,7 @@ flutter_icons:
   image_path: "assets/icon/logo_principal.png"
   adaptive_icon_background: "#ffffff"
   adaptive_icon_foreground: "assets/icon/logo_principal.png"
+  remove_alpha: true
 
 flutter:
   uses-material-design: true
