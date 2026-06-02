@@ -2,7 +2,7 @@ name: run_walk_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+34
+version: 1.0.0+35
 
 environment:
   sdk: ^3.6.0
@@ -114,6 +114,7 @@ flutter:
     - assets/click.mp3
     - assets/sounds/
     - assets/icon/logo_principal.png
+    - assets/icon/logo_transp.png
     - assets/videos/splash.mp4
     - assets/audio/pre_run_1.mp3
     - assets/audio/pre_run_2.mp3

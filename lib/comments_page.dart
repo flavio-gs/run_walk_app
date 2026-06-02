@@ -602,7 +602,7 @@ class _CommentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageProvider = (photoUrl.trim().isNotEmpty)
         ? NetworkImage(photoUrl)
-        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider;
+        : const AssetImage('assets/icon/logo_transp.png') as ImageProvider;
 
     return Material(
       color: Colors.transparent,

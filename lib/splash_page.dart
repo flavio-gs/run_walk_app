@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 class SplashPage extends StatefulWidget {
-  const SplashPage({super.key});
+  final Widget? nextPage;
+  const SplashPage({super.key, this.nextPage});
 
   @override
   State<SplashPage> createState() => _SplashPageState();
@@ -31,7 +32,14 @@ class _SplashPageState extends State<SplashPage> {
 
   void _goToNextScreen() {
     if (mounted) {
-      Navigator.pushReplacementNamed(context, '/login');
+      if (widget.nextPage != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => widget.nextPage!),
+        );
+      } else {
+        Navigator.pushReplacementNamed(context, '/login');
+      }
     }
   }
 

@@ -223,7 +223,7 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
     }
 
     // 🧩 Logo
-    final logoData = await rootBundle.load('assets/icon/logo_principal.png');
+    final logoData = await rootBundle.load('assets/icon/logo_transp.png');
     final logoCodec = await ui.instantiateImageCodec(
       logoData.buffer.asUint8List(),
       targetWidth: 280,

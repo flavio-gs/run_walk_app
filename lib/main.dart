@@ -236,19 +236,19 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   final hasSeenTutorial = prefs.getBool('hasSeenTutorial') ?? false;
 
-  final Widget initialPage;
+  final Widget nextAfterSplash;
   if (isWear) {
     Connectivity().onConnectivityChanged.listen((result) async {
       if (result != ConnectivityResult.none) {
         await WearOfflineSyncService.syncPendingData();
       }
     });
-    initialPage = hasSeenTutorial ? const LoginWearPage() : const WearTextTutorialPage();
+    nextAfterSplash = hasSeenTutorial ? const LoginWearPage() : const WearTextTutorialPage();
   } else {
-    initialPage = const AuthGate();
+    nextAfterSplash = const AuthGate();
   }
 
-  runApp(MyApp(initialPage: initialPage));
+  runApp(MyApp(initialPage: SplashPage(nextPage: nextAfterSplash)));
 }
 
 // ------------------------------------------------------------
@@ -297,7 +297,7 @@ class _MyAppState extends State<MyApp> {
         return SeasonThemeScope(
           theme: seasonTheme,
           child: MaterialApp(
-            title: 'Empire Of The Run',
+            title: 'Runner: Império da Corrida',
             debugShowCheckedModeBanner: false,
             theme: themeData,
             navigatorKey: navigatorKey,
@@ -314,15 +314,7 @@ class _MyAppState extends State<MyApp> {
             home: widget.initialPage,
             routes: {
               '/tutorial': (context) => const MapTutorialPage(),
-              '/splash': (context) => const Scaffold(
-                    backgroundColor: Colors.black,
-                    body: Center(
-                      child: Text(
-                        'Império da Corrida',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ),
-                  ),
+              '/splash': (context) => const SplashPage(),
               '/main': (context) => const MainScaffold(),
               '/main_wear': (context) => const MainScaffoldWear(),
               '/complete_profile': (context) => const CompleteProfilePage(),

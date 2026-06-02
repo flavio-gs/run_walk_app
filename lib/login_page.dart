@@ -263,7 +263,7 @@ class _LoginPageState extends State<LoginPage> {
             children: [
               // Logo
               Image.asset(
-                'assets/icon/logo_principal.png',
+                'assets/icon/logo_transp.png',
                 height: 100,
               ),
               const SizedBox(height: 40),

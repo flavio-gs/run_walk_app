@@ -951,7 +951,7 @@ class _LogoWidget extends StatelessWidget {
   }
 
   Future<ui.Image> _loadLogo() async {
-    final logoData = await rootBundle.load('assets/icon/logo_principal.png');
+    final logoData = await rootBundle.load('assets/icon/logo_transp.png');
     final codec = await ui.instantiateImageCodec(
       logoData.buffer.asUint8List(),
       targetWidth: 360,

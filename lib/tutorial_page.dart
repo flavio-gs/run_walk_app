@@ -139,7 +139,7 @@ class _MapTutorialPageState extends State<MapTutorialPage> {
     return const [
       {
         'title': "CAPÍTULO 1 — Fundação do Império",
-        'text': "Bem-vindo ao Empire of The Run. Aqui, corrida vira território. Vamos simular seu primeiro domínio no mapa."
+        'text': "Bem-vindo ao Runner: Império da Corrida. Aqui, corrida vira território. Vamos simular seu primeiro domínio no mapa."
       },
       {
         'title': "🏃 A Primeira Corrida",

@@ -1485,7 +1485,7 @@ class _AnimatedPostCardState extends State<_AnimatedPostCard> with TickerProvide
                             backgroundColor: s.foreground.withOpacity(0.06),
                             backgroundImage: (widget.photoUrl != null && widget.photoUrl!.isNotEmpty)
                                 ? NetworkImage(widget.photoUrl!)
-                                : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                                : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
                           ),
                         ),
                       ),
@@ -2157,7 +2157,7 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                     radius: 22,
                     backgroundImage: authorPhoto.trim().isNotEmpty
                         ? NetworkImage(authorPhoto)
-                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                        : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -2322,7 +2322,7 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
               radius: 22,
               backgroundImage: photo.trim().isNotEmpty
                   ? NetworkImage(photo)
-                  : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                  : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
               backgroundColor: Colors.red.shade100,
             ),
             const SizedBox(height: 4),
@@ -2364,7 +2364,7 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                 radius: 25,
                 backgroundImage: photo.trim().isNotEmpty
                     ? NetworkImage(photo)
-                    : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                    : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
               ),
               const SizedBox(height: 4),
               Text(name.split(' ').first, style: const TextStyle(fontSize: 11)),
@@ -2413,7 +2413,7 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                     radius: 35,
                     backgroundImage: photoUrl != null
                         ? NetworkImage(photoUrl)
-                        : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                        : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
                   ),
                   const SizedBox(height: 12),
                   Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -2541,7 +2541,7 @@ class _ChallengePostCardState extends State<ChallengePostCard> {
                               leading: CircleAvatar(
                                 backgroundImage: photo.trim().isNotEmpty
                                     ? NetworkImage(photo)
-                                    : const AssetImage('assets/icon/logo_principal.png') as ImageProvider,
+                                    : const AssetImage('assets/icon/logo_transp.png') as ImageProvider,
                               ),
                               title: Text(
                                 '$medal $name',

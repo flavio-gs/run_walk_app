@@ -143,7 +143,7 @@ class _LoginWearPageState extends State<LoginWearPage> with SingleTickerProvider
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     const SizedBox(height: 10),
-                    Image.asset('assets/icon/logo_principal.png', height: 60),
+                    Image.asset('assets/icon/logo_transp.png', height: 60),
                     const SizedBox(height: 14),
                     const Text(
                       "Empire of The Run",
