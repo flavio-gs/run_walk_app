@@ -26,6 +26,17 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.423107963134-q9c1lkc3scc5cb4hs0p22h7jmka33hjs</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
@@ -85,6 +96,15 @@
 
 	<key>NSUserTrackingUsageDescription</key>
 	<string>O aplicativo pode utilizar identificadores para melhorar anúncios e experiência do usuário.</string>
+
+    <!-- ========================= -->
+	<!-- GALERIA E FOTOS -->
+	<!-- ========================= -->
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>O aplicativo precisa acessar sua galeria para você escolher fotos de fundo para compartilhar suas corridas.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>O aplicativo precisa de permissão para salvar as imagens das suas corridas na sua galeria.</string>
 
     <!-- ========================= -->
 	<!-- MOVIMENTO / FITNESS -->

@@ -410,7 +410,15 @@ class _RunShareOverlayEditorState extends State<RunShareOverlayEditor> {
         return;
       }
 
-      await Share.shareXFiles([XFile(file.path)], text: "PNG transparente - Runner");
+      // ✅ CORREÇÃO: Adicionado sharePositionOrigin para evitar crash no iOS/iPad
+      final box = context.findRenderObject() as RenderBox?;
+      final rect = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: "PNG transparente - Runner",
+        sharePositionOrigin: rect,
+      );
     } catch (e) {
       debugPrint("Erro ao exportar/compartilhar PNG: $e");
       if (!mounted) return;
