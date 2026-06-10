@@ -1,9 +1,10 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/cupertino.dart';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:audioplayers/audioplayers.dart';
 
 class LoginPage extends StatefulWidget {
@@ -32,7 +33,6 @@ class _LoginPageState extends State<LoginPage> {
     final snap = await ref.get();
 
     if (!snap.exists) {
-      // se for 1º login, garante o doc com isActive=true
       await ref.set({
         'isActive': true,
         'createdAt': FieldValue.serverTimestamp(),
@@ -56,11 +56,9 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-
   // ------------------ 🔐 LOGIN / CADASTRO -------------------
   Future<void> handleAuthAction() async {
-    if (emailController.text.trim().isEmpty ||
-        senhaController.text.trim().isEmpty) {
+    if (emailController.text.trim().isEmpty || senhaController.text.trim().isEmpty) {
       setState(() => mensagemErro = 'Preencha todos os campos.');
       return;
     }
@@ -74,36 +72,33 @@ class _LoginPageState extends State<LoginPage> {
       final FirebaseAuth auth = FirebaseAuth.instance;
       final userCredential = isRegistering
           ? await auth.createUserWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: senhaController.text.trim(),
-      )
+              email: emailController.text.trim(),
+              password: senhaController.text.trim(),
+            )
           : await auth.signInWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: senhaController.text.trim(),
-      );
+              email: emailController.text.trim(),
+              password: senhaController.text.trim(),
+            );
 
       final user = userCredential.user;
       if (user == null) return;
 
-// 🔹 Reativação automática caso esteja inativa
       await _reactivateIfNeeded(user.uid);
 
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-// 🔹 Cria doc se não existir (já com isActive:true)
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
           'username': '',
-          'isActive': true, // ✅ garante ativo
+          'isActive': true,
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         userDoc = await userDocRef.get();
       }
-
 
       final data = userDoc.data() ?? {};
       final camposObrigatorios = [
@@ -117,10 +112,7 @@ class _LoginPageState extends State<LoginPage> {
       ];
 
       final perfilIncompleto = camposObrigatorios.any(
-            (valor) =>
-        valor == null ||
-            (valor is String && valor.trim().isEmpty) ||
-            (valor is num && valor == 0),
+        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
       );
 
       if (perfilIncompleto) {
@@ -142,43 +134,41 @@ class _LoginPageState extends State<LoginPage> {
 
   // ------------------ 🔑 LOGIN COM GOOGLE -------------------
   Future<void> signInWithGoogle() async {
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      mensagemErro = '';
+    });
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) {
         setState(() => loading = false);
-        return; // usuário cancelou
+        return;
       }
 
-      final GoogleSignInAuthentication googleAuth =
-      await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final userCred =
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user;
       if (user == null) {
         setState(() => loading = false);
         return;
       }
 
-      // 🔹 Reativação automática
       await _reactivateIfNeeded(user.uid);
 
-      final userDocRef =
-      FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-      // 🔹 Se não existir cadastro, cria com dados básicos e força perfil incompleto
       if (!userDoc.exists) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '', // vazio pra forçar completar
+          'username': '',
           'displayName': user.displayName ?? '',
           'isActive': true,
           'createdAt': FieldValue.serverTimestamp(),
@@ -188,7 +178,6 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final data = userDoc.data() ?? {};
-
       final camposObrigatorios = [
         data['username'],
         data['displayName'],
@@ -200,10 +189,7 @@ class _LoginPageState extends State<LoginPage> {
       ];
 
       final perfilIncompleto = camposObrigatorios.any(
-            (valor) =>
-        valor == null ||
-            (valor is String && valor.trim().isEmpty) ||
-            (valor is num && valor == 0),
+        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
       );
 
       if (perfilIncompleto) {
@@ -212,12 +198,92 @@ class _LoginPageState extends State<LoginPage> {
         navigateToRunTrackingPage();
       }
     } catch (e) {
-      setState(() => mensagemErro = 'Erro ao autenticar: $e');
+      setState(() => mensagemErro = 'Erro ao autenticar com Google: $e');
     } finally {
       setState(() => loading = false);
     }
   }
 
+  // ------------------ 🍎 LOGIN COM APPLE -------------------
+  Future<void> signInWithApple() async {
+    setState(() {
+      loading = true;
+      mensagemErro = '';
+    });
+    try {
+      final appleCredential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScope.email,
+          AppleIDAuthorizationScope.name,
+        ],
+      );
+
+      final OAuthProvider oAuthProvider = OAuthProvider('apple.com');
+      final AuthCredential credential = oAuthProvider.credential(
+        idToken: appleCredential.identityToken,
+        accessToken: appleCredential.authorizationCode,
+      );
+
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+      final user = userCred.user;
+      if (user == null) {
+        setState(() => loading = false);
+        return;
+      }
+
+      await _reactivateIfNeeded(user.uid);
+
+      final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+      var userDoc = await userDocRef.get();
+
+      if (!userDoc.exists) {
+        // Apple só envia nome e email no PRIMEIRO login
+        String? displayName = user.displayName;
+        if (displayName == null || displayName.isEmpty) {
+          if (appleCredential.givenName != null || appleCredential.familyName != null) {
+            displayName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
+          }
+        }
+
+        await userDocRef.set({
+          'uid': user.uid,
+          'email': user.email ?? appleCredential.email ?? '',
+          'photoURL': user.photoURL ?? '',
+          'username': '',
+          'displayName': displayName ?? 'Runner',
+          'isActive': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        userDoc = await userDocRef.get();
+      }
+
+      final data = userDoc.data() ?? {};
+      final camposObrigatorios = [
+        data['username'],
+        data['displayName'],
+        data['birthDate'],
+        data['gender'],
+        data['weight'],
+        data['height'],
+        data['cep'],
+      ];
+
+      final perfilIncompleto = camposObrigatorios.any(
+        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
+      );
+
+      if (perfilIncompleto) {
+        Navigator.pushReplacementNamed(context, '/complete_profile');
+      } else {
+        navigateToRunTrackingPage();
+      }
+    } catch (e) {
+      setState(() => mensagemErro = 'Erro ao autenticar com Apple: $e');
+    } finally {
+      setState(() => loading = false);
+    }
+  }
 
   // ------------------ 🧱 CAMPOS -------------------
   Widget _buildTextField({
@@ -261,13 +327,11 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Logo
               Image.asset(
                 'assets/icon/logo_transp.png',
                 height: 100,
               ),
               const SizedBox(height: 40),
-
               Text(
                 isRegistering ? "Crie sua conta" : "Bem-vindo de volta!",
                 style: const TextStyle(
@@ -277,8 +341,6 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 30),
-
-              // Campos
               _buildTextField(
                 controller: emailController,
                 label: "E-mail",
@@ -291,7 +353,6 @@ class _LoginPageState extends State<LoginPage> {
                 icon: Icons.lock_outline,
                 obscureText: true,
               ),
-
               const SizedBox(height: 10),
               if (mensagemErro.isNotEmpty)
                 Padding(
@@ -301,10 +362,7 @@ class _LoginPageState extends State<LoginPage> {
                     style: const TextStyle(color: Colors.red, fontSize: 13),
                   ),
                 ),
-
               const SizedBox(height: 25),
-
-              // Botão principal
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -320,74 +378,62 @@ class _LoginPageState extends State<LoginPage> {
                   child: loading
                       ? const CupertinoActivityIndicator(color: Colors.white)
                       : Text(
-                    isRegistering ? "Cadastrar" : "Entrar",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
+                          isRegistering ? "Cadastrar" : "Entrar",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
-
               const SizedBox(height: 20),
-
-              // Alternar login/cadastro
               TextButton(
                 onPressed: () {
-                  setState(() {
-                    isRegistering = !isRegistering;
-                    mensagemErro = '';
-                  });
+                  setState(() => isRegistering = !isRegistering);
                 },
                 child: Text(
-                  isRegistering
-                      ? "Já tenho uma conta"
-                      : "Não tem conta? Cadastre-se",
+                  isRegistering ? "Já tem conta? Entre" : "Não tem conta? Cadastre-se",
                   style: const TextStyle(color: Colors.black54),
                 ),
               ),
-
-              const SizedBox(height: 10),
-
-              // Divisor
-              Row(
-                children: const [
+              const SizedBox(height: 25),
+              const Row(
+                children: [
                   Expanded(child: Divider(color: Colors.black12)),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(
-                      "ou",
-                      style: TextStyle(color: Colors.black54),
-                    ),
+                    child: Text("OU", style: TextStyle(color: Colors.black26, fontSize: 12)),
                   ),
                   Expanded(child: Divider(color: Colors.black12)),
                 ],
               ),
-
-              const SizedBox(height: 20),
-
-              // Botão Google
+              const SizedBox(height: 25),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: loading ? null : signInWithGoogle,
-                  icon: const Icon(Icons.g_mobiledata, color: Colors.black87),
+                  icon: const Icon(Icons.g_mobiledata, color: Colors.black87, size: 30),
                   label: const Text(
                     "Entrar com Google",
-                    style: TextStyle(
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: Colors.black26),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    side: const BorderSide(color: Colors.black12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              if (Platform.isIOS)
+                SignInWithAppleButton(
+                  text: "Continuar com Apple",
+                  height: 45,
+                  borderRadius: BorderRadius.circular(8),
+                  onPressed: () {
+                    if (!loading) signInWithApple();
+                  },
+                ),
             ],
           ),
         ),

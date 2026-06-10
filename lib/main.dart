@@ -16,6 +16,8 @@ import 'package:run_walk_app/service/season_service.dart';
 import 'dart:math';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+
 // 🚨 NOVOS IMPORTS PARA FCM
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -173,6 +175,15 @@ Future<bool> isWearOS() async {
 // 🔹 FUNÇÃO PARA INICIALIZAÇÃO EM BACKGROUND (NÃO BLOQUEANTE)
 // ------------------------------------------------------------
 void _initializeBackgroundTasks() async {
+
+  // 1. App Tracking Transparency (OBRIGATÓRIO PARA APPLE)
+  // Adicione um pequeno delay para garantir que o app já carregou a interface
+  Future.delayed(const Duration(seconds: 1), () async {
+    final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    if (status == TrackingStatus.notDetermined) {
+      await AppTrackingTransparency.requestTrackingAuthorization();
+    }
+  });
   // FCM Setup
   setupFCM();
 
