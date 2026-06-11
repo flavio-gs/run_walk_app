@@ -213,8 +213,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final appleCredential = await SignInWithApple.getAppleIDCredential(
         scopes: [
-          AppleIDAuthorizationScope.email,
-          AppleIDAuthorizationScope.name,
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
         ],
       );
 
