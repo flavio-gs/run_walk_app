@@ -1615,17 +1615,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(false); // ❌ recusou
-              },
-              child: const Text('Recusar'),
-            ),
             ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop(true); // ✅ aceitou
               },
-              child: const Text('Aceitar e Continuar'),
+              child: const Text('Continuar'),
             ),
           ],
         );

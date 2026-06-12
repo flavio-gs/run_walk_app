@@ -990,6 +990,56 @@ class _StatsTabState extends State<_StatsTab> {
     widget.onPrivacyToggled(v);
   }
 
+  void _showDeleteAccountDialog() {
+    final s = SeasonThemeScope.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Excluir Conta"),
+        content: const Text("Esta ação é permanente e todos os seus dados (pontos, territórios e histórico) serão apagados. Deseja continuar?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                final user = FirebaseAuth.instance.currentUser;
+                if (user != null) {
+                  final uid = user.uid;
+
+                  // 1. Apaga os dados do Firestore antes de deletar o Auth
+                  await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+
+                  // 2. Deleta a conta do Firebase Auth (isso já desloga)
+                  await user.delete();
+
+                  // 3. Garante o SignOut (limpa cache local do Firebase)
+                  await FirebaseAuth.instance.signOut();
+
+                  if (mounted) {
+                    // 4. Redireciona para o login limpando toda a pilha de telas
+                    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+                  }
+                }
+              } catch (e) {
+                // O erro 'requires-recent-login' é comum aqui
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Por segurança, saia e entre novamente no app antes de excluir a conta."),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: Text("Excluir", style: TextStyle(color: s.destructive, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = SeasonThemeScope.of(context);
@@ -1236,52 +1286,52 @@ class _StatsTabState extends State<_StatsTab> {
             ),
           ),
 
-          const SizedBox(height: 10),
+          // const SizedBox(height: 10),
 
-          _Card(
-            child: Row(
-              children: [
-                const Icon(Icons.workspace_premium, color: Colors.amber, size: 38),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isPro ? "Pro Runner" : "Runner Free",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 17,
-                          color: s.foreground,
-                        ),
-                      ),
-                      Text(
-                        isPro ? "Benefícios exclusivos" : "Desbloqueie conquistas douradas",
-                        style: TextStyle(
-                          color: s.mutedForeground,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ProPlansPage()),
-                  ),
-                  child: Text(
-                    "VER MAIS →",
-                    style: TextStyle(
-                      color: s.accent,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // _Card(
+          //   child: Row(
+          //     children: [
+          //       const Icon(Icons.workspace_premium, color: Colors.amber, size: 38),
+          //       const SizedBox(width: 14),
+          //       Expanded(
+          //         child: Column(
+          //           crossAxisAlignment: CrossAxisAlignment.start,
+          //           children: [
+          //             Text(
+          //               isPro ? "Pro Runner" : "Runner Free",
+          //               style: TextStyle(
+          //                 fontWeight: FontWeight.w900,
+          //                 fontSize: 17,
+          //                 color: s.foreground,
+          //               ),
+          //             ),
+          //             Text(
+          //               isPro ? "Benefícios exclusivos" : "Desbloqueie conquistas douradas",
+          //               style: TextStyle(
+          //                 color: s.mutedForeground,
+          //                 fontSize: 13,
+          //                 fontWeight: FontWeight.w600,
+          //               ),
+          //             ),
+          //           ],
+          //         ),
+          //       ),
+          //       TextButton(
+          //         onPressed: () => Navigator.push(
+          //           context,
+          //           MaterialPageRoute(builder: (_) => const ProPlansPage()),
+          //         ),
+          //         child: Text(
+          //           "VER MAIS →",
+          //           style: TextStyle(
+          //             color: s.accent,
+          //             fontWeight: FontWeight.w900,
+          //           ),
+          //         ),
+          //       ),
+          //     ],
+          //   ),
+          // ),
 
           const SizedBox(height: 12),
 
@@ -1360,6 +1410,24 @@ class _StatsTabState extends State<_StatsTab> {
           ),
 
           const SizedBox(height: 12),
+
+          if (widget.isOwner)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10), // Diminuí o padding
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.delete_forever),
+                label: const Text('Excluir minha conta'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: s.destructive,
+                  side: BorderSide(color: s.destructive.withOpacity(0.4)),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: _showDeleteAccountDialog, // Chama o diálogo criado acima
+              ),
+            ),
 
           if (widget.isOwner)
             Padding(

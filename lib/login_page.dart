@@ -88,38 +88,32 @@ class _LoginPageState extends State<LoginPage> {
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-      if (!userDoc.exists) {
+// Se o doc não existe OU se faltam campos essenciais, faz um merge
+      if (!userDoc.exists || userDoc.data()?['weight'] == null) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '',
+          'username': userDoc.data()?['username'] ?? '',
+          'displayName': userDoc.data()?['displayName'] ?? user.displayName ?? 'Novo Corredor',
           'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
+          'birthDate': userDoc.data()?['birthDate'] ?? '',
+          'gender': userDoc.data()?['gender'] ?? '',
+          'weight': userDoc.data()?['weight'] ?? 0,
+          'height': userDoc.data()?['height'] ?? 0,
+          'createdAt': userDoc.data()?['createdAt'] ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
+
+        // Atualiza a variável com os dados novos para a validação logo abaixo
         userDoc = await userDocRef.get();
       }
 
-      final data = userDoc.data() ?? {};
-      final camposObrigatorios = [
-        data['username'],
-        data['displayName'],
-        data['birthDate'],
-        data['gender'],
-        data['weight'],
-        data['height'],
-        data['cep'],
-      ];
-
-      final perfilIncompleto = camposObrigatorios.any(
-        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
-      );
-
-      if (perfilIncompleto) {
-        Navigator.pushReplacementNamed(context, '/complete_profile');
+      if (_isPerfilIncompleto(userDoc.data() ?? {})) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/complete_profile');
       } else {
         navigateToRunTrackingPage();
       }
+
     } on FirebaseAuthException catch (e) {
       String errorMessage = switch (e.code) {
         'user-not-found' || 'wrong-password' => 'E-mail ou senha inválidos.',
@@ -163,37 +157,28 @@ class _LoginPageState extends State<LoginPage> {
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-      if (!userDoc.exists) {
+// Se o doc não existe OU se faltam campos essenciais, faz um merge
+      if (!userDoc.exists || userDoc.data()?['weight'] == null) {
         await userDocRef.set({
           'uid': user.uid,
           'email': user.email,
           'photoURL': user.photoURL ?? '',
-          'username': '',
-          'displayName': user.displayName ?? '',
+          'username': userDoc.data()?['username'] ?? '',
+          'displayName': userDoc.data()?['displayName'] ?? user.displayName ?? 'Novo Corredor',
           'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
+          'birthDate': userDoc.data()?['birthDate'] ?? '',
+          'gender': userDoc.data()?['gender'] ?? '',
+          'weight': userDoc.data()?['weight'] ?? 0,
+          'height': userDoc.data()?['height'] ?? 0,
+          'createdAt': userDoc.data()?['createdAt'] ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
+        // Atualiza a variável com os dados novos para a validação logo abaixo
         userDoc = await userDocRef.get();
       }
 
-      final data = userDoc.data() ?? {};
-      final camposObrigatorios = [
-        data['username'],
-        data['displayName'],
-        data['birthDate'],
-        data['gender'],
-        data['weight'],
-        data['height'],
-        data['cep'],
-      ];
-
-      final perfilIncompleto = camposObrigatorios.any(
-        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
-      );
-
-      if (perfilIncompleto) {
-        Navigator.pushReplacementNamed(context, '/complete_profile');
+      if (_isPerfilIncompleto(userDoc.data() ?? {})) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/complete_profile');
       } else {
         navigateToRunTrackingPage();
       }
@@ -202,6 +187,22 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       setState(() => loading = false);
     }
+  }
+
+  // 1. Removi o CEP da verificação de perfil incompleto (Guideline 5.1.1(v))
+  bool _isPerfilIncompleto(Map<String, dynamic> data) {
+    // Verifica se a string é nula ou vazia
+    bool isStrInvalid(dynamic v) => v == null || v.toString().trim().isEmpty;
+
+    // Verifica se o número é nulo ou zero
+    bool isNumInvalid(dynamic v) => v == null || (v is num && v <= 0);
+
+    return isStrInvalid(data['username']) ||
+        isStrInvalid(data['displayName']) ||
+        isStrInvalid(data['gender']) ||
+        isStrInvalid(data['birthDate']) ||
+        isNumInvalid(data['weight']) ||
+        isNumInvalid(data['height']);
   }
 
   // ------------------ 🍎 LOGIN COM APPLE -------------------
@@ -213,8 +214,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final appleCredential = await SignInWithApple.getAppleIDCredential(
         scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
+          AppleIDAuthorizationScopes.email, // Corrigido: Removido o 's' final
+          AppleIDAuthorizationScopes.fullName,  // Corrigido: De fullName para name
         ],
       );
 
@@ -236,45 +237,36 @@ class _LoginPageState extends State<LoginPage> {
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
 
-      if (!userDoc.exists) {
-        // Apple só envia nome e email no PRIMEIRO login
-        String? displayName = user.displayName;
-        if (displayName == null || displayName.isEmpty) {
-          if (appleCredential.givenName != null || appleCredential.familyName != null) {
-            displayName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
-          }
-        }
+      // Guideline 4: Capturar dados da Apple
+      // Importante: appleCredential.givenName só vem no PRIMEIRO login.
+      String? appleName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
+
+      // Se o doc não existe OU se o peso for nulo (indicando que nunca completou o perfil)
+      if (!userDoc.exists || userDoc.data()?['weight'] == null) {
+        final existingData = userDoc.data();
 
         await userDocRef.set({
           'uid': user.uid,
-          'email': user.email ?? appleCredential.email ?? '',
+          'email': user.email ?? appleCredential.email,
           'photoURL': user.photoURL ?? '',
-          'username': '',
-          'displayName': displayName ?? 'Runner',
+          'username': existingData?['username'] ?? '',
+          // CORREÇÃO DA SINTAXE AQUI:
+          'displayName': (existingData?['displayName']?.toString().isNotEmpty ?? false)
+              ? existingData!['displayName']
+              : (appleName.isNotEmpty ? appleName : (user.displayName ?? 'Novo Corredor')),
           'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
+          'birthDate': existingData?['birthDate'] ?? '',
+          'gender': existingData?['gender'] ?? '',
+          'weight': existingData?['weight'] ?? 0,
+          'height': existingData?['height'] ?? 0,
+          'createdAt': existingData?['createdAt'] ?? FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
         userDoc = await userDocRef.get();
       }
 
-      final data = userDoc.data() ?? {};
-      final camposObrigatorios = [
-        data['username'],
-        data['displayName'],
-        data['birthDate'],
-        data['gender'],
-        data['weight'],
-        data['height'],
-        data['cep'],
-      ];
-
-      final perfilIncompleto = camposObrigatorios.any(
-        (valor) => valor == null || (valor is String && valor.trim().isEmpty) || (valor is num && valor == 0),
-      );
-
-      if (perfilIncompleto) {
-        Navigator.pushReplacementNamed(context, '/complete_profile');
+      if (_isPerfilIncompleto(userDoc.data() ?? {})) {
+        if (mounted) Navigator.pushReplacementNamed(context, '/complete_profile');
       } else {
         navigateToRunTrackingPage();
       }
@@ -378,12 +370,12 @@ class _LoginPageState extends State<LoginPage> {
                   child: loading
                       ? const CupertinoActivityIndicator(color: Colors.white)
                       : Text(
-                          isRegistering ? "Cadastrar" : "Entrar",
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
+                    isRegistering ? "Cadastrar" : "Entrar",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 20),

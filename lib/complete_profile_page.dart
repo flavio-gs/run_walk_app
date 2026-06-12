@@ -725,7 +725,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                   ? _buildReadOnlyField(
                                   _cityController, "Cidade")
                                   : _buildTextField(
-                                  _cityController, "Cidade", true),
+                                  _cityController, "Cidade", false),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -733,7 +733,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                                   ? _buildReadOnlyField(
                                   _stateController, "Estado/UF")
                                   : _buildTextField(_stateController,
-                                  "Estado/Região", true),
+                                  "Estado/Região", false),
                             ),
                           ],
                         ),
@@ -927,8 +927,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
             : null,
       ),
       validator: (value) {
+        // Guideline 5.1.1(v) - CEP/Postal code agora é opcional
         if (value == null || value.trim().isEmpty) {
-          return isBrazil ? "Informe o CEP" : "Informe o código postal";
+          return null;
         }
 
         final v = value.trim();

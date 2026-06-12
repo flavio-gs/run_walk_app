@@ -101,6 +101,9 @@
 	<!-- GALERIA E FOTOS -->
 	<!-- ========================= -->
 
+	<key>NSCameraUsageDescription</key>
+    <string>O aplicativo precisa acessar sua camera para você tirar fotos e usar de fundo para compartilhar suas corridas.</string>
+
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>O aplicativo precisa acessar sua galeria para você escolher fotos de fundo para compartilhar suas corridas.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
