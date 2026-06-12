@@ -307,6 +307,10 @@ class _ProfilePageState extends State<ProfilePage> {
     );
 
     if (source == null) return;
+
+    // Fix Guideline 2.1(a) - Delay para evitar crash no iPad ao fechar modal e abrir câmera
+    await Future.delayed(const Duration(milliseconds: 300));
+
     final picked = await picker.pickImage(source: source, imageQuality: 90);
     if (picked == null) return;
     final file = File(picked.path);

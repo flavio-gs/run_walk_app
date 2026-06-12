@@ -267,8 +267,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                   "Tirar foto",
                   style: TextStyle(color: Colors.black87),
                 ),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
+                  await Future.delayed(const Duration(milliseconds: 200));
                   _pickAndEditPhoto(ImageSource.camera);
                 },
               ),
@@ -278,8 +279,9 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                   "Escolher da galeria",
                   style: TextStyle(color: Colors.black87),
                 ),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(context);
+                  await Future.delayed(const Duration(milliseconds: 200));
                   _pickAndEditPhoto(ImageSource.gallery);
                 },
               ),
@@ -633,7 +635,7 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                         _buildTextField(
                           _displayNameController,
                           "Nome completo",
-                          true,
+                          false,
                         ),
                         const SizedBox(height: 10),
                         _buildTextField(

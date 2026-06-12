@@ -358,7 +358,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     child: Column(
                       children: [
                         _buildTextField(
-                            _displayNameController, "Nome completo", true),
+                            _displayNameController, "Nome completo", false),
                         const SizedBox(height: 10),
                         _buildTextField(
                           _usernameController,
@@ -631,8 +631,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
             : null,
       ),
       validator: (value) {
+        // Guideline 5.1.1(v) - CEP/Postal code agora é opcional
         if (value == null || value.trim().isEmpty) {
-          return _isBrazil ? "Informe o CEP" : "Informe o código postal";
+          return null;
         }
 
         final v = value.trim();
