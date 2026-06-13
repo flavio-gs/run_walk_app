@@ -695,6 +695,7 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                 title: const Text("Gravar vídeo (10s)", style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   final XFile? video = await picker.pickVideo(
                     source: ImageSource.camera,
                     maxDuration: const Duration(seconds: 10),
@@ -719,6 +720,7 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                 title: const Text("Tirar foto", style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   final XFile? foto = await picker.pickImage(source: ImageSource.camera);
                   if (foto != null) {
                     _videoController?.dispose();
@@ -735,6 +737,7 @@ class _DetalheCorridaPageShareState extends State<DetalheCorridaPageShare> {
                 title: const Text("Escolher da galeria", style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.pop(context);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   final XFile? arquivo = await picker.pickMedia();
                   if (arquivo != null) {
                     final ext = arquivo.path.split('.').last.toLowerCase();

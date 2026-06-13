@@ -622,8 +622,9 @@ class _CreatePostPageState extends State<CreatePostPage> {
                 const Icon(Icons.photo_camera, color: Colors.white70),
                 title: const Text('Tirar foto',
                     style: TextStyle(color: Colors.white)),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   _pickImageFromCamera();
                 },
               ),
@@ -632,8 +633,9 @@ class _CreatePostPageState extends State<CreatePostPage> {
                 const Icon(Icons.photo_library, color: Colors.white70),
                 title: const Text('Escolher da galeria',
                     style: TextStyle(color: Colors.white)),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   _pickImageFromGallery();
                 },
               ),
@@ -661,8 +663,9 @@ class _CreatePostPageState extends State<CreatePostPage> {
                 const Icon(Icons.videocam, color: Colors.white70),
                 title: const Text('Gravar vídeo',
                     style: TextStyle(color: Colors.white)),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   _pickVideoFromCamera();
                 },
               ),
@@ -671,8 +674,9 @@ class _CreatePostPageState extends State<CreatePostPage> {
                     color: Colors.white70),
                 title: const Text('Escolher da galeria',
                     style: TextStyle(color: Colors.white)),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
+                  await Future.delayed(const Duration(milliseconds: 250));
                   _pickVideoFromGallery();
                 },
               ),
