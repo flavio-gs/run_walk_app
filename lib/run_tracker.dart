@@ -1708,6 +1708,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
     _listenToActiveChallenge();
     _setOnlineInitially();
+
+    // 🍎 Inicializa Live Activities para iOS
+    if (Platform.isIOS) {
+      _liveActivitiesPlugin.init(appGroupId: "group.com.nexusdev.runner_imperio");
+    }
   }
 
 
@@ -3199,20 +3204,26 @@ class _RunTrackingPageState extends State<RunTrackingPage>
     }
 
     // 4. Inicia Live Activity (iOS)
-    if (Platform.isIOS) {
-      try {
-        _latestActivityId = await _liveActivitiesPlugin.createActivity(
-          'RunAttributes',
-          {
-            'distance': '0.00 km',
-            'pace': '00:00',
-            'time': '00:00:00',
-          },
-        );
-      } catch (e) {
-        debugPrint("Erro ao criar Live Activity: $e");
-      }
-    }
+    // if (Platform.isIOS) {
+    //   try {
+    //     final bool enabled = await _liveActivitiesPlugin.areActivitiesEnabled();
+    //     debugPrint("🍎 Live Activities enabled: $enabled");
+    //
+    //     if (enabled) {
+    //       _latestActivityId = await _liveActivitiesPlugin.createActivity(
+    //         'LiveActivitiesAppAttributes',
+    //         {
+    //           'emoji': '🏃',
+    //         },
+    //       );
+    //       debugPrint("🍎 Live Activity criada com ID: $_latestActivityId");
+    //     } else {
+    //       debugPrint("⚠️ Live Activities estão desativadas nas configurações do iOS.");
+    //     }
+    //   } catch (e) {
+    //     debugPrint("❌ Erro ao criar Live Activity: $e");
+    //   }
+    // }
     _clearDisputeMarker();
     ScaffoldVisibilityController.hide();
 
@@ -3330,10 +3341,13 @@ class _RunTrackingPageState extends State<RunTrackingPage>
 
   void _updateLiveActivity() {
     if (Platform.isIOS && _latestActivityId != null) {
+      debugPrint("🍎 Atualizando Live Activity: $_latestActivityId");
       _liveActivitiesPlugin.updateActivity(_latestActivityId!, {
+        'name': 'Runner: Império',
         'distance': '${(_totalDistance / 1000).toStringAsFixed(2)} km',
         'pace': _formatPace(_averagePace),
         'time': _formatDuration(Duration(seconds: _seconds)),
+        'calories': _caloriesBurned.toStringAsFixed(0),
       });
     }
   }
@@ -5280,7 +5294,11 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         int baseXP = (distanceKm * 10).floor() + 5;
         double xpMultiplier = 1.0;
 
-        final isPro = (user.email ?? '').contains('pro');
+        // Guideline 3.1.1: Removido check de email 'pro' que violava regras da Apple.
+        // O status 'isPro' deve ser controlado via Firestore e, no futuro, via In-App Purchase.
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final isPro = (userDoc.data()?['isPro'] ?? false) == true;
+
         if (isPro) xpMultiplier *= 2.0;
 
         final inActiveChallenge = await _userHasActiveChallenge();

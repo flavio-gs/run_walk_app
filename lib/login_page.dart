@@ -232,14 +232,20 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
+      // Guideline 4: Capturar dados da Apple
+      // Importante: appleCredential.givenName só vem no PRIMEIRO login.
+      String? appleName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
+
+      // Atualiza o perfil no Firebase Auth imediatamente para evitar que telas posteriores peçam o nome
+      if (appleName.isNotEmpty && (user.displayName == null || user.displayName!.isEmpty)) {
+        await user.updateDisplayName(appleName);
+        await user.reload();
+      }
+
       await _reactivateIfNeeded(user.uid);
 
       final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
       var userDoc = await userDocRef.get();
-
-      // Guideline 4: Capturar dados da Apple
-      // Importante: appleCredential.givenName só vem no PRIMEIRO login.
-      String? appleName = '${appleCredential.givenName ?? ''} ${appleCredential.familyName ?? ''}'.trim();
 
       // Se o doc não existe OU se o peso for nulo (indicando que nunca completou o perfil)
       if (!userDoc.exists || userDoc.data()?['weight'] == null) {
@@ -250,7 +256,6 @@ class _LoginPageState extends State<LoginPage> {
           'email': user.email ?? appleCredential.email,
           'photoURL': user.photoURL ?? '',
           'username': existingData?['username'] ?? '',
-          // CORREÇÃO DA SINTAXE AQUI:
           'displayName': (existingData?['displayName']?.toString().isNotEmpty ?? false)
               ? existingData!['displayName']
               : (appleName.isNotEmpty ? appleName : (user.displayName ?? 'Novo Corredor')),

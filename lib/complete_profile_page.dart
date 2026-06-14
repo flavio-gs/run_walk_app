@@ -104,9 +104,61 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
   @override
   void initState() {
     super.initState();
+    _loadExistingData();
+  }
+
+  Future<void> _loadExistingData() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user?.displayName != null && user!.displayName!.isNotEmpty) {
+    if (user == null) return;
+
+    // Pre-preenchimento básico do Auth
+    if (user.displayName != null && user.displayName!.isNotEmpty) {
       _displayNameController.text = user.displayName!;
+    }
+
+    // Carrega dados do Firestore para evitar pedir o que já temos
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          if (data['displayName'] != null && data['displayName'].toString().isNotEmpty) {
+            _displayNameController.text = data['displayName'];
+          }
+          if (data['username'] != null && data['username'].toString().isNotEmpty) {
+            _usernameController.text = data['username'];
+          }
+          if (data['birthDate'] != null && data['birthDate'].toString().isNotEmpty) {
+            _birthDateController.text = data['birthDate'];
+          }
+          if (data['gender'] != null && data['gender'].toString().isNotEmpty) {
+            _selectedGender = data['gender'];
+          }
+          if (data['weight'] != null && data['weight'] != 0) {
+            _weightController.text = data['weight'].toString();
+          }
+          if (data['height'] != null && data['height'] != 0) {
+            _heightController.text = data['height'].toString();
+          }
+          if (data['weeklyGoal'] != null && data['weeklyGoal'] != 0) {
+            _weeklyGoalController.text = data['weeklyGoal'].toString();
+          }
+          if (data['country'] != null) {
+            _selectedCountry = data['country'];
+          }
+          if (data['cep'] != null) {
+            _cepController.text = data['cep'];
+          }
+          if (data['city'] != null) {
+            _cityController.text = data['city'];
+          }
+          if (data['state'] != null) {
+            _stateController.text = data['state'];
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar dados existentes: $e");
     }
   }
 
@@ -632,12 +684,14 @@ class _CompleteProfilePageState extends State<CompleteProfilePage> {
                         ),
                         const SizedBox(height: 22),
                         const _SectionTitle("Informações básicas"),
-                        _buildTextField(
-                          _displayNameController,
-                          "Nome completo",
-                          false,
-                        ),
-                        const SizedBox(height: 10),
+                        if (_displayNameController.text.isEmpty) ...[
+                          _buildTextField(
+                            _displayNameController,
+                            "Nome completo",
+                            false,
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                         _buildTextField(
                           _usernameController,
                           "Nome de usuário (sem @)",

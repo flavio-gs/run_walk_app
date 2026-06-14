@@ -4,10 +4,6 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<key>NSSupportsLiveActivities</key>
-    <true/>
-    <key>NSLiveActivitiesUsageDescription</key>
-    <string>Exibir métricas da sua corrida em tempo real na tela de bloqueio.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -39,10 +35,56 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<true/>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-7215014769653180~1577870814</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>O aplicativo precisa acessar sua camera para você tirar fotos e usar de fundo para compartilhar suas corridas.</string>
+	<key>NSLiveActivitiesUsageDescription</key>
+	<string>Exibir métricas da sua corrida em tempo real na tela de bloqueio.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização em segundo plano para continuar registrando atividades físicas durante a corrida.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para rastrear atividades físicas e mapas.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O aplicativo utiliza sua localização para registrar corridas, caminhadas e desafios territoriais.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>O aplicativo pode utilizar o microfone para funcionalidades relacionadas à atividade física.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>O aplicativo utiliza dados de movimento para melhorar o rastreamento das atividades físicas.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>O aplicativo precisa de permissão para salvar as imagens das suas corridas na sua galeria.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>O aplicativo precisa acessar sua galeria para você escolher fotos de fundo para compartilhar suas corridas.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>O aplicativo envia notificações sobre corridas, interações sociais e desafios.</string>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>O aplicativo pode utilizar identificadores para melhorar anúncios e experiência do usuário.</string>
+	<key>SKAdNetworkItems</key>
+	<array>
+		<dict>
+			<key>SKAdNetworkIdentifier</key>
+			<string>cstr6suwn9.skadnetwork</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -60,95 +102,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-7215014769653180~1577870814</string>
-	<key>SKAdNetworkItems</key>
-	<array>
-		<dict>
-			<key>SKAdNetworkIdentifier</key>
-			<string>cstr6suwn9.skadnetwork</string>
-		</dict>
-	</array>
-
-	<!-- ========================= -->
-	<!-- LOCALIZAÇÃO -->
-	<!-- ========================= -->
-
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>O aplicativo utiliza sua localização para registrar corridas, caminhadas e desafios territoriais.</string>
-
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>O aplicativo utiliza sua localização em segundo plano para continuar registrando atividades físicas durante a corrida.</string>
-
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>O aplicativo utiliza sua localização para rastrear atividades físicas e mapas.</string>
-
-	<!-- ========================= -->
-	<!-- NOTIFICAÇÕES -->
-	<!-- ========================= -->
-
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>O aplicativo envia notificações sobre corridas, interações sociais e desafios.</string>
-
-	<!-- ========================= -->
-	<!-- TRACKING -->
-	<!-- ========================= -->
-
-	<key>NSUserTrackingUsageDescription</key>
-	<string>O aplicativo pode utilizar identificadores para melhorar anúncios e experiência do usuário.</string>
-
-    <!-- ========================= -->
-	<!-- GALERIA E FOTOS -->
-	<!-- ========================= -->
-
-	<key>NSCameraUsageDescription</key>
-    <string>O aplicativo precisa acessar sua camera para você tirar fotos e usar de fundo para compartilhar suas corridas.</string>
-
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>O aplicativo precisa acessar sua galeria para você escolher fotos de fundo para compartilhar suas corridas.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>O aplicativo precisa de permissão para salvar as imagens das suas corridas na sua galeria.</string>
-
-    <!-- ========================= -->
-	<!-- MOVIMENTO / FITNESS -->
-	<!-- ========================= -->
-
-	<key>NSMotionUsageDescription</key>
-	<string>O aplicativo utiliza dados de movimento para melhorar o rastreamento das atividades físicas.</string>
-
-	<!-- ========================= -->
-	<!-- MICROFONE (caso use áudio futuramente) -->
-	<!-- ========================= -->
-
-	<key>NSMicrophoneUsageDescription</key>
-	<string>O aplicativo pode utilizar o microfone para funcionalidades relacionadas à atividade física.</string>
-
-	<!-- ========================= -->
-	<!-- BACKGROUND MODES -->
-	<!-- ========================= -->
-
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-		<string>fetch</string>
-		<string>remote-notification</string>
-	</array>
-
-	<!-- ========================= -->
-	<!-- APP TRANSPORT SECURITY -->
-	<!-- ========================= -->
-
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
-
-	<!-- ========================= -->
-	<!-- FIREBASE -->
-	<!-- ========================= -->
-
-	<key>FirebaseAppDelegateProxyEnabled</key>
-	<true/>
 </dict>
 </plist>
