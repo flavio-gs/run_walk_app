@@ -36,6 +36,7 @@ import 'enums/territory_mode.dart';
 import 'model/run_model.dart';
 import 'detalhe_corrida_page.dart';
 import 'widgets/main_scaffold.dart';
+import 'package:health/health.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -486,6 +487,42 @@ class _RunTrackingPageState extends State<RunTrackingPage>
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  Future<void> sincronizarDispositivosExternos() async {
+    // Na versão 13+, usamos Health() direto (singleton)
+    Health health = Health();
+
+    // Definimos os tipos de dados
+    var types = [HealthDataType.WORKOUT];
+
+    // Na versão nova, precisamos definir as permissões (READ/WRITE)
+    var permissions = [HealthDataAccess.READ];
+
+    // Solicita permissão ao usuário
+    bool requested = await health.requestAuthorization(types, permissions: permissions);
+
+    if (requested) {
+      try {
+        // Busca treinos dos últimos 3 dias
+        List<HealthDataPoint> healthData = await health.getHealthDataFromTypes(
+          types: types,
+          startTime: DateTime.now().subtract(const Duration(days: 3)),
+          endTime: DateTime.now(),
+        );
+
+        for (var data in healthData) {
+          // data.sourceName identifica Garmin, Zepp, Polar, etc.
+          print("Treino importado de: ${data.sourceName}");
+
+          // Se quiser extrair a distância do treino:
+          // var workout = data.value as WorkoutHealthValue;
+          // print("Distância: ${workout.totalDistance}");
+        }
+      } catch (error) {
+        print("Erro ao sincronizar relógios: $error");
+      }
+    }
   }
 
   // 🟩 NOVO: Área conquistada

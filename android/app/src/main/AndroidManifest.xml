@@ -81,5 +81,6 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
         </intent>
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 </manifest>
